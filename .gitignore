@@ -9,3 +9,7 @@ venv/
 
 # Caches de ferramentas.
 .pytest_cache/
+
+# Enunciado do trabalho (material do curso, nao autoral), fora do repo.
+docs/Trabalho2-MC714_2s2026.md
+docs/Trabalho2-MC714_2s2026.pdf
