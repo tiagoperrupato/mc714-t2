@@ -1,0 +1,62 @@
+# Override de ROTEAMENTO pelo Toxiproxy (tarefa 8, Requisito 9.1).
+#
+# O `compose.yaml` base já declara o serviço `toxiproxy`, mas por padrão os Nós
+# falam DIRETO entre si (os testes das tarefas 4 e 6 dependem disso). Este
+# override faz os Nós "passarem a falar pelos proxies": reescreve os endereços
+# de peer para apontar às portas de escuta do Toxiproxy, sem tocar o código dos
+# algoritmos (o endereçamento é todo por variável de ambiente).
+#
+# Mapeamento de portas (tem de casar com src/comum/toxiproxy.py e scripts/rede.py):
+#
+#   Anel:  no-anel-i  é alcançado via  toxiproxy:1600i  ->  no-anel-i:8000
+#   2PC:   coordenador             via  toxiproxy:17000  ->  coordenador:8000
+#          participante p (id 11..13) via toxiproxy:1700{id} -> participante-k:8000
+#
+# Uso típico (ver scripts/rede.py e o README):
+#   docker compose -f compose.yaml -f compose.toxiproxy.yaml up -d --wait
+#   python -m scripts.rede anel semear        # cria os proxies no Toxiproxy
+#   python -m scripts.rede anel particionar --no 5   # injeta a falha de rede
+#
+# Enquanto os proxies NÃO estão semeados, os Nós não conseguem falar pelo
+# Toxiproxy (porta de escuta inexistente). Por isso o fluxo é: subir -> semear
+# -> disparar o algoritmo. O `scripts/rede.py ... semear` cuida da semeadura.
+
+services:
+  # ---- Anel: cada Nó repassa ao Sucessor via o proxy do destino -------------
+  # URLS agora aponta para as escutas do Toxiproxy, uma por Nó. O ANEL (ordem
+  # cíclica) e o NO_ID de cada serviço permanecem como no base.
+  no-anel-1:
+    environment:
+      URLS: "1=http://toxiproxy:16001,2=http://toxiproxy:16002,3=http://toxiproxy:16003,4=http://toxiproxy:16004,5=http://toxiproxy:16005"
+  no-anel-2:
+    environment:
+      URLS: "1=http://toxiproxy:16001,2=http://toxiproxy:16002,3=http://toxiproxy:16003,4=http://toxiproxy:16004,5=http://toxiproxy:16005"
+  no-anel-3:
+    environment:
+      URLS: "1=http://toxiproxy:16001,2=http://toxiproxy:16002,3=http://toxiproxy:16003,4=http://toxiproxy:16004,5=http://toxiproxy:16005"
+  no-anel-4:
+    environment:
+      URLS: "1=http://toxiproxy:16001,2=http://toxiproxy:16002,3=http://toxiproxy:16003,4=http://toxiproxy:16004,5=http://toxiproxy:16005"
+  no-anel-5:
+    environment:
+      URLS: "1=http://toxiproxy:16001,2=http://toxiproxy:16002,3=http://toxiproxy:16003,4=http://toxiproxy:16004,5=http://toxiproxy:16005"
+
+  # ---- 2PC: Coordenador <-> Participantes via o Toxiproxy -------------------
+  # O Coordenador alcança cada Participante por uma escuta do Toxiproxy; cada
+  # Participante alcança o Coordenador pela escuta 17000. A rota NAO/SIM e os
+  # Deadlines seguem vindo do base (e dos overrides de commit/verify).
+  coordenador:
+    environment:
+      DOISPC_PARTICIPANTES: "11@toxiproxy:17011,12@toxiproxy:17012,13@toxiproxy:17013"
+  participante-1:
+    environment:
+      COORD_HOST: "toxiproxy"
+      COORD_PORTA: "17000"
+  participante-2:
+    environment:
+      COORD_HOST: "toxiproxy"
+      COORD_PORTA: "17000"
+  participante-3:
+    environment:
+      COORD_HOST: "toxiproxy"
+      COORD_PORTA: "17000"
