@@ -1,0 +1,13 @@
+# Transporte HTTP/JSON dos Nós (servidor FastAPI, cliente httpx).
+# pydantic entra como dependência transitiva do FastAPI, sem pin próprio.
+fastapi==0.162.0
+uvicorn==0.34.0
+httpx==0.28.1
+
+# Análise, percentis e figuras (src/analise/, usado por scripts/analisar.py).
+pandas==3.0.2
+numpy==2.4.2
+matplotlib==3.10.8
+
+# Testes unitários e de integração.
+pytest==8.3.4

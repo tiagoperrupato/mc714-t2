@@ -1,0 +1,11 @@
+# Saída gerada em tempo de execução: dados brutos, logs e Log_Duravel do 2PC.
+results/
+
+# Caches e ambientes Python.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Caches de ferramentas.
+.pytest_cache/
