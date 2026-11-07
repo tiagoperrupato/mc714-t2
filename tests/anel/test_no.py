@@ -1,0 +1,267 @@
+"""Testes do adaptador de rede do Nó do Anel (`src.anel.no`).
+
+Dois níveis, nenhum exigindo Docker:
+
+- **Unitário com cliente fake**: prova que `NoAnel` é um adaptador fino — ele
+  delega a decisão à Máquina_de_Estados pura e apenas despacha as Mensagens de
+  saída. Em particular, quando o repasse ao Sucessor retorna um resultado de
+  transporte que indica Sucessor inalcançável (timeout, conexão recusada,
+  indisponível), o adaptador chama `com_sucessor_falho` e reemite ao próximo Nó
+  vivo (Requisitos 4.6, 5.5), sem reimplementar a eleição.
+
+- **Integração local (sem contêiner)**: sobe os 5 Nós como apps FastAPI em
+  uvicorn locais, em portas efêmeras, dispara uma eleição por HTTP e confere que
+  todos convergem para o maior id ao consultar `GET /estado` (Requisitos 5.1,
+  5.4). É a mesma prova da tarefa, só que sem Docker, para rodar no CI.
+"""
+
+from __future__ import annotations
+
+import socket
+import threading
+import time
+from contextlib import closing
+
+import pytest
+
+from src.anel.maquina import EstadoAnel, TIPO_ELEICAO, TIPO_LIDER
+from src.anel.no import NoAnel, criar_app
+from src.comum.modelos import Mensagem
+from src.comum.rede import (
+    EnvioConexaoRecusada,
+    EnvioOk,
+    EnvioTimeout,
+)
+
+ANEL5 = (1, 2, 3, 4, 5)
+
+
+# ---------------------------------------------------------------------------
+# Cliente de rede fake: roteia por destino, sem rede
+# ---------------------------------------------------------------------------
+
+
+class _ClienteFake:
+    """`ClienteRede` falso: devolve um `ResultadoEnvio` por destino.
+
+    `mortos` é o conjunto de ids inalcançáveis; um envio a eles devolve o
+    resultado configurado em `falha` (timeout por padrão). Os demais recebem um
+    `EnvioOk`. Registra os envios feitos para inspeção.
+    """
+
+    def __init__(self, urls, *, mortos=frozenset(), falha=None) -> None:
+        self._por_url = {url: no_id for no_id, url in urls.items()}
+        self.mortos = set(mortos)
+        self.falha = falha or EnvioTimeout(deadline=1.0, tentativas=1)
+        self.enviadas: list[tuple[int, Mensagem]] = []
+
+    def enviar(self, destino_url, mensagem, deadline):
+        no_id = self._por_url[destino_url]
+        self.enviadas.append((no_id, mensagem))
+        if no_id in self.mortos:
+            return self.falha
+        return EnvioOk(status=200, corpo={"ack": True, "no_id": no_id})
+
+
+def _urls(anel) -> dict[int, str]:
+    return {i: f"http://no-{i}" for i in anel}
+
+
+# ---------------------------------------------------------------------------
+# Unitário: delegação e despacho
+# ---------------------------------------------------------------------------
+
+
+def test_disparar_eleicao_despacha_ao_sucessor() -> None:
+    urls = _urls(ANEL5)
+    cliente = _ClienteFake(urls)
+    no = NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=cliente, deadline=1.0)
+    try:
+        resposta = no.disparar_eleicao()
+        no.drenar()  # espera o worker de background terminar o despacho
+
+        assert resposta["no_id"] == 1
+        # Emitiu uma Mensagem_Eleicao ao Sucessor (2), com apenas o próprio id.
+        assert len(cliente.enviadas) == 1
+        destino, msg = cliente.enviadas[0]
+        assert destino == 2
+        assert msg.tipo == TIPO_ELEICAO
+        assert list(msg.corpo["ids"]) == [1]
+    finally:
+        no.parar()
+
+
+def test_processar_mensagem_delega_a_maquina_e_repassa() -> None:
+    # Nó 2 recebe a Mensagem_Eleicao de 1 e deve repassar a 3 com ids [1, 2].
+    urls = _urls(ANEL5)
+    cliente = _ClienteFake(urls)
+    no = NoAnel(EstadoAnel(no_id=2, anel=ANEL5), urls=urls, cliente=cliente, deadline=1.0)
+    try:
+        msg = Mensagem(tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"iniciador": 1, "ids": [1]})
+        resposta = no.processar_mensagem(msg)
+        no.drenar()
+
+        assert resposta == {"ack": True, "no_id": 2}
+        assert len(cliente.enviadas) == 1
+        destino, repassada = cliente.enviadas[0]
+        assert destino == 3
+        assert list(repassada.corpo["ids"]) == [1, 2]
+    finally:
+        no.parar()
+
+
+def test_estado_atual_reporta_lider_apos_eleicao_trivial() -> None:
+    # Anel de um Nó: iniciar_eleicao o torna Líder trivial, sem despacho.
+    urls = {7: "http://no-7"}
+    cliente = _ClienteFake(urls)
+    no = NoAnel(EstadoAnel(no_id=7, anel=(7,)), urls=urls, cliente=cliente, deadline=1.0)
+    try:
+        no.disparar_eleicao()
+        no.drenar()
+        assert no.estado_atual()["lider"] == 7
+        assert cliente.enviadas == []
+    finally:
+        no.parar()
+
+
+# ---------------------------------------------------------------------------
+# Unitário: regra de salto no timeout (Req. 4.6 / 5.5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "falha",
+    [
+        EnvioTimeout(deadline=1.0, tentativas=2),
+        EnvioConexaoRecusada(tentativas=1, detalhe="refused"),
+    ],
+)
+def test_salta_sucessor_inalcancavel_e_reemite_ao_proximo(falha) -> None:
+    # Sucessor 2 inalcançável: o adaptador deve marcar 2 morto e reemitir a MESMA
+    # Mensagem_Eleicao ao próximo vivo (3), delegando a com_sucessor_falho.
+    urls = _urls(ANEL5)
+    cliente = _ClienteFake(urls, mortos={2}, falha=falha)
+    no = NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=cliente, deadline=1.0)
+    try:
+        no.disparar_eleicao()
+        no.drenar()
+
+        destinos = [d for d, _ in cliente.enviadas]
+        # Tentou 2 (falhou) e então 3 (ok).
+        assert destinos == [2, 3]
+        assert 2 in no.estado.mortos
+        # A Mensagem reemitida preserva os ids acumulados da original.
+        _, reemitida = cliente.enviadas[1]
+        assert list(reemitida.corpo["ids"]) == [1]
+    finally:
+        no.parar()
+
+
+def test_salta_varios_mortos_consecutivos_ate_vivo() -> None:
+    # 2 e 3 mortos: o salto encadeia 2 -> 3 -> 4, parando no primeiro vivo.
+    urls = _urls(ANEL5)
+    cliente = _ClienteFake(urls, mortos={2, 3})
+    no = NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=cliente, deadline=1.0)
+    try:
+        no.disparar_eleicao()
+        no.drenar()
+
+        destinos = [d for d, _ in cliente.enviadas]
+        assert destinos == [2, 3, 4]
+        assert {2, 3} <= no.estado.mortos
+    finally:
+        no.parar()
+
+
+def test_deadline_invalido_recusado_na_construcao() -> None:
+    urls = _urls(ANEL5)
+    with pytest.raises(ValueError):
+        NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=_ClienteFake(urls), deadline=0.0)
+
+
+# ---------------------------------------------------------------------------
+# Integração local (sem Docker): 5 Nós FastAPI, eleição por HTTP
+# ---------------------------------------------------------------------------
+
+
+def _porta_livre() -> int:
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class _ServidorLocal:
+    """Sobe um app FastAPI num uvicorn em thread e espera ficar pronto."""
+
+    def __init__(self, app, porta: int) -> None:
+        import uvicorn
+
+        self.porta = porta
+        config = uvicorn.Config(app, host="127.0.0.1", port=porta, log_level="warning")
+        self._servidor = uvicorn.Server(config)
+        self._thread = threading.Thread(target=self._servidor.run, daemon=True)
+
+    def __enter__(self) -> "_ServidorLocal":
+        self._thread.start()
+        limite = time.monotonic() + 10.0
+        while time.monotonic() < limite:
+            if self._servidor.started:
+                return self
+            time.sleep(0.02)
+        raise RuntimeError("servidor local não ficou pronto a tempo")
+
+    def __exit__(self, *_exc: object) -> None:
+        self._servidor.should_exit = True
+        self._thread.join(timeout=10.0)
+
+
+def test_integracao_local_eleicao_converge_para_maior_id() -> None:
+    import httpx
+
+    from src.comum.rede import ClienteRede
+
+    portas = {i: _porta_livre() for i in ANEL5}
+    urls = {i: f"http://127.0.0.1:{portas[i]}" for i in ANEL5}
+
+    clientes = [ClienteRede(retries=1) for _ in ANEL5]
+    nos = {
+        i: NoAnel(EstadoAnel(no_id=i, anel=ANEL5), urls=urls, cliente=clientes[idx], deadline=2.0)
+        for idx, i in enumerate(ANEL5)
+    }
+    servidores = [_ServidorLocal(criar_app(nos[i]), portas[i]) for i in ANEL5]
+
+    from contextlib import ExitStack
+
+    with ExitStack() as pilha:
+        for s in servidores:
+            pilha.enter_context(s)
+        try:
+            # Dispara a eleição no Nó 1 via HTTP de controle.
+            r = httpx.post(f"{urls[1]}/iniciar-eleicao", timeout=5.0)
+            assert r.status_code == 200
+
+            # Espera a convergência consultando GET /estado de todos os Nós.
+            deadline = time.monotonic() + 10.0
+            lideres: dict[int, int | None] = {}
+            while time.monotonic() < deadline:
+                lideres = {
+                    i: httpx.get(f"{urls[i]}/estado", timeout=5.0).json()["lider"]
+                    for i in ANEL5
+                }
+                if all(v == 5 for v in lideres.values()):
+                    break
+                time.sleep(0.05)
+
+            assert set(lideres.values()) == {5}, lideres
+            # Numa eleição sem falhas, nenhum Nó vivo deve ter marcado outro como
+            # morto: a convergência não pode depender de falsos timeouts.
+            for i in ANEL5:
+                estado = httpx.get(f"{urls[i]}/estado", timeout=5.0).json()
+                assert estado["mortos"] == [], (i, estado["mortos"])
+        finally:
+            # Para os workers de despacho antes de fechar os clientes de rede,
+            # para que nenhum envio aconteça com o cliente já fechado.
+            for n in nos.values():
+                n.parar()
+            for c in clientes:
+                c.fechar()
