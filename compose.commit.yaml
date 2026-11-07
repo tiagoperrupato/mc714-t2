@@ -1,0 +1,7 @@
+# Override pontual: faz o Participante 3 votar SIM, para o cenário de COMMIT em
+# todos (Requisito 7.3). Combine com compose.verify.yaml quando portas do host
+# estiverem ocupadas. Usado só em demonstração/verificação.
+services:
+  participante-3:
+    environment:
+      DOISPC_VOTO: "SIM"
