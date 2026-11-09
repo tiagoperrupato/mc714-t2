@@ -1,9 +1,9 @@
-"""Reprodutibilidade de ponta a ponta documentada no README (tarefa 13).
+"""Reprodutibilidade de ponta a ponta documentada no README.
 
 Exercita, SEM Docker, a mesma sequência que o README manda rodar a partir de um
 checkout fresco — bateria curta do Anel e do 2PC para um `results/` temporário,
 análise sobre esse `results/` (tabelas markdown e figuras geradas) e verificação
-dos invariantes de correção sobre logs coletados (Requisitos 13.2, 13.4, 13.5).
+dos invariantes de correção sobre logs coletados.
 O condutor do 2PC é trocado por um fake, porque o real sobe o compose e tem o
 teste `slow` dele em `test_condutor_doispc.py`.
 

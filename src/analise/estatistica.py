@@ -3,7 +3,7 @@
 A média vem acompanhada do `n` e do IC 95% pela
 t de Student (média ± t(gl; 0,975) · s/√n), porque o t depende dos graus de
 liberdade e nunca é constante. O T2 acrescenta os percentis p50/p95/p99 exigidos
-para as latências (Requisito 11.2), calculados pelo método linear de
+para as latências, calculados pelo método linear de
 interpolação do numpy, estável e reproduzível.
 """
 
@@ -90,7 +90,7 @@ def resumir(valores) -> Resumo:
 
 @dataclass(frozen=True)
 class Percentis:
-    """n e percentis p50, p95 e p99 de uma amostra de latências (Requisito 11.2)."""
+    """n e percentis p50, p95 e p99 de uma amostra de latências."""
 
     n: int
     p50: float
@@ -98,7 +98,7 @@ class Percentis:
     p99: float
 
 
-# Os percentis de latência exigidos pelo enunciado (Requisito 11.2).
+# Os percentis de latência que o E4 do enunciado sugere.
 PERCENTIS_LATENCIA: tuple[int, ...] = (50, 95, 99)
 
 
@@ -111,7 +111,7 @@ def percentis(valores, quantis: tuple[int, ...] = PERCENTIS_LATENCIA) -> Percent
     """
     if quantis != PERCENTIS_LATENCIA:
         raise ValueError(
-            f"os percentis de latência do enunciado são {PERCENTIS_LATENCIA}; "
+            f"os percentis de latência do T2 são {PERCENTIS_LATENCIA}, "
             f"recebido {quantis}"
         )
     amostra = np.asarray(valores, dtype=float)
@@ -132,7 +132,7 @@ def agregar(
     """Resume `metricas` por grupo de `chaves`, em formato longo: uma linha por métrica.
 
     Grupos com menos de `minimo_replicas` valores válidos são descartados. Cada
-    linha traz n, média, desvio e o IC 95% do grupo (Requisito 11.2).
+    linha traz n, média, desvio e o IC 95% do grupo.
     """
     linhas = []
     for valores_chave, grupo in df.groupby(chaves, sort=True):
@@ -165,7 +165,7 @@ def agregar_percentis(
     metrica: str,
     minimo_replicas: int = 1,
 ) -> pd.DataFrame:
-    """p50/p95/p99 de uma métrica de latência por grupo de `chaves` (Requisito 11.2).
+    """p50/p95/p99 de uma métrica de latência por grupo de `chaves`.
 
     Uma linha por grupo, com n e os três percentis, descartando grupos com menos
     de `minimo_replicas` valores válidos.

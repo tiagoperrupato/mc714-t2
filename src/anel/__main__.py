@@ -2,8 +2,8 @@
 
 Este módulo é o que o contêiner executa (`python -m src.anel`). Ele monta a
 configuração a partir de variáveis de ambiente — a topologia do Anel NÃO está
-embutida no código (Requisito 5.2) — valida tudo antes de abrir socket ou tocar
-o disco (Requisito 1.2), constrói o `NoAnel` e serve o app FastAPI com uvicorn.
+embutida no código — valida tudo antes de abrir socket ou tocar
+o disco, constrói o `NoAnel` e serve o app FastAPI com uvicorn.
 
 Variáveis de ambiente:
 
@@ -83,9 +83,9 @@ def construir_no() -> tuple[NoAnel, ConfigNo, int, ControladorFalhas]:
 
     Devolve o `NoAnel`, a `ConfigNo` validada, a porta de escuta e o
     `ControladorFalhas` deste Nó. O controlador é derivado da `SEMENTE` (seus
-    streams `drop`/`delay` são reproduzíveis, Requisito 8.2), intercepta o
+    streams `drop`/`delay` são reproduzíveis), intercepta o
     recebimento de Mensagens e, via `ClienteComFalhas`, o despacho de saída, e
-    expõe os endpoints `/falha/*` (Requisito 8.3). A Máquina de eleição continua
+    expõe os endpoints `/falha/*`. A Máquina de eleição continua
     pura. Levanta `ConfigInvalidaError` na primeira violação de domínio, sem
     abrir socket.
     """
@@ -119,8 +119,8 @@ def construir_no() -> tuple[NoAnel, ConfigNo, int, ControladorFalhas]:
     log = abrir_log(log_dir / f"anel-no-{no_id}.jsonl", no_id)
 
     # Controlador de falhas dirigido pela Semente, plugado nas duas fronteiras
-    # de rede do Nó. Registrado no log já com a Semente e o Plano_de_Falhas
-    # (Requisito 8.4), substituindo o `inicio_replica` sem Plano_de_Falhas.
+    # de rede do Nó. Registrado no log já com a Semente e o Plano_de_Falhas,
+    # substituindo o `inicio_replica` sem Plano_de_Falhas.
     controlador = ControladorFalhas(semente, log=log)
     registrar_plano_no_log(
         controlador,
@@ -141,7 +141,7 @@ def main() -> None:
     try:
         no, config, porta, controlador = construir_no()
     except (KeyError, ValueError, ConfigInvalidaError) as erro:
-        # Encerra antes de iniciar o Transporte, sem efeito de rede (Req. 1.3).
+        # Encerra antes de iniciar o Transporte, sem efeito de rede.
         raise SystemExit(f"configuração inválida do Nó do Anel: {erro}") from erro
 
     app = criar_app(no, controlador=controlador)

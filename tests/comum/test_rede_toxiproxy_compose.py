@@ -1,19 +1,19 @@
-"""Integração das falhas de rede com Toxiproxy sobre o compose (Requisito 9).
+"""Integração das falhas de rede com Toxiproxy sobre o compose.
 
 Dois níveis, no mesmo espírito tolerante dos demais testes de compose do T2:
 
 - `test_compose_config_com_toxiproxy_valido`: sempre que o binário
   `docker compose` existir, valida que `compose.yaml` + `compose.toxiproxy.yaml`
   resolvem, que o serviço `toxiproxy` está presente nas duas redes e com a
-  imagem PINADA (sem `:latest`, Requisito 13 / reprodutibilidade), e que o
+  imagem PINADA (sem `:latest`, para a reprodutibilidade), e que o
   override reescreve o endereçamento dos Nós para as portas de escuta do
   Toxiproxy (os Nós "passam a falar pelos proxies"). Não sobe contêiner.
 
 - `test_particao_do_lider_dispara_reeleicao`: quando o daemon do Docker está
   acessível, sobe o Anel com roteamento pelo Toxiproxy, semeia os proxies,
   elege o Líder 5, DESABILITA o proxy do Nó 5 (partição) e dispara nova
-  eleição, confirmando que os Nós vivos reelegem o maior id vivo, 4
-  (Requisito 9.4). Marcado como lento; derruba o compose ao final.
+  eleição, confirmando que os Nós vivos reelegem o maior id vivo, 4.
+  Marcado como lento; derruba o compose ao final.
 
 Quando o Docker não está disponível, os testes PULAM de forma limpa.
 """
@@ -131,7 +131,7 @@ def _esperar_lideres(alvo_ids, valor, timeout: float) -> dict:
 @pularsem_daemon
 @pytest.mark.slow
 def test_particao_do_lider_dispara_reeleicao() -> None:
-    """Partição do Líder do Anel via Toxiproxy leva à reeleição (Requisito 9.4)."""
+    """Partição do Líder do Anel via Toxiproxy leva à reeleição."""
     from src.comum.toxiproxy import ClienteToxiproxy, proxies_anel
 
     base = {i: f"http://127.0.0.1:{PORTAS[i]}" for i in range(1, 6)}

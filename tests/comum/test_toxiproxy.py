@@ -1,4 +1,4 @@
-"""Cliente do HTTP API do Toxiproxy (Requisito 9.2), sem subir contêiner.
+"""Cliente do HTTP API do Toxiproxy, sem subir contêiner.
 
 Estes testes exercitam `ClienteToxiproxy` contra um `httpx.MockTransport` que
 imita o HTTP API: cada requisição é casada por método+caminho e devolve uma

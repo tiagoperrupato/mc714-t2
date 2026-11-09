@@ -2,10 +2,10 @@
 
 Uma bateria executa várias Réplicas com Sementes independentes, variando UM
 parâmetro em pelo menos três níveis, e grava um CSV com uma linha por Réplica, ou
-uma por transação quando o runner devolve várias (Requisitos 10.1, 10.4). Cada
-linha carrega a Semente e o ambiente de execução (Requisitos 10.6, 13.6). A bateria inteira é validada ANTES de
-sobrescrever qualquer arquivo de resultado (Requisito 10.5), e uma Réplica que
-falha é registrada sem abortar o restante (Requisito 10.7).
+uma por transação quando o runner devolve várias. Cada linha carrega a Semente e
+o ambiente de execução. A bateria inteira é validada ANTES de sobrescrever
+qualquer arquivo de resultado, e uma Réplica que
+falha é registrada sem abortar o restante.
 
 A execução por Réplica é **plugável**: o planejador produz `ItemReplica`s com os
 parâmetros, e um `Runner` injetável os transforma em métricas. O do Anel dirige a
@@ -50,7 +50,7 @@ class ItemReplica:
 
 # Um Runner recebe o `ItemReplica` e devolve o mapa plano de métricas da Réplica,
 # ou uma lista deles, um por linha do CSV. As chaves viram colunas. Levantar
-# exceção sinaliza falha de Réplica, que a bateria registra e segue (Requisito 10.7).
+# exceção sinaliza falha de Réplica, que a bateria registra e segue.
 Runner = Callable[[ItemReplica], Mapping[str, Any] | Sequence[Mapping[str, Any]]]
 
 
@@ -64,10 +64,10 @@ def planejar_bateria(
 ) -> list[ItemReplica]:
     """Planeja as Réplicas variando `parametro` em `niveis`, com `replicas` cada.
 
-    Exige pelo menos três níveis (Requisito 10.1). As Sementes são independentes
+    Exige pelo menos três níveis. As Sementes são independentes
     e derivadas de `semente_base` pela posição global da Réplica, de modo que a
-    mesma `semente_base` reproduza exatamente o mesmo conjunto de Réplicas
-    (Requisito 10.4). `fixos` são parâmetros constantes acrescentados a toda
+    mesma `semente_base` reproduza exatamente o mesmo conjunto de Réplicas.
+    `fixos` são parâmetros constantes acrescentados a toda
     Réplica (por exemplo, a taxa de falhas quando o parâmetro variado é o número
     de Nós).
     """
@@ -126,10 +126,9 @@ def executar_bateria(
 
     A bateria é validada ANTES de tocar o arquivo
     de saída (aqui, validando que há itens e que o planejamento é consistente),
-    de modo que um erro de configuração não destrua resultados anteriores
-    (Requisito 10.5). Cada linha carrega a Semente e o ambiente (Requisitos 10.6,
-    13.6). Uma Réplica que levanta exceção é registrada e a bateria segue
-    (Requisito 10.7); o código de saída é 1 se houve qualquer falha, senão 0.
+    de modo que um erro de configuração não destrua resultados anteriores.
+    Cada linha carrega a Semente e o ambiente. Uma Réplica que levanta exceção é registrada e a bateria segue;
+    o código de saída é 1 se houve qualquer falha, senão 0.
 
     O CSV só é aberto para escrita DEPOIS de todas as Réplicas rodarem, para que
     uma falha no meio não deixe o arquivo pela metade nem sobrescreva um resultado

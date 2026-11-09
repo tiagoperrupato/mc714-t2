@@ -3,7 +3,7 @@
 Cada responsabilidade tem seu próprio gerador. Consumir valores de
 um stream não desloca os demais, então, para a mesma Semente, a sequência de
 jitter, de drops e de delays é idêntica entre execuções, qualquer que seja a
-ordem em que o Nó os consome (Requisitos 1.4, 1.5). É o que torna um Cenário de
+ordem em que o Nó os consome. É o que torna um Cenário de
 falha repetível dígito a dígito.
 
 O Mersenne Twister de `random` é estável entre versões e plataformas, o que

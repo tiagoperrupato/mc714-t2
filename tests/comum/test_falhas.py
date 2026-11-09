@@ -2,16 +2,16 @@
 
 Cobrem, sem Docker:
 
-- **Determinismo por Semente (Requisito 8.2)**: com a mesma Semente e o mesmo
+- **Determinismo por Semente**: com a mesma Semente e o mesmo
   Cenário (mesma sequência de injeções), a sequência de decisões de drop e de
   delay é idêntica entre duas execuções independentes; Sementes diferentes
   produzem sequências diferentes.
-- **Independência dos streams (Requisito 1.5 / 8.2)**: consumir o stream de drop
+- **Independência dos streams**: consumir o stream de drop
   não desloca o de delay, e vice-versa.
-- **Modos de falha (Requisito 8.1)**: crash levanta `NoEmCrashError` nas duas
+- **Modos de falha**: crash levanta `NoEmCrashError` nas duas
   direções; pause congela uma vez e depois resume; o `ClienteComFalhas` suprime
   envios sob crash/drop e delega os demais.
-- **Registro do Plano_de_Falhas no log (Requisito 8.4)**.
+- **Registro do Plano_de_Falhas no log**.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def _sequencia_delay(semente: int, *, teto: float, n: int) -> list[float]:
 
 
 # ---------------------------------------------------------------------------
-# Determinismo por Semente (Requisito 8.2)
+# Determinismo por Semente
 # ---------------------------------------------------------------------------
 
 
@@ -133,7 +133,7 @@ def test_stream_de_delay_nao_e_afetado_por_drop_ligado() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Modos de falha (Requisito 8.1)
+# Modos de falha
 # ---------------------------------------------------------------------------
 
 
@@ -246,7 +246,7 @@ def test_cliente_com_falhas_delega_quando_sem_falha() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Registro no log (Requisito 8.4)
+# Registro no log
 # ---------------------------------------------------------------------------
 
 

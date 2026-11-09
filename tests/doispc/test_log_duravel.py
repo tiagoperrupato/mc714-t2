@@ -2,8 +2,8 @@
 
 Exercitam a implementação em disco (`LogDuravelArquivo`): uma entrada gravada
 sobrevive ao descarte do objeto e é relida por um novo `LogDuravelArquivo`
-apontando para o mesmo arquivo, modelando o reinício do Nó (Requisito 6.6). A
-não-reversão (Requisito 6.8) é verificada relendo a primeira Decisao registrada
+apontando para o mesmo arquivo, modelando o reinício do Nó. A
+não-reversão é verificada relendo a primeira Decisao registrada
 mesmo quando outra é anexada depois.
 """
 

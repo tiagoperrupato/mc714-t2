@@ -1,12 +1,12 @@
-"""Roda os invariantes de correção do T2 sobre os logs coletados (tarefa 11).
+"""Roda os invariantes de correção do T2 sobre os logs coletados.
 
 Lê os Logs_Estruturados (JSONL) e os Logs_Duraveis do 2PC que os Nós reais
 deixaram sob `results/`, executa os invariantes de `src.analise.invariantes`
-e reporta, por invariante, se passou, reprovou ou emitiu aviso (Requisito 12.6).
+e reporta, por invariante, se passou, reprovou ou emitiu aviso.
 
 Sai com código **diferente de zero apenas quando algum invariante reprova** — ou
-seja, quando uma propriedade de *safety* é violada (Requisito 12.1). Um aviso,
-como o Estado_Em_Duvida bloqueante do 2PC (Requisito 12.4), aparece no relatório
+seja, quando uma propriedade de *safety* é violada. Um aviso,
+como o Estado_Em_Duvida bloqueante do 2PC, aparece no relatório
 mas NÃO altera o código de saída, porque bloquear é comportamento correto do
 algoritmo. A ausência de dados (nenhum log coletado ainda) também não reprova:
 não há violação a relatar, apenas nada a verificar.
@@ -21,7 +21,7 @@ Uso:
 
     python scripts/verificar.py logs_a/ logs_b/ um_arquivo.log
         Verifica caminhos específicos (arquivos ou diretórios), úteis para
-        conferir o resultado de um cenário isolado da tarefa 12.
+        conferir o resultado de um cenário isolado.
 
 Este comando NÃO re-simula réplica: as
 propriedades do T2 são de correção sobre eventos discretos observados nos logs

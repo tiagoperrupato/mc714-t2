@@ -1,7 +1,7 @@
 """Registro do ambiente (hardware, SO, versões) gravado em cada linha de resultado.
 
-O enunciado exige registrar a Semente e o ambiente de execução em cada linha do
-CSV (Requisitos 10.6, 13.6), porque contêineres numa única máquina são Nós
+O enunciado pede registrar as Sementes (A7) e o ambiente de execução (E5), e aqui
+eles vão em cada linha do CSV, porque contêineres numa única máquina são Nós
 lógicos, não domínios de falha independentes, e resultados absolutos de máquinas
 diferentes não se comparam diretamente. Aqui coletamos um retrato estável do
 ambiente — SO, arquitetura, processador, número de CPUs, versão de Python e das

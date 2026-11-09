@@ -9,16 +9,16 @@ exigem Docker, ficam em `test_integracao_compose.py` e pulam quando o Docker nã
 está disponível).
 
 Cobrem:
-- transação em que todos votam SIM → COMMIT no Coordenador e em todos (Req. 7.3);
-- transação em que um Participante vota NAO (via flag) → ABORT em todos (Req. 7.4);
-- ABORT por timeout quando um Participante está fora e não vota a tempo (Req. 7.5);
+- transação em que todos votam SIM → COMMIT no Coordenador e em todos;
+- transação em que um Participante vota NAO (via flag) → ABORT em todos;
+- ABORT por timeout quando um Participante está fora e não vota a tempo;
 - várias transações, seguidas e concorrentes, nos mesmos Nós;
 - id de transação repetido, que devolve a Decisao gravada sem abrir rodada nova;
 - DECISAO perdida com o Coordenador vivo, entregue pela retransmissão;
 - Participante que vota depois do ABORT por timeout e sai da dúvida pela
   retransmissão.
 
-A ordem write-ahead (Req. 6.4, 6.5) é verificada indiretamente: a Decisao
+A ordem write-ahead é verificada indiretamente: a Decisao
 recuperada de cada Log_Duravel em arquivo coincide com a reportada, o que só
 vale se a gravação ocorreu antes da aplicação/resposta.
 """
@@ -214,7 +214,7 @@ class _Cenario2PC:
 
 
 def test_transacao_commita_em_todos(tmp_path: Path) -> None:
-    # Todos votam SIM: COMMIT no Coordenador e em todos os Participantes (Req. 7.3).
+    # Todos votam SIM: COMMIT no Coordenador e em todos os Participantes.
     with _Cenario2PC(tmp_path) as cen:
         inicio = time.monotonic()
         resultado = cen.servico_coord.iniciar("tx-commit")
@@ -233,7 +233,7 @@ def test_transacao_commita_em_todos(tmp_path: Path) -> None:
 
 
 def test_transacao_aborta_quando_um_vota_nao(tmp_path: Path) -> None:
-    # Participante 13 vota NAO via flag: ABORT em todos (Req. 7.4).
+    # Participante 13 vota NAO via flag: ABORT em todos.
     with _Cenario2PC(tmp_path, votos={13: VOTO_NAO}) as cen:
         resultado = cen.servico_coord.iniciar("tx-abort")
         cen.esperar_decisoes("tx-abort")
@@ -246,7 +246,7 @@ def test_transacao_aborta_quando_um_vota_nao(tmp_path: Path) -> None:
 
 def test_timeout_de_votos_leva_a_abort(tmp_path: Path) -> None:
     # Participante 13 está fora do ar: seu Voto nunca chega. Ao estourar o
-    # Deadline de coleta, o Coordenador decide ABORT e difunde (Req. 7.5).
+    # Deadline de coleta, o Coordenador decide ABORT e difunde.
     with _Cenario2PC(
         tmp_path,
         participantes_ativos=(11, 12),

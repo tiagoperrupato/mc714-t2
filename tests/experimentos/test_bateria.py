@@ -1,4 +1,4 @@
-"""Testes da bateria de experimentos (tarefa 9, Requisito 10).
+"""Testes da bateria de experimentos.
 
 Nenhum exige Docker: a execução por Réplica é plugável, e aqui injetamos tanto um
 runner fake (para checar o esquema do CSV, a reprodução por Semente e a política
@@ -7,12 +7,11 @@ de falha-e-prossegue de forma isolada) quanto os runners de produção em proces
 
 As propriedades verificadas, ligadas aos requisitos:
 
-- a bateria com Semente fixa reproduz exatamente o mesmo conjunto de Réplicas
-  (Requisito 10.4);
-- o CSV tem as colunas esperadas e uma linha por Réplica (Requisitos 10.1, 10.4);
-- cada linha carrega a Semente e o ambiente (Requisitos 10.6, 13.6);
-- a configuração é validada antes de produzir resultado (Requisito 10.5);
-- uma Réplica que falha é registrada e a bateria prossegue (Requisito 10.7).
+- a bateria com Semente fixa reproduz exatamente o mesmo conjunto de Réplicas;
+- o CSV tem as colunas esperadas e uma linha por Réplica;
+- cada linha carrega a Semente e o ambiente;
+- a configuração é validada antes de produzir resultado;
+- uma Réplica que falha é registrada e a bateria prossegue.
 """
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ def test_planejar_sementes_independentes_e_deterministicas() -> None:
     sementes = [it.semente for it in itens]
     assert sementes == list(range(100, 100 + 9))
     assert len(set(sementes)) == len(sementes)
-    # Replanejar com a mesma Semente base reproduz o MESMO conjunto (Req 10.4).
+    # Replanejar com a mesma Semente base reproduz o MESMO conjunto.
     de_novo = planejar_bateria(
         parametro="num_nos", niveis=(3, 5, 7), replicas=3, semente_base=100
     )
@@ -98,7 +97,7 @@ def test_csv_tem_colunas_esperadas_e_uma_linha_por_replica(tmp_path: Path) -> No
     )
     assert resultado.codigo_saida == 0
     linhas = _ler_csv(destino)
-    # Uma linha por Réplica (Req 10.4).
+    # Uma linha por Réplica.
     assert len(linhas) == len(itens) == 6
     colunas = set(linhas[0].keys())
     # Colunas de identificação, parâmetro variado, métrica e ambiente/Semente.
@@ -117,7 +116,7 @@ def test_cada_linha_registra_semente_e_ambiente(tmp_path: Path) -> None:
     linhas = _ler_csv(destino)
     for linha in linhas:
         assert linha["semente"] != ""
-        assert linha["amb_so"] != ""  # ambiente presente em TODA linha (Req 13.6)
+        assert linha["amb_so"] != ""  # ambiente presente em TODA linha
         assert linha["amb_python_versao"] != ""
 
 
@@ -135,7 +134,7 @@ def test_replica_que_falha_e_registrada_e_bateria_prossegue(tmp_path: Path) -> N
     resultado = executar_bateria(
         itens, runner_que_falha_no_meio, destino, saida=io.StringIO(), erro=io.StringIO()
     )
-    # Prosseguiu: 3 planejadas, 1 falha registrada, 2 linhas gravadas (Req 10.7).
+    # Prosseguiu: 3 planejadas, 1 falha registrada, 2 linhas gravadas.
     assert len(resultado.falhas) == 1
     assert resultado.falhas[0][0].indice == 1
     linhas = _ler_csv(destino)
@@ -198,7 +197,7 @@ def test_bateria_anel_reproduz_o_mesmo_conjunto_com_semente_fixa(tmp_path: Path)
 
     a = rodar(tmp_path / "a.csv")
     b = rodar(tmp_path / "b.csv")
-    # Reprodução dígito a dígito das métricas por Réplica (Req 10.4).
+    # Reprodução dígito a dígito das métricas por Réplica.
     chaves = ("semente", "nivel", "k", "tempo_convergencia", "mensagens")
     assert [tuple(l[c] for c in chaves) for l in a] == [
         tuple(l[c] for c in chaves) for l in b

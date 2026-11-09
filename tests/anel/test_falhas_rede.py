@@ -1,4 +1,4 @@
-"""Falhas de aplicação no Anel sobre a rede real (Requisito 8.6), sem Docker.
+"""Falhas de aplicação no Anel sobre a rede real, sem Docker.
 
 Sobe os 5 Nós do Anel como apps FastAPI em uvicorn locais, cada um com um
 controlador de falhas plugado e um Log_Estruturado em `tmp_path`. Cobre:

@@ -1,6 +1,6 @@
-"""CLI de falhas de rede: cria proxies do Toxiproxy e aplica toxics (tarefa 8).
+"""CLI de falhas de rede: cria proxies do Toxiproxy e aplica toxics.
 
-Este script é o orquestrador scriptado e repetível do Requisito 9.2/9.6: fala
+Este script é o orquestrador scriptado e repetível das falhas de rede: fala
 com o HTTP API do Toxiproxy (serviço `toxiproxy` do compose, publicado em
 `127.0.0.1:8474`) para semear os proxies entre os Nós e, sobre eles, aplicar
 latência, perda e partição — tudo parametrizado e com Semente registrada.
@@ -17,11 +17,11 @@ Subcomandos:
 
     python -m scripts.rede anel latencia --ms 300 [--no I]
         Injeta 300 ms de latência em todas as rotas do Anel (ou só no Nó I).
-        Com ms > Deadline, o cliente estoura o Deadline (Requisito 9.3).
+        Com ms > Deadline, o cliente estoura o Deadline.
 
     python -m scripts.rede anel particionar --no 5
         Desabilita o proxy do Nó 5 (partição do Líder do resto); os Nós vivos
-        disparam e concluem uma nova eleição (Requisito 9.4).
+        disparam e concluem uma nova eleição.
 
     python -m scripts.rede anel curar [--no I]
         Remove toxics e reabilita o(s) proxy(s) do Anel.
@@ -31,14 +31,14 @@ Subcomandos:
 
     python -m scripts.rede doispc particionar --participante 1
         Desabilita o proxy do Participante 1 (partição Coordenador<->Part. 1);
-        o comportamento resultante fica registrado no log (Requisito 9.5).
+        o comportamento resultante fica registrado no log.
 
     python -m scripts.rede doispc latencia --ms 300 [--participante K]
     python -m scripts.rede doispc curar [--participante K]
 
 A Semente de um Cenário é registrada apenas para rastreabilidade (os toxics
 destes comandos são determinísticos por construção); experimentos com
-toxicidade < 1 derivam a aleatoriedade da Semente no nível da bateria (tarefa 9).
+toxicidade < 1 derivam a aleatoriedade da Semente no nível da bateria.
 """
 
 from __future__ import annotations

@@ -3,18 +3,17 @@
 Esta camada é a única que conhece FastAPI e httpx. As Máquinas_de_Estados dos
 algoritmos nunca importam este módulo nem seus clientes de rede: o adaptador
 (app FastAPI de cada Nó) é quem traduz uma Mensagem recebida numa chamada à
-lógica pura e despacha as Mensagens de saída por este `ClienteRede`
-(Requisito 3.6).
+lógica pura e despacha as Mensagens de saída por este `ClienteRede`.
 
 Duas regras de projeto estão codificadas aqui, não apenas documentadas:
 
-- **Deadline obrigatório** (Requisito 3.2). O `ClienteRede` não oferece nenhum
+- **Deadline obrigatório**. O `ClienteRede` não oferece nenhum
   caminho de código que envie uma Mensagem sem timeout. O Deadline é um
   parâmetro posicional de `enviar`; não há sobrecarga, default `None` nem flag
   que o desligue. Sem isso, uma partição de rede travaria um Nó indefinidamente
   e o salto do Anel ou o ABORT por timeout do 2PC deixariam de acontecer.
 
-- **Erros tipados, nunca exceções silenciosas** (Requisito 3.3). Toda falha de
+- **Erros tipados, nunca exceções silenciosas**. Toda falha de
   transporte vira um `ResultadoEnvio` tipado — `EnvioOk`, `EnvioTimeout`,
   `EnvioConexaoRecusada` ou `EnvioIndisponivel` — para que a Máquina_de_Estados
   decida o salto ou o ABORT de forma explícita, a partir do tipo do resultado,
@@ -42,8 +41,7 @@ class DeadlineInvalidoError(ValueError):
     Levantada pelo próprio `ClienteRede.enviar` quando o Deadline não é um
     número estritamente positivo. É um erro de programação (uso indevido da
     API), distinto das falhas de transporte, que viram `ResultadoEnvio`. Existe
-    justamente para que não haja caminho de envio sem um prazo válido
-    (Requisito 3.2).
+    justamente para que não haja caminho de envio sem um prazo válido.
     """
 
 
@@ -110,8 +108,8 @@ class ClienteRede:
 
     `retries` é o número de tentativas extras além da primeira (0 = uma única
     tentativa). Cada envio individual recebe como timeout o tempo restante do
-    Deadline total, de modo que a soma das tentativas nunca o ultrapasse
-    (Requisito 3.4): não há retry infinito nem retry que estoure o prazo.
+    Deadline total, de modo que a soma das tentativas nunca o ultrapasse:
+    não há retry infinito nem retry que estoure o prazo.
 
     O cliente é reutilizável entre chamadas; `fechar` libera a conexão
     subjacente. Aceita um `transporte` alternativo (um fake) para teste sem
@@ -141,9 +139,9 @@ class ClienteRede:
 
         `deadline` é o prazo máximo, em segundos, para a chamada inteira
         retornar, incluindo os retries. É obrigatório e deve ser estritamente
-        positivo — não existe caminho de envio sem prazo (Requisito 3.2). O
+        positivo — não existe caminho de envio sem prazo. O
         retorno é sempre um `ResultadoEnvio` tipado; falhas de transporte nunca
-        escapam como exceção (Requisito 3.3).
+        escapam como exceção.
         """
         if not isinstance(deadline, (int, float)) or isinstance(deadline, bool) or deadline <= 0:
             raise DeadlineInvalidoError(
@@ -266,8 +264,8 @@ def _json_seguro(resposta: httpx.Response) -> Mapping[str, Any]:
 # Um callback de Máquina_de_Estados: recebe a Mensagem desserializada e devolve
 # um dicionário JSON de resposta imediata (um ACK, um estado, etc.). O callback
 # NÃO deve esperar rodadas subsequentes do algoritmo: a resposta HTTP confirma
-# apenas o recebimento/entrega à lógica, não o término de rondas futuras
-# (Requisito 3.5). O despacho de Mensagens de saída é responsabilidade do
+# apenas o recebimento/entrega à lógica, não o término de rondas futuras.
+# O despacho de Mensagens de saída é responsabilidade do
 # adaptador, por fora, usando o `ClienteRede`.
 CallbackMensagem = Callable[[Mensagem], Mapping[str, Any]]
 
@@ -278,8 +276,8 @@ def criar_app_recebedor(ao_receber: CallbackMensagem):
     O endpoint `POST /mensagem` desserializa o corpo JSON para uma `Mensagem`,
     chama `ao_receber` e devolve o que o callback retornar (um ACK imediato).
     Mantém a lógica do algoritmo desacoplada do framework: `ao_receber` é uma
-    função pura/adaptador, sem conhecer FastAPI (Requisito 3.6), e a resposta
-    HTTP não fica presa a rodadas futuras (Requisito 3.5).
+    função pura/adaptador, sem conhecer FastAPI, e a resposta
+    HTTP não fica presa a rodadas futuras.
 
     Importa FastAPI localmente para que o simples `import src.comum.rede` não
     exija FastAPI em contextos que só usam o cliente (por exemplo, testes de

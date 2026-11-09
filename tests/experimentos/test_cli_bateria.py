@@ -1,4 +1,4 @@
-"""Testes da CLI `scripts/bateria.py` (tarefa 9), sem Docker.
+"""Testes da CLI `scripts/bateria.py`, sem Docker.
 
 O Anel roda em processo de ponta a ponta. No 2PC o condutor é trocado por um
 fake, e o teste confere a ligação da CLI: os dois CSVs, as Sementes e o código

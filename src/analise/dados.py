@@ -1,7 +1,7 @@
 """Carga e validação dos CSVs da bateria, com mensagem clara em vez de `KeyError`.
 
 A análise lê exclusivamente os CSVs de `results/` produzidos por
-`scripts/bateria.py` (Requisito 11.1): nunca sobe contêiner nem reexecuta uma
+`scripts/bateria.py`: nunca sobe contêiner nem reexecuta uma
 Réplica. Este módulo concentra os caminhos padrão, a leitura validada (arquivo
 presente, colunas obrigatórias, chave única por Réplica) e os helpers de recorte
 por nível de parâmetro usados pelas análises de cada algoritmo.

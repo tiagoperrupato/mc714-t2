@@ -35,7 +35,7 @@ def test_streams_sao_independentes_entre_si() -> None:
 def test_consumir_um_stream_nao_desloca_os_outros() -> None:
     # A sequência de `drop` deve ser a mesma, tenha ou não o `jitter` sido
     # consumido antes: é o que garante um Plano_de_Falhas repetível
-    # independentemente da ordem de consumo (Requisito 1.5).
+    # independentemente da ordem de consumo.
     referencia = Streams(7)
     esperado_drop = _amostra(referencia.drop)
 

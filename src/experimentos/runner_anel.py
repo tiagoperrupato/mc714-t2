@@ -3,14 +3,13 @@
 Dirige a Máquina_de_Estados pura do Anel (`src.anel.maquina`) com um barramento
 de Mensagens em memória, sem rede nem contêiner. O barramento aplica a regra de
 salto do Anel quando um Nó alvo está morto e perde Mensagens com uma taxa de
-falhas derivada da Semente (stream `drop` de `Streams`), medindo as métricas do
-Requisito 10.2:
+falhas derivada da Semente (stream `drop` de `Streams`), medindo:
 
 - **Tempo_de_Convergencia**: aqui, um tempo lógico em "passos" de entrega de
   Mensagem até todos os Nós vivos conhecerem o mesmo Líder. Medir em passos
   lógicos (e não em segundos de relógio) é o que torna a Réplica reproduzível
-  dígito a dígito entre máquinas, respeitando a limitação de ambiente do
-  Requisito 13.7 (relógios físicos não são a base da correção nem da comparação).
+  dígito a dígito entre máquinas. Relógios físicos não são a base da correção
+  nem da comparação.
 - **Mensagens**: o total de Mensagens enviadas a Nós vivos até a convergência,
   contando as perdidas.
 
@@ -44,7 +43,7 @@ MAX_PASSOS_PADRAO = 100_000
 
 @dataclass(frozen=True)
 class ResultadoAnel:
-    """Métricas de uma Réplica do Anel (Requisito 10.2).
+    """Métricas de uma Réplica do Anel.
 
     `convergiu` indica se todos os Nós vivos chegaram ao mesmo Líder. `lider` é o
     Líder eleito (o maior id vivo, quando convergiu). `tempo_convergencia` é o
@@ -137,7 +136,7 @@ def executar_replica_anel(
 
         if destino not in vivos:
             # O remetente aplica a regra de salto e reemite a MESMA Mensagem ao
-            # próximo vivo (Requisito 4.6). A decisão é da Máquina pura.
+            # próximo vivo. A decisão é da Máquina pura.
             estados[remetente], reemitidas = com_sucessor_falho(
                 estados[remetente], msg, destino
             )

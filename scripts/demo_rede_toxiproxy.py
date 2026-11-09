@@ -1,15 +1,15 @@
-"""Demo de falhas de rede com Toxiproxy sobre o compose (tarefa 8).
+"""Demo de falhas de rede com Toxiproxy sobre o compose.
 
 Sobe o compose COM o override de roteamento pelo Toxiproxy, semeia os proxies e
 demonstra dois Cenários de rede, imprimindo o efeito observável:
 
-1. **Latência acima do Deadline (Requisito 9.3).** Injeta 500 ms de latência na
+1. **Latência acima do Deadline.** Injeta 500 ms de latência na
    rota de um Nó cujo Deadline de repasse é 1.0 s por padrão — para o efeito
    ficar nítido, a demo mede o atraso de uma chamada de controle que atravessa
    o proxy. (No experimento da bateria, a latência é empurrada acima do Deadline
    e o `ClienteRede` devolve `EnvioTimeout`.)
 
-2. **Partição do Líder do Anel (Requisito 9.4).** Dispara uma eleição (Líder =
+2. **Partição do Líder do Anel.** Dispara uma eleição (Líder =
    5), desabilita o proxy do Nó 5 (partição) e dispara nova eleição: os Nós
    vivos reelegem o maior id vivo (4).
 
@@ -105,12 +105,12 @@ def _demo(args: argparse.Namespace) -> int:
         else:
             print("  -> Líder = 5 (maior id).\n")
 
-        print(f"== Latência de {args.latencia_ms} ms na rota do Nó 3 (Requisito 9.3) ==")
+        print(f"== Latência de {args.latencia_ms} ms na rota do Nó 3 ==")
         tox.latencia("anel-3", args.latencia_ms)
         print(f"  toxic de latência aplicado; latência > Deadline faz o cliente estourar o timeout.\n")
         tox.limpar_toxics("anel-3")
 
-        print("== Partição do Líder (Nó 5) e reeleição (Requisito 9.4) ==")
+        print("== Partição do Líder (Nó 5) e reeleição ==")
         tox.definir_habilitado("anel-5", False)
         print("  proxy anel-5 DESABILITADO: o Nó 5 ficou isolado da rede.")
         _http(f"{base[1]}/iniciar-eleicao", metodo="POST")

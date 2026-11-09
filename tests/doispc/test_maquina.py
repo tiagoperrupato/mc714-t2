@@ -4,17 +4,17 @@ Exercitam a lógica inteiramente em memória, sem rede nem contêiner: um driver
 entrega as Mensagens de saída de um Nó ao `...recebe` do destino, executando as
 `Acao` na ordem em que a Máquina_de_Estados as devolve. Como essa ordem **é** a
 ordem write-ahead (grava antes de enviar/aplicar), o driver prova a durabilidade
-sem precisar de disco (Requisito 6.1, 6.4, 6.5).
+sem precisar de disco.
 
 Cobrem:
-- todos votam SIM → COMMIT no Coordenador e em todos os Participantes (Req. 6.3);
-- um voto NAO → ABORT em todos (Req. 6.7);
+- todos votam SIM → COMMIT no Coordenador e em todos os Participantes;
+- um voto NAO → ABORT em todos;
 - Participante relê o Log_Duravel e recupera a mesma Decisao após reinício
-  simulado (Req. 6.6);
+  simulado;
 - a ordem write-ahead: o Voto é gravado antes de respondido e a Decisao antes de
-  aplicada (Req. 6.4, 6.5);
-- não-reversão de uma Decisao já registrada (Req. 6.8);
-- ABORT por timeout de coleta de Votos (Req. 6.3);
+  aplicada;
+- não-reversão de uma Decisao já registrada;
+- ABORT por timeout de coleta de Votos;
 - recuperação do Coordenador: a Decisao gravada é difundida de novo, e a
   transação em WAIT vira ABORT;
 - difusão da DECISAO só a quem ainda não mandou o ACK.
@@ -72,7 +72,7 @@ class DoisPCSimulado:
     Participante do compose. O driver executa as `Acao` devolvidas pela
     Máquina_de_Estados **na ordem** em que vêm: uma `GravarLog` grava no
     Log_Duravel do Nó corrente antes de qualquer `Enviar`/`Aplicar` seguinte,
-    exatamente a ordem write-ahead (Requisito 6.4, 6.5). Mensagens em trânsito
+    exatamente a ordem write-ahead. Mensagens em trânsito
     são entregues ao destino até a fila esvaziar.
 
     `votos_desejados` mapeia id de Participante ao Voto que ele emitirá (SIM por
@@ -184,7 +184,7 @@ TX = "tx-1"
 
 
 # ---------------------------------------------------------------------------
-# Atomicidade: todos SIM -> COMMIT em todos (Req. 6.2, 6.3)
+# Atomicidade: todos SIM -> COMMIT em todos
 # ---------------------------------------------------------------------------
 
 
@@ -210,7 +210,7 @@ def test_commit_aplicado_em_cada_participante() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Um voto NAO -> ABORT em todos (Req. 6.7)
+# Um voto NAO -> ABORT em todos
 # ---------------------------------------------------------------------------
 
 
@@ -237,7 +237,7 @@ def test_todos_nao_tambem_aborta() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Ordem write-ahead: grava antes de responder/aplicar (Req. 6.4, 6.5)
+# Ordem write-ahead: grava antes de responder/aplicar
 # ---------------------------------------------------------------------------
 
 
@@ -297,7 +297,7 @@ def test_coordenador_grava_decisao_antes_de_difundir() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Recuperação após reinício (Req. 6.6)
+# Recuperação após reinício
 # ---------------------------------------------------------------------------
 
 
@@ -315,7 +315,7 @@ def test_participante_recupera_decisao_apos_reinicio() -> None:
 
 
 def test_recuperacao_reporta_mesma_decisao_de_antes() -> None:
-    # A Decisao antes e depois do reinício é idêntica (Req. 6.6).
+    # A Decisao antes e depois do reinício é idêntica.
     sim = DoisPCSimulado(COORD, PARTS, votos_desejados={3: VOTO_NAO})
     sim.executar_transacao(TX)
     antes = sim.decisoes_participantes()
@@ -350,7 +350,7 @@ def test_coordenador_em_wait_recupera_com_abort() -> None:
 
 def test_participante_em_duvida_recupera_voto_sem_decisao() -> None:
     # Coordenador cai antes de difundir: o Participante votou SIM e não decidiu.
-    # A recuperação restaura o Estado_Em_Duvida (Req. 6.6 + fenômeno do 2PC).
+    # A recuperação restaura o Estado_Em_Duvida (fenômeno do 2PC).
     log = LogDuravelMemoria()
     log.registrar(EntradaLog(transacao=TX, fase=FASE_VOTO, valor=VOTO_SIM, no=1))
     recuperado = recuperar_participante(log.recuperar(TX))
@@ -360,7 +360,7 @@ def test_participante_em_duvida_recupera_voto_sem_decisao() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Não-reversão de uma Decisao registrada (Req. 6.8)
+# Não-reversão de uma Decisao registrada
 # ---------------------------------------------------------------------------
 
 
@@ -406,7 +406,7 @@ def test_votos_tardios_apos_decisao_sao_ignorados() -> None:
 
 
 # ---------------------------------------------------------------------------
-# ABORT por timeout de coleta de Votos (Req. 6.3)
+# ABORT por timeout de coleta de Votos
 # ---------------------------------------------------------------------------
 
 
@@ -446,7 +446,7 @@ def test_crash_do_coordenador_deixa_participantes_em_duvida() -> None:
     sim.executar_transacao(TX)
 
     # O Coordenador chegou a decidir e gravar; os Participantes votaram SIM mas
-    # não receberam a Decisao: ficam bloqueados, aguardando (Req. 8.5).
+    # não receberam a Decisao: ficam bloqueados, aguardando.
     assert sim.estado_coordenador.decisao == DECISAO_COMMIT
     for p in PARTS:
         estado = sim.estado_participante[p]

@@ -3,12 +3,12 @@
 Exercitam a lógica inteiramente em memória, sem rede nem contêiner: um pequeno
 driver entrega as Mensagens de saída de um Nó ao `receber` do destino,
 simulando a circulação no Anel. Isso é o que a separação "decidir vs enviar"
-torna possível (Requisito 4.1).
+torna possível.
 
 Cobrem:
-- eleição a partir de qualquer iniciador converge para o maior id (Req. 4.2–4.5);
-- rodadas concorrentes convergem para o mesmo Líder (Req. 4.7);
-- com um Nó marcado morto, a eleição salta e ainda converge (Req. 4.6);
+- eleição a partir de qualquer iniciador converge para o maior id;
+- rodadas concorrentes convergem para o mesmo Líder;
+- com um Nó marcado morto, a eleição salta e ainda converge;
 - uma eleição atrasada não fecha de novo uma rodada concluída;
 - um Nó que volta participa da eleição seguinte;
 - o anúncio para mesmo quando o iniciador morre no meio da rodada.
@@ -43,7 +43,7 @@ class AnelSimulado:
     conjunto de ids que não respondem, e o teste pode mudá-lo entre rodadas:
     quando uma Mensagem é endereçada a um morto, o driver não a entrega; em vez
     disso, invoca `com_sucessor_falho` no remetente, modelando o estouro de
-    Deadline da camada de rede (Req. 4.6).
+    Deadline da camada de rede.
 
     Devolve, ao final, o estado de cada Nó e o histórico de Mensagens trocadas,
     para que os testes verifiquem convergência e para a demo imprimir o tráfego.
@@ -116,7 +116,7 @@ ANEL5 = (1, 2, 3, 4, 5)
 
 
 # ---------------------------------------------------------------------------
-# Convergência a partir de qualquer iniciador (Req. 4.2–4.5)
+# Convergência a partir de qualquer iniciador
 # ---------------------------------------------------------------------------
 
 
@@ -130,7 +130,7 @@ def test_converge_para_maior_id_de_qualquer_iniciador(iniciador: int) -> None:
 
 
 def test_anuncio_da_uma_volta_e_para() -> None:
-    # Req. 4.5: cada Nó repassa a Mensagem_Lider uma vez, e quem a emitiu não a
+    # Cada Nó repassa a Mensagem_Lider uma vez, e quem a emitiu não a
     # repassa quando ela volta.
     sim = AnelSimulado(ANEL5)
     rodada = sim.disparar(1)
@@ -146,7 +146,7 @@ def test_anel_de_um_no_e_lider_trivial() -> None:
 
 
 def test_mensagem_eleicao_acumula_ids_em_ordem() -> None:
-    # Verifica o acúmulo do conjunto no primeiro repasse (Req. 4.3).
+    # Verifica o acúmulo do conjunto no primeiro repasse.
     estado2 = EstadoAnel(no_id=2, anel=ANEL5)
     msg = Mensagem(
         tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"rodada": "1-1", "ids": [1]}
@@ -161,7 +161,7 @@ def test_mensagem_eleicao_acumula_ids_em_ordem() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Rodadas concorrentes convergem para o mesmo Líder (Req. 4.7)
+# Rodadas concorrentes convergem para o mesmo Líder
 # ---------------------------------------------------------------------------
 
 
@@ -186,7 +186,7 @@ def test_todas_as_rodadas_concorrentes_possiveis_convergem() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Salto de Nó morto e convergência entre os vivos (Req. 4.6)
+# Salto de Nó morto e convergência entre os vivos
 # ---------------------------------------------------------------------------
 
 

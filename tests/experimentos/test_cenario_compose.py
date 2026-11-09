@@ -1,4 +1,4 @@
-"""Integração do `scripts/cenario.py` sobre o Docker Compose (tarefa 9).
+"""Integração do `scripts/cenario.py` sobre o Docker Compose.
 
 Segue o padrão de `tests/anel/test_compose.py`: a orquestração por contêiner é
 PULADA de forma limpa quando o Docker não está disponível, em vez de falhar — a

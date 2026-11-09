@@ -11,14 +11,15 @@ python scripts/verificar.py
 ```
 
 O comando sai com código 0 quando nenhum invariante reprova — mesmo havendo
-avisos — e 1 quando alguma propriedade de *safety* é violada (Requisito 12.1). A
+avisos — e 1 quando alguma propriedade de *safety* é violada. A
 implementação está em [`src/analise/invariantes.py`](../src/analise/invariantes.py),
 com um invariante por função.
 
 ## Reprova, aviso e lacuna
 
-O enunciado distingue dois desfechos possíveis de um invariante além de "passou"
-(Requisito 12.4), e este comando acrescenta um terceiro para dados ausentes.
+O T2 distingue dois desfechos possíveis de um invariante além de "passou", e
+este comando acrescenta um terceiro para dados ausentes. A distinção é decisão de
+projeto, e não exigência do enunciado.
 
 **Reprova.** Uma propriedade de *safety* foi violada: dois Líderes na mesma
 rodada, um Nó vivo que não convergiu, um Líder que não é o maior id vivo, COMMIT
@@ -29,7 +30,7 @@ Reprovar é a única coisa que muda o código de saída para 1.
 **Aviso.** Um fenômeno esperado do algoritmo, que *não* é defeito. O único caso
 é o Estado_Em_Duvida bloqueante do 2PC: quando o Coordenador cai depois de
 coletar alguns Votos e antes de difundir a Decisao, um Participante que votou SIM
-fica bloqueado, sem Decisao durável (Requisito 8.5). Isso é comportamento correto
+fica bloqueado, sem Decisao durável. Isso é comportamento correto
 do 2PC — o preço da atomicidade sem um protocolo de terminação — e aparece no
 relatório como aviso, sem alterar o código de saída. Tratá-lo como reprovação
 transformaria uma propriedade conhecida do 2PC num alarme falso permanente.
@@ -55,10 +56,10 @@ há um defeito. Fixar uma folga positiva aqui só mascararia erros, então a fol
 exatamente zero.
 
 **A única folga é qualitativa, não numérica.** É a reclassificação do
-Estado_Em_Duvida como aviso. Ela não relaxa um limiar — a condição `votou SIM e
-não tem Decisao durável` é verificada com precisão —; apenas decide que esse
-resultado verdadeiro é um fenômeno esperado, por determinação do enunciado
-(Requisito 12.4), e não uma reprovação. A reprovação de durabilidade fica
+Estado_Em_Duvida como aviso. Ela não relaxa um limiar, porque a condição `votou
+SIM e não tem Decisao durável` é verificada com precisão. Ela só decide, por
+projeto, que esse resultado verdadeiro é o bloqueio esperado do 2PC, e não uma
+reprovação. A reprovação de durabilidade fica
 reservada à reversão de uma Decisao já registrada.
 
 **Cada rodada tem um id único.** Quem inicia a rodada gera o id, que vai na
@@ -82,12 +83,12 @@ reprovam. Os Nós ignoram a eleição atrasada de uma rodada concluída, que a
 fecharia de novo. Com dois Nós suspeitos por engano na mesma rodada, porém, a
 volta ainda pode fechar duas vezes, como mostra
 [`modelo-e-correcao.md`](modelo-e-correcao.md). Uma reprovação aponta um defeito
-ou um erro de detecção desse tipo. Tolerância: zero. Liga-se à *safety* do
-Requisito 4.7.
+ou um erro de detecção desse tipo. Tolerância: zero. Liga-se à *safety* da
+eleição.
 
 ### 2. Convergência dos Nós vivos (Anel) — *liveness*/*safety*
 
-Ao fim de uma rodada, todos os Nós vivos conhecem o mesmo Líder (Requisito 4.5).
+Ao fim de uma rodada, todos os Nós vivos conhecem o mesmo Líder.
 Por rodada, todos os observadores do anúncio devem concordar no `lider`, e o
 conjunto de observadores deve cobrir os Nós vivos daquela rodada. Divergência
 entre observadores reprova; um Nó vivo que jamais observou o anúncio também
@@ -97,7 +98,7 @@ um predicado exato, não uma média.
 ### 3. Líder é o maior id vivo (Anel) — *correctness*
 
 Em cada rodada concluída, o Líder anunciado é igual ao maior id entre os Nós
-vivos (Requisitos 4.7, glossário). Verificamos apenas rodadas bem-formadas (um
+vivos (glossário). Verificamos apenas rodadas bem-formadas (um
 único Líder; a unicidade é do invariante 1) e comparamos o eleito com
 `max(vivos)`. A tolerância é zero por ser igualdade de inteiros. Respeita a morte
 por salto: com o maior id contornado como `sucessor_falho`, o alvo passa a ser o
@@ -105,10 +106,10 @@ próximo maior id vivo, e elegê-lo é correto.
 
 ### 4. Atomicidade do 2PC — *safety*
 
-Nenhum Nó decide COMMIT enquanto outro decide ABORT para a mesma transação
-(Requisito 12.3). Lemos a Decisao durável de cada Nó — Coordenador e
+Nenhum Nó decide COMMIT enquanto outro decide ABORT para a mesma transação.
+Lemos a Decisao durável de cada Nó — Coordenador e
 Participantes — a partir dos Logs_Duraveis, tomando a **primeira** Decisao de
-cada Nó (uma vez decidida, a transação não reverte, Requisito 6.8), e reprovamos
+cada Nó (uma vez decidida, a transação não reverte), e reprovamos
 se COMMIT e ABORT coexistem na mesma transação. Atomicidade é tudo-ou-nada, sem
 gradação: tolerância zero.
 
@@ -119,7 +120,7 @@ cada Decisao e cada Voto vêm do arquivo que o Nó relê ao reiniciar.
 
 ### 5. Durabilidade da Decisao do 2PC — *safety*
 
-A Decisao sobrevive ao reinício (Requisitos 6.6, 6.8). Dois sinais no log
+A Decisao sobrevive ao reinício. Dois sinais no log
 sustentam a propriedade:
 
 - Quando um Nó registra uma `recuperacao` (releu o Log_Duravel após reinício), a
@@ -127,7 +128,7 @@ sustentam a propriedade:
   transação. Divergência é reversão e reprova. Tolerância: zero.
 - Um Participante que gravou Voto SIM mas não tem Decisao durável está em
   Estado_Em_Duvida, o bloqueio esperado do 2PC enquanto o Coordenador está fora.
-  Isso vira **aviso**, nunca reprovação (Requisito 12.4).
+  Isso vira **aviso**, nunca reprovação.
 
 A reprovação de durabilidade fica, portanto, restrita à reversão de uma Decisao
 já registrada; o bloqueio característico do protocolo é documentado como aviso,

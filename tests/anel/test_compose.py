@@ -1,4 +1,4 @@
-"""Integração do Anel sobre o Docker Compose (Requisitos 5.3, 5.4, 13.1–13.3).
+"""Integração do Anel sobre o Docker Compose.
 
 Este teste sobe os 5 Nós do Anel definidos no `compose.yaml`, dispara uma
 eleição num Nó via `curl`/HTTP e consulta `GET /estado` de todos, confirmando a

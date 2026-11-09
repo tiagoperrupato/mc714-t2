@@ -1,4 +1,4 @@
-"""Testes dos invariantes de correção do T2 (tarefa 11).
+"""Testes dos invariantes de correção do T2.
 
 Cada teste constrói, num diretório temporário, pequenos Logs_Estruturados (JSONL)
 e Logs_Duraveis sintéticos e checa que:
@@ -6,7 +6,7 @@ e Logs_Duraveis sintéticos e checa que:
 - um log propositalmente violado REPROVA o invariante correspondente;
 - logs corretos PASSAM;
 - o Estado_Em_Duvida (crash do Coordenador) vira AVISO, não reprovação, e
-  `scripts/verificar.py` ainda sai com código zero (Requisito 12.4).
+  `scripts/verificar.py` ainda sai com código zero.
 
 Nenhum teste requer Docker: os fixtures imitam exatamente as linhas que
 `src/comum/log.py` e `src/doispc/log_duravel.py` produzem.

@@ -387,14 +387,16 @@ publicados.
 
 Em [`docs/`](docs/):
 
-- [`docs/modelo-e-correcao.md`](docs/modelo-e-correcao.md) — o modelo do sistema de
+- [`docs/README.md`](docs/README.md): o índice que leva cada item do enunciado ao
+  documento, ao módulo e ao comando que o respondem.
+- [`docs/modelo-e-correcao.md`](docs/modelo-e-correcao.md): o modelo do sistema de
   cada algoritmo (modelo temporal, canais, falhas, hipóteses de relógio,
   persistência e reinício) e as propriedades de *safety* e *liveness*, cada uma
   ligada ao invariante que a testa.
-- [`docs/invariantes.md`](docs/invariantes.md) — os cinco invariantes, com a
+- [`docs/invariantes.md`](docs/invariantes.md): os seis invariantes, com a
   tolerância de cada um e a distinção entre reprova (safety violada) e aviso.
 - [`docs/resultados-anel.md`](docs/resultados-anel.md) e
-  [`docs/resultados-2pc.md`](docs/resultados-2pc.md) — as tabelas e figuras da
+  [`docs/resultados-2pc.md`](docs/resultados-2pc.md): as tabelas e figuras da
   análise, todas geradas por comando.
 
 ## Verificação
@@ -427,30 +429,25 @@ hipótese e do que ela implica para a correção está em
 
 ## Divisão de trabalho da dupla
 
-O grafo de dependências permite duas frentes independentes depois do núcleo
-comum. A divisão abaixo mapeia as frentes às tarefas do plano de implementação;
-os nomes são genéricos porque o repositório é entregue pela dupla, que preenche a
-autoria conforme o histórico de commits.
+**Pietro Fernandes Magaldi** fez a implementação inicial:
 
-**Integrante A — frente da Eleição em Anel:**
+- o núcleo comum, o Transporte HTTP/JSON com Deadline e a conteinerização;
+- a Eleição em Anel e o 2PC sobre a rede, com o Log_Duravel;
+- a injeção de falhas de aplicação e de rede, esta com o Toxiproxy;
+- a orquestração de experimentos, a análise, os invariantes, os cenários de ponta
+  a ponta e a primeira versão dos documentos.
 
-- Máquina_de_Estados pura do Anel e a regra de salto por Sucessor falho;
-- Nó do Anel como app FastAPI, Dockerfile e a seção do Anel no compose;
-- análise de convergência × número de Nós e os invariantes do Anel (unicidade do
-  Líder por rodada, convergência dos vivos, eleito é o maior id vivo).
+**Tiago Perrupato Antunes** fez a revisão e as correções que vieram depois:
 
-**Integrante B — frente do Two-Phase Commit:**
+- a revisão do 2PC e do Anel contra o enunciado e as aulas;
+- no 2PC, os envios fora do caminho da resposta HTTP, as várias transações com id
+  único, a recuperação do Coordenador com retransmissão da DECISAO e o invariante
+  de validade;
+- no Anel, a rodada única, a reintegração de Nó e o reenvio antes do salto;
+- a bateria do 2PC nos Nós reais, a comparação com a complexidade esperada, os
+  dados brutos versionados e a documentação de entrega.
 
-- Máquina_de_Estados pura do 2PC, o Log_Duravel write-ahead e a recuperação;
-- Coordenador e Participantes como apps FastAPI e a seção do 2PC no compose, com
-  um volume por Participante;
-- análise de Latencia_de_Commit e Tempo_de_Recuperacao e os invariantes do 2PC
-  (atomicidade e durabilidade).
-
-**Em conjunto (camadas compartilhadas):** o núcleo comum e o Transporte com
-Deadline, a injeção de falhas de aplicação e de rede com Toxiproxy, a orquestração
-de experimentos, os cenários de ponta a ponta e este fechamento de
-reprodutibilidade.
+O histórico de commits registra o detalhe de cada parte.
 
 O relatório IEEE (duas colunas, no máximo seis páginas) e o vídeo de demonstração
 (cerca de cinco minutos) são produzidos pela dupla e estão fora do escopo do
@@ -459,7 +456,8 @@ são os mesmos que o vídeo mostra.
 
 ## Uso de IA generativa
 
-Usamos o Kiro como apoio na construção do código e na revisão da escrita e da
-estruturação da documentação deste repositório. Toda a análise, discussões e
-resultados foram gerados integralmente pelo grupo, e todo o conteúdo foi
-devidamente revisado pela equipe.
+Usamos dois assistentes de IA generativa. O Kiro apoiou a construção do código e a
+estruturação da documentação na implementação inicial. O Claude Code apoiou a
+revisão do código contra o enunciado, as correções, os experimentos e a revisão da
+escrita. As decisões, a arquitetura e as validações são da dupla, que revisou todo
+o conteúdo.

@@ -1,9 +1,8 @@
-"""Smoke test da sequência de compose documentada no README (tarefa 13).
+"""Smoke test da sequência de compose documentada no README.
 
 Valida, de ponta a ponta sobre o Docker Compose, que a sequência de
 build + up --wait + um cenário mínimo + down -v --remove-orphans roda limpa a
-partir de um estado zerado e NÃO deixa contêiner nem volume órfão (Requisitos
-13.2, 13.3). É a contraparte "com Docker" de `test_reprodutibilidade.py`, que
+partir de um estado zerado e NÃO deixa contêiner nem volume órfão. É a contraparte "com Docker" de `test_reprodutibilidade.py`, que
 cobre a mesma sequência em processo.
 
 O teste é marcado `slow` e PULA de forma limpa quando o Docker (daemon + compose

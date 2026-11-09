@@ -5,7 +5,7 @@ A Máquina_de_Estados do 2PC devolve uma lista ordenada de `Acao` (`GravarLog`,
 grava e aplica na hora, e põe cada `Enviar` na fila de `src.comum.despacho`, que
 o envia depois, fora do handler. Como a Máquina_de_Estados sempre emite a
 `GravarLog` antes do `Enviar`/`Aplicar` que dela dependem, a entrada já está no
-Log_Duravel quando a Mensagem entra na fila (Requisito 6.4, 6.5).
+Log_Duravel quando a Mensagem entra na fila.
 
 O executor concentra os três tipos de efeito num só lugar, de modo que
 `coordenador.py` e `participante.py` fiquem adaptadores finos, sem duplicar o
@@ -28,7 +28,7 @@ class ExecutorAcoes:
 
     `enderecos` resolve o id de um Nó destino para a URL base do seu servidor
     HTTP, usada pelo `ClienteRede`. `deadline` é o prazo obrigatório de cada
-    envio (Requisito 3.2). `ao_aplicar`, se fornecido, é chamado para cada
+    envio. `ao_aplicar`, se fornecido, é chamado para cada
     `Aplicar` (efeito local do COMMIT/ABORT), além do registro no log.
     """
 

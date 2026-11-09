@@ -1,27 +1,26 @@
 """Máquina de estados pura da Eleição de Líder em Anel.
 
-Lógica de decisão isolada da rede e do disco (Requisito 4.1): funções puras
+Lógica de decisão isolada da rede e do disco: funções puras
 sobre estado imutável que, dado o estado corrente e uma Mensagem recebida,
 devolvem o novo estado e a lista de Mensagens a enviar. Nada aqui importa
-FastAPI nem httpx, e nenhuma função executa entrada ou saída. O app FastAPI da
-tarefa 4 é um adaptador fino que entrega Mensagens a estas funções e despacha
+FastAPI nem httpx, e nenhuma função executa entrada ou saída. O app FastAPI
+(`src/anel/no.py`) é um adaptador fino que entrega Mensagens a estas funções e despacha
 pela rede as Mensagens devolvidas.
 
 Algoritmo: eleição em anel unidirecional com lista acumulada de ids.
 
 - O iniciador abre uma rodada, com um id único que ele mesmo gera, e emite uma
-  `Mensagem_Eleicao` com a lista de ids visitados, começando pelo seu
-  (Requisito 4.2).
+  `Mensagem_Eleicao` com a lista de ids visitados, começando pelo seu.
 - Ao receber a `Mensagem_Eleicao`, um Nó acrescenta seu id e repassa ao
   Sucessor. Se a lista já contém o seu id, a volta se completou: ele elege o
-  maior id da lista e circula uma `Mensagem_Lider` (Requisito 4.3).
+  maior id da lista e circula uma `Mensagem_Lider`.
 - Cada Nó registra o Líder anunciado e repassa a `Mensagem_Lider` uma vez. Ela
   para no primeiro Nó que já conhecia o resultado da rodada, normalmente quem a
-  emitiu (Requisitos 4.4, 4.5).
+  emitiu.
 - Se o repasse ao Sucessor falha dentro do Deadline, o Nó o marca morto e
-  repassa ao próximo vivo, por `com_sucessor_falho` (Requisito 4.6).
+  repassa ao próximo vivo, por `com_sucessor_falho`.
 - Rodadas concorrentes convergem para o maior id vivo, porque o Líder sai do
-  conteúdo da lista, e não de quem iniciou (Requisito 4.7).
+  conteúdo da lista, e não de quem iniciou.
 
 Um Nó que já conhece o resultado de uma rodada ignora uma `Mensagem_Eleicao`
 atrasada dela, que fecharia a mesma rodada de novo com outro Líder. `mortos` é
@@ -99,7 +98,7 @@ class EstadoAnel:
 
 
 def iniciar_eleicao(estado: EstadoAnel, rodada: str) -> tuple[EstadoAnel, list[Mensagem]]:
-    """Abre a rodada `rodada` a partir deste Nó (Requisito 4.2).
+    """Abre a rodada `rodada` a partir deste Nó.
 
     `rodada` é um id que nenhuma outra rodada usou. Emite uma `Mensagem_Eleicao`
     com a lista contendo só o próprio id. Num Anel de um Nó só, ele é o Líder
@@ -119,7 +118,7 @@ def iniciar_eleicao(estado: EstadoAnel, rodada: str) -> tuple[EstadoAnel, list[M
 
 
 def receber(estado: EstadoAnel, msg: Mensagem) -> tuple[EstadoAnel, list[Mensagem]]:
-    """Decide a próxima ação a partir de uma Mensagem recebida (Requisito 4.1).
+    """Decide a próxima ação a partir de uma Mensagem recebida.
 
     Quem manda Mensagem está vivo, então sai de `mortos`. Despacha pelo `tipo`,
     e Mensagens de tipo desconhecido são ignoradas sem erro.
@@ -133,7 +132,7 @@ def receber(estado: EstadoAnel, msg: Mensagem) -> tuple[EstadoAnel, list[Mensage
 
 
 def _receber_eleicao(estado: EstadoAnel, msg: Mensagem) -> tuple[EstadoAnel, list[Mensagem]]:
-    """Acumula o id e repassa, ou fecha a volta e anuncia o Líder (Requisito 4.3)."""
+    """Acumula o id e repassa, ou fecha a volta e anuncia o Líder."""
     rodada = str(msg.corpo["rodada"])
     ids_vistos = [int(x) for x in msg.corpo["ids"]]
 
@@ -160,7 +159,7 @@ def _receber_lider(estado: EstadoAnel, msg: Mensagem) -> tuple[EstadoAnel, list[
     """Registra e repassa o anúncio, ou o encerra se a rodada já era conhecida."""
     rodada = str(msg.corpo["rodada"])
     if rodada in estado.rodadas_concluidas:
-        # O anúncio deu a volta: encerra sem reenviar (Requisito 4.5).
+        # O anúncio deu a volta: encerra sem reenviar.
         return estado, []
     return _anunciar_lider(estado, rodada, int(msg.corpo["lider"]))
 
@@ -168,7 +167,7 @@ def _receber_lider(estado: EstadoAnel, msg: Mensagem) -> tuple[EstadoAnel, list[
 def _anunciar_lider(
     estado: EstadoAnel, rodada: str, lider: int
 ) -> tuple[EstadoAnel, list[Mensagem]]:
-    """Registra o Líder da rodada e repassa a Mensagem_Lider (Requisitos 4.3, 4.4)."""
+    """Registra o Líder da rodada e repassa a Mensagem_Lider."""
     novo = _concluir(estado, rodada, lider)
     sucessor = novo.meu_sucessor
     if sucessor is None:
@@ -192,7 +191,7 @@ def _concluir(estado: EstadoAnel, rodada: str, lider: int) -> EstadoAnel:
 def com_sucessor_falho(
     estado: EstadoAnel, msg: Mensagem, sucessor_falho: int
 ) -> tuple[EstadoAnel, list[Mensagem]]:
-    """Trata um Sucessor falho e salta para o próximo Nó vivo (Req. 4.6).
+    """Trata um Sucessor falho e salta para o próximo Nó vivo.
 
     A camada de rede chama esta função quando o repasse de `msg` ao
     `sucessor_falho` não é aceito dentro do Deadline. O Nó marca o Sucessor como morto e

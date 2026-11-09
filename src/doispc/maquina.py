@@ -1,14 +1,15 @@
 """Máquina_de_Estados pura do 2PC: Coordenador e Participante.
 
-Toda a lógica aqui é pura (Requisito 6.1): funções sobre estado imutável que,
+Toda a lógica aqui é pura: funções sobre estado imutável que,
 dada a situação corrente e uma Mensagem (ou um comando de controle), devolvem o
 novo estado e uma lista ordenada de `Acao`. Nada neste módulo toca rede ou
 disco — não há `import` de FastAPI, httpx ou do próprio `log_duravel` para fazer
-IO. A fronteira é a lista de `Acao`: o adaptador de rede (tarefa 6) a executa na
+IO. A fronteira é a lista de `Acao`: o adaptador de rede a executa na
 ordem em que aparece.
 
-A ordem das `Acao` **é** a ordem write-ahead exigida pelo enunciado
-(Requisito 6.4, 6.5). Quando o Participante vota, a função devolve primeiro uma
+A ordem das `Acao` **é** a ordem write-ahead que o modelo declara
+(`docs/modelo-e-correcao.md`).
+Quando o Participante vota, a função devolve primeiro uma
 `GravarLog` do Voto e só depois a `Enviar` da resposta; quando decide, devolve
 primeiro a `GravarLog` da Decisao e só depois o `Aplicar` e a `Enviar` do ACK.
 O Coordenador grava a entrada em WAIT antes do PREPARE e a Decisao antes da
@@ -65,7 +66,7 @@ class GravarLog:
 
     Quando aparece antes de uma `Enviar` ou de um `Aplicar` na lista de `Acao`,
     impõe que a gravação durável ocorra antes da resposta de rede ou da
-    aplicação local (Requisito 6.4, 6.5).
+    aplicação local.
     """
 
     entrada: EntradaLog
@@ -124,7 +125,7 @@ class EstadoCoordenador:
 def iniciar_transacao(
     coordenador_id: int, transacao: str, participantes: tuple[int, ...]
 ) -> tuple[EstadoCoordenador, tuple[Acao, ...]]:
-    """Inicia uma transação: grava a entrada em WAIT e emite PREPARE a todos (Requisito 6.2).
+    """Inicia uma transação: grava a entrada em WAIT e emite PREPARE a todos.
 
     A `GravarLog` do início vem antes dos PREPARE. Sem ela, um Coordenador que
     cai antes de decidir volta sem saber que a transação existiu, e os
@@ -154,8 +155,8 @@ def coordenador_recebe(
     """Processa um VOTO ou um ACK recebido pelo Coordenador.
 
     Ao receber o último Voto que faltava, decide COMMIT se todos votaram SIM,
-    senão ABORT (Requisito 6.3, 6.7), e a ordem das `Acao` grava a Decisao no
-    Log_Duravel **antes** de difundi-la (Requisito 6.4). ACKs apenas registram
+    senão ABORT, e a ordem das `Acao` grava a Decisao no
+    Log_Duravel **antes** de difundi-la. ACKs apenas registram
     quem confirmou. Mensagens fora de contexto (outra transação, repetições após
     a decisão) são ignoradas idempotentemente, sem mudar o estado.
     """
@@ -176,7 +177,7 @@ def _coordenador_recebe_voto(
     votante = mensagem.origem
     if votante not in estado.participantes:
         return estado, ()
-    # Uma vez decidido, Votos tardios não mudam nada (não-reversão, Requisito 6.8).
+    # Uma vez decidido, Votos tardios não mudam nada (não-reversão).
     if estado.decidido:
         return estado, ()
     # Idempotência: o mesmo Voto repetido por retry não altera o estado.
@@ -196,7 +197,7 @@ def _coordenador_recebe_voto(
 def coordenador_decide_por_timeout(
     estado: EstadoCoordenador, coordenador_id: int
 ) -> tuple[EstadoCoordenador, tuple[Acao, ...]]:
-    """Decide ABORT quando o Deadline de coleta de Votos é excedido (Requisito 6.3).
+    """Decide ABORT quando o Deadline de coleta de Votos é excedido.
 
     Chamado pelo adaptador ao estourar o Deadline antes de todos os Votos
     chegarem. Se a Decisao já foi tomada, não faz nada (não-reversão).
@@ -213,7 +214,7 @@ def _coordenador_decide(
 
     `forcar` fixa a Decisao (usado pelo timeout, que sempre aborta). Sem
     `forcar`, decide COMMIT apenas se todos os Votos coletados são SIM, senão
-    ABORT (Requisito 6.3, 6.7). A `GravarLog` vem antes das `Enviar` de DECISAO,
+    ABORT. A `GravarLog` vem antes das `Enviar` de DECISAO,
     codificando a ordem write-ahead do Coordenador.
     """
     if forcar is not None:
@@ -275,7 +276,7 @@ def recuperar_coordenador(
 ) -> tuple[EstadoCoordenador, tuple[Acao, ...]]:
     """Reconstrói uma transação do Coordenador a partir do Log_Duravel após reinício.
 
-    Transação decidida volta com a mesma Decisao (Requisito 6.6), difundida de
+    Transação decidida volta com a mesma Decisao, difundida de
     novo a todos, porque os ACKs não são duráveis. Transação em WAIT vira ABORT,
     gravado e difundido. Os Votos não são duráveis no Coordenador, então ele
     não sabe se todos votaram SIM, e só o ABORT é seguro.
@@ -315,7 +316,7 @@ class EstadoParticipante:
         """Estado_Em_Duvida: votou SIM mas ainda não conhece a Decisao.
 
         É o bloqueio característico do 2PC quando o Coordenador cai depois de
-        coletar o Voto e antes de difundir a Decisao (Requisito 8.5). Não é um
+        coletar o Voto e antes de difundir a Decisao. Não é um
         defeito: é comportamento correto do algoritmo.
         """
         return self.voto == VOTO_SIM and self.decisao is None
@@ -333,10 +334,10 @@ def participante_recebe(
 
     `voto_desejado` é a inclinação local do Participante (SIM por padrão; NAO
     quando configurado para abortar). Ao receber PREPARE, o Participante decide
-    seu Voto, e a ordem das `Acao` **grava o Voto antes de respondê-lo**
-    (Requisito 6.5). Ao receber a DECISAO, **grava a Decisao antes de aplicá-la
-    e confirmá-la** (Requisito 6.5). A não-reversão é respeitada: uma Decisao já
-    registrada não muda ao chegar uma DECISAO repetida (Requisito 6.8).
+    seu Voto, e a ordem das `Acao` **grava o Voto antes de respondê-lo**.
+    Ao receber a DECISAO, **grava a Decisao antes de aplicá-la
+    e confirmá-la**. A não-reversão é respeitada: uma Decisao já
+    registrada não muda ao chegar uma DECISAO repetida.
     """
     if estado is None:
         estado = EstadoParticipante(transacao=mensagem.corpo.get("transacao", ""))
@@ -408,7 +409,7 @@ def _participante_recebe_decisao(
     """Grava a Decisao (write-ahead), aplica-a e confirma com um ACK.
 
     Se já havia uma Decisao gravada, apenas reenvia o ACK sem regravar nem
-    reaplicar (não-reversão e idempotência, Requisito 6.8).
+    reaplicar (não-reversão e idempotência).
     """
     if estado.decisao is not None:
         return estado, (
@@ -449,8 +450,8 @@ def _participante_recebe_decisao(
 def recuperar_participante(estado_persistido: EstadoPersistido) -> EstadoParticipante:
     """Reconstrói um Participante a partir do Log_Duravel após reinício.
 
-    Restaura o Voto e a Decisao exatamente como gravados antes do reinício
-    (Requisito 6.6). Se havia uma Decisao, ela é considerada aplicada; se havia
+    Restaura o Voto e a Decisao exatamente como gravados antes do reinício.
+    Se havia uma Decisao, ela é considerada aplicada; se havia
     só o Voto SIM, o Participante volta em Estado_Em_Duvida, aguardando a
     Decisao do Coordenador.
     """

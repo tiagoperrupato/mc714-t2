@@ -1,4 +1,4 @@
-"""Transporte HTTP com Deadline obrigatório e erros tipados (Requisito 3).
+"""Transporte HTTP com Deadline obrigatório e erros tipados.
 
 Dois níveis de teste:
 
@@ -199,7 +199,7 @@ def _resposta(status: int, corpo=None) -> httpx.Response:
 
 @pytest.mark.parametrize("deadline", [0, 0.0, -1.0, None, False, "1.0"])
 def test_deadline_obrigatorio_e_positivo(deadline) -> None:
-    # Não existe caminho de envio sem um Deadline válido (Requisito 3.2).
+    # Não existe caminho de envio sem um Deadline válido.
     cliente = ClienteRede(retries=0, transporte=_TransporteFake([]))
     with pytest.raises(DeadlineInvalidoError):
         cliente.enviar("http://x", Mensagem("t", 1, 2), deadline)  # type: ignore[arg-type]
@@ -262,7 +262,7 @@ def test_retry_recupera_apos_falha_transiente() -> None:
 def test_retries_respeitam_deadline_total() -> None:
     # O relógio avança 0.4 s por leitura; o Deadline total é 1.0 s. As tentativas
     # devem parar quando o tempo restante acaba, sem usar todos os retries nem
-    # estourar o Deadline total (Requisito 3.4).
+    # estourar o Deadline total.
     transporte = _TransporteFake([_resposta(503)] * 10)
     cliente = ClienteRede(retries=9, transporte=transporte, relogio=_RelogioFake(0.4))
     resultado = cliente.enviar("http://destino", Mensagem("t", 1, 2), deadline=1.0)

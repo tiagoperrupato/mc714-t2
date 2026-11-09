@@ -4,8 +4,7 @@ Toda configuração é uma dataclass imutável que se
 valida contra seu domínio antes de abrir socket, consumir aleatoriedade ou
 escrever em disco. A primeira violação levanta `ConfigInvalidaError`, que
 identifica o parâmetro, o valor recebido e o domínio aceito, para que um
-parâmetro inválido encerre o Nó sem produzir efeito de rede ou de arquivo
-(Requisitos 1.2, 1.3, 1.6).
+parâmetro inválido encerre o Nó sem produzir efeito de rede ou de arquivo.
 """
 
 from __future__ import annotations
@@ -23,7 +22,7 @@ DEADLINE_MIN_EXCLUSIVO = 0.0
 DEADLINE_MAX = 300.0
 
 # Retries de uma chamada: zero (sem retry) até um teto pequeno, porque retry
-# ilimitado viola o Deadline total (Requisito 3.4).
+# ilimitado viola o Deadline total.
 RETRIES_MIN = 0
 RETRIES_MAX = 10
 
@@ -72,7 +71,7 @@ class ConfigNo:
         """Levanta `ConfigInvalidaError` na primeira violação de domínio.
 
         Chamada antes de construir RNG, abrir socket ou escrever log, para que
-        uma configuração inválida não produza efeito colateral (Requisito 1.3).
+        uma configuração inválida não produza efeito colateral.
         """
         _exigir_int("id", self.id, lambda v: v > 0, "inteiro > 0")
         _exigir(

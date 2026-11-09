@@ -7,7 +7,7 @@ cada um com um controlador de falhas plugado. A demonstração:
 2. injeta crash no Líder (5) via `POST /falha/crash` — o Nó passa a responder
    503, "deixando de responder";
 3. dispara uma nova eleição e mostra os Nós vivos reelegendo o maior id vivo (4),
-   com o 5 marcado como morto pela regra de salto do Anel (Requisito 8.6).
+   com o 5 marcado como morto pela regra de salto do Anel.
 
 Equivale, em prosa, à sequência de `curl` da demonstração sobre o compose:
 

@@ -12,12 +12,12 @@ Dois níveis:
 - `test_compose_config_valido`: sempre que o binário `docker compose` existir,
   valida que o `compose.yaml` é bem formado e que os serviços do 2PC
   (`coordenador`, `participante-1..3`), seus volumes por Participante e a rede
-  dedicada estão presentes (Requisito 7.2, 13.1). Não sobe contêiner, então é
+  dedicada estão presentes. Não sobe contêiner, então é
   barato e seguro.
 
 - `test_compose_commit_e_abort_ponta_a_ponta`: quando o daemon do Docker está
   acessível, sobe o 2PC, dispara uma transação com todos votando SIM (COMMIT em
-  todos, Requisito 7.3) e outra forçando um NAO (ABORT em todos, Requisito 7.4),
+  todos) e outra forçando um NAO (ABORT em todos),
   consultando `/estado` de cada Participante. É marcado como lento e derruba o
   compose ao final.
 """
@@ -86,7 +86,7 @@ pularsem_daemon = pytest.mark.skipif(
 
 @pularsem_cli
 def test_compose_config_valido() -> None:
-    """`docker compose config` resolve e a seção 2PC está completa (Req. 7.2, 13.1)."""
+    """`docker compose config` resolve e a seção 2PC está completa."""
     r = subprocess.run(
         ["docker", "compose", "-f", str(COMPOSE), "config", "--format", "json"],
         capture_output=True,
@@ -106,7 +106,7 @@ def test_compose_config_valido() -> None:
     for vol in VOLUMES_2PC:
         assert vol in volumes, f"volume {vol} ausente"
 
-    # Os Participantes montam um volume distinto cada um (Requisito 7.2).
+    # Os Participantes montam um volume distinto cada um.
     montados = []
     for nome in ("participante-1", "participante-2", "participante-3"):
         vols = servicos[nome].get("volumes", [])
@@ -174,7 +174,7 @@ def _exec_json(arquivos: list[Path], servico: str, script: str) -> dict:
 @pularsem_daemon
 @pytest.mark.slow
 def test_compose_commit_e_abort_ponta_a_ponta(tmp_path: Path) -> None:
-    """Sobe o 2PC e valida ABORT (um NAO) e COMMIT (todos SIM) (Req. 7.3, 7.4).
+    """Sobe o 2PC e valida ABORT (um NAO) e COMMIT (todos SIM).
 
     A validação é feita por dentro da rede do compose (um `exec` no Coordenador
     dispara a transação e consulta o `/estado` de cada Participante), para não

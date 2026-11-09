@@ -1,9 +1,9 @@
 # Resultados: Eleição de Líder em Anel
 
 A análise lê o CSV da bateria do Anel (`results/bateria_anel_num_nos.csv`) sem
-reexecutar nenhuma Réplica nem subir contêiner (Requisito 11.1). Nenhuma tabela
-abaixo é digitada à mão: toda tabela é produto de um comando da análise
-(Requisito 11.5), e `python scripts/analisar.py conferir` reprova se alguma ficar
+reexecutar nenhuma Réplica nem subir contêiner. Nenhuma tabela
+abaixo é digitada à mão: toda tabela é produto de um comando da análise,
+e `python scripts/analisar.py conferir` reprova se alguma ficar
 defasada em relação aos dados atuais.
 
 ## Configuração
@@ -30,9 +30,10 @@ python scripts/analisar.py anel-complexidade
 Para cada número de Nós, a tabela traz quantas Réplicas rodaram e quantas
 convergiram, e a média e o IC 95% do Tempo_de_Convergencia das que convergiram,
 em passos lógicos de entrega de Mensagem. O tempo é lógico, e não em segundos de
-relógio, para ser reproduzível dígito a dígito entre máquinas (limitação de
-ambiente do Requisito 13.7). Sem Nó morto, cada passo é uma tentativa de entrega,
-e o tempo coincide com as mensagens da seção seguinte.
+relógio, para ser reproduzível dígito a dígito entre máquinas, já que contêineres
+numa só máquina não medem tempo portável (A6 do enunciado). Sem Nó morto, cada
+passo é uma tentativa de entrega, e o tempo coincide com as mensagens da seção
+seguinte.
 
 | Nós | Réplicas | Convergiram | Tempo médio (passos) | IC 95% (±) |
 |:----|---------:|------------:|---------------------:|-----------:|

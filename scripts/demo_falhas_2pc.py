@@ -4,7 +4,7 @@ Sobe o Coordenador e três Participantes como apps FastAPI locais (sem Docker).
 O Coordenador coleta os Votos (todos SIM), decide COMMIT, grava a Decisao no
 Log_Duravel e cai antes de difundi-la, modelado pela supressão de toda DECISAO.
 Enquanto ele está fora, os Participantes ficam em Estado_Em_Duvida, o bloqueio
-do 2PC (Requisito 8.5). Um Coordenador novo sobe na mesma porta, relê o mesmo
+do 2PC. Um Coordenador novo sobe na mesma porta, relê o mesmo
 Log_Duravel e difunde a Decisao gravada, e os três decidem COMMIT.
 
 O cenário `python scripts/cenario.py 2pc crash-coord` mostra o mesmo no compose,

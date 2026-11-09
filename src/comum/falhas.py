@@ -2,8 +2,7 @@
 
 Este módulo oferece um `ControladorFalhas` plugável em qualquer Nó — tanto no
 adaptador do Anel (`src.anel.no`) quanto nos apps do 2PC
-(`src.doispc.coordenador`/`participante`) — com os quatro modos exigidos pelo
-Requisito 8.1:
+(`src.doispc.coordenador`/`participante`) — com quatro modos:
 
 - **crash**: o Nó deixa de responder. O controlador passa a recusar o
   processamento de Mensagens recebidas (levanta `NoEmCrashError`, que o
@@ -12,10 +11,10 @@ Requisito 8.1:
   como um `sleep` no caminho de recebimento/despacho; ao fim do intervalo o Nó
   responde normalmente de novo.
 - **delay**: atrasa cada resposta por um intervalo. O intervalo de cada decisão
-  vem do stream `delay` da Semente (Requisito 8.2), então é idêntico entre
+  vem do stream `delay` da Semente, então é idêntico entre
   execuções com a mesma Semente e o mesmo Cenário.
 - **drop**: descarta uma Mensagem com probabilidade `p`. A decisão vem do stream
-  `drop` da Semente (Requisito 8.2), também reproduzível dígito a dígito.
+  `drop` da Semente, também reproduzível dígito a dígito.
 
 **Por que a camada comum/adaptador, e não a Máquina_de_Estados.** As
 Máquinas_de_Estados do Anel (`src.anel.maquina`) e do 2PC (`src.doispc.maquina`)
@@ -26,18 +25,18 @@ saída (o `ClienteRede`). Essa é a mesma fronteira onde o jitter/timeout já
 vivem, e é o único lugar onde faz sentido descartar ou atrasar uma Mensagem sem
 contaminar a decisão do algoritmo.
 
-**Determinismo (Requisito 8.2).** As decisões de drop e de delay consomem,
+**Determinismo.** As decisões de drop e de delay consomem,
 respectivamente, dos streams independentes `drop` e `delay` de `Streams`
 (`src.comum.aleatoriedade`). Consumir um não desloca o outro, então, fixada a
 Semente e o Cenário, a sequência de Mensagens descartadas e de atrasos aplicados
 é idêntica entre execuções. crash e pause são determinísticos por construção:
 não consomem aleatoriedade, são ligados/desligados por comando de controle.
 
-**Controle em tempo de execução (Requisito 8.3).** `registrar_endpoints_falha`
+**Controle em tempo de execução.** `registrar_endpoints_falha`
 pendura os endpoints `/falha/*` em qualquer app FastAPI, para injetar e limpar
 falhas sem reiniciar o Nó. `limpar` zera todos os modos.
 
-**Reprodutibilidade no log (Requisito 8.4).** `registrar_plano_no_log` grava a
+**Reprodutibilidade no log.** `registrar_plano_no_log` grava a
 Semente e o Plano_de_Falhas no Log_Estruturado, no início da Réplica, usando o
 `inicio_replica` já existente.
 """
@@ -117,7 +116,7 @@ class ControladorFalhas:
         self._modos = _Modos()
         self._lock = threading.Lock()
 
-    # -- Injeção e limpeza (Requisito 8.3) ---------------------------------
+    # -- Injeção e limpeza ---------------------------------
 
     @property
     def semente(self) -> int:
@@ -137,7 +136,7 @@ class ControladorFalhas:
         self._evento("falha_curada", modo="crash")
 
     def injetar_pause(self, segundos: float) -> None:
-        """Agenda um congelamento de `segundos` no próximo evento (Requisito 8.1)."""
+        """Agenda um congelamento de `segundos` no próximo evento."""
         if segundos < 0:
             raise ValueError(f"pause >= 0; recebido {segundos!r}")
         with self._lock:
@@ -145,7 +144,7 @@ class ControladorFalhas:
         self._evento("falha_injetada", modo="pause", segundos=float(segundos))
 
     def injetar_delay(self, segundos: float) -> None:
-        """Liga o atraso de respostas com teto `segundos` (Requisito 8.1)."""
+        """Liga o atraso de respostas com teto `segundos`."""
         if segundos < 0:
             raise ValueError(f"delay >= 0; recebido {segundos!r}")
         with self._lock:
@@ -154,7 +153,7 @@ class ControladorFalhas:
         self._evento("falha_injetada", modo="delay", segundos=float(segundos))
 
     def injetar_drop(self, probabilidade: float) -> None:
-        """Liga o descarte de Mensagens com probabilidade `p` em [0, 1] (Requisito 8.1)."""
+        """Liga o descarte de Mensagens com probabilidade `p` em [0, 1]."""
         if not 0.0 <= probabilidade <= 1.0:
             raise ValueError(
                 f"drop p deve estar em [0, 1]; recebido {probabilidade!r}"
@@ -185,7 +184,7 @@ class ControladorFalhas:
             }
 
     def plano_de_falhas(self) -> dict[str, Any]:
-        """Descrição do Plano_de_Falhas corrente, para registrar no log (Requisito 8.4)."""
+        """Descrição do Plano_de_Falhas corrente, para registrar no log."""
         return self.estado()
 
     # -- Interceptação do recebimento --------------------------------------
@@ -241,7 +240,7 @@ class ControladorFalhas:
 
         Chamado sob o lock. Modelar pause como evento único — e não como um modo
         que congela toda Mensagem para sempre — é o que permite "congela N s e
-        depois resume" do Requisito 8.1: injeta-se o pause, o próximo evento
+        depois resume": injeta-se o pause, o próximo evento
         paga o congelamento, e o Nó volta a operar.
         """
         pausa = self._modos.pausa_s
@@ -355,14 +354,14 @@ class ClienteComFalhas:
 
 
 # ---------------------------------------------------------------------------
-# Endpoints de controle /falha/* (Requisito 8.3)
+# Endpoints de controle /falha/*
 # ---------------------------------------------------------------------------
 
 
 def registrar_endpoints_falha(app, controlador: ControladorFalhas) -> None:
     """Pendura os endpoints `/falha/*` num app FastAPI já criado.
 
-    Expõe, para injeção e limpeza em tempo de execução (Requisito 8.3):
+    Expõe, para injeção e limpeza em tempo de execução:
 
     - `POST /falha/crash`  — liga o crash;
     - `POST /falha/pause`  — congela por `segundos` (corpo `{"segundos": N}`);
@@ -416,11 +415,11 @@ def registrar_plano_no_log(
     *,
     cenario: Mapping[str, Any] | None = None,
 ) -> None:
-    """Registra a Semente e o Plano_de_Falhas no início da Réplica (Requisito 8.4).
+    """Registra a Semente e o Plano_de_Falhas no início da Réplica.
 
     Reaproveita o `inicio_replica` do Log_Estruturado, que já carimba a Semente,
     o Plano_de_Falhas e o Cenário numa linha JSON, tornando a Réplica
-    reproduzível a partir do próprio log (Requisito 2.2, 8.4).
+    reproduzível a partir do próprio log.
     """
     log.inicio_replica(
         semente=controlador.semente,

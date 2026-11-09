@@ -1,12 +1,12 @@
 """Log estruturado: uma linha JSON por evento, consumido pela análise e invariantes.
 
 Cada evento vira uma linha JSON com, no mínimo, o timestamp físico (epoch em
-segundos), o id do Nó e o tipo do evento, mais os campos específicos do evento
-(Requisito 2.1). A análise e os invariantes consomem esses arquivos sob
-`results/` sem acesso ao estado em memória dos Nós (Requisito 2.4).
+segundos), o id do Nó e o tipo do evento, mais os campos específicos do evento.
+A análise e os invariantes consomem esses arquivos sob
+`results/` sem acesso ao estado em memória dos Nós.
 
 Uma falha ao escrever uma linha não deve alterar as decisões do algoritmo: o
-Nó registra o problema e prossegue (Requisito 2.5). O log é, portanto,
+Nó registra o problema e prossegue. O log é, portanto,
 observação, nunca parte do caminho de decisão.
 """
 
@@ -36,7 +36,7 @@ class LogEstruturado:
         """Registra um evento `tipo` com `campos` arbitrários.
 
         Em caso de falha de escrita, emite um aviso em stderr e segue, sem
-        propagar a exceção para o algoritmo (Requisito 2.5).
+        propagar a exceção para o algoritmo.
         """
         linha = _montar_linha(self._relogio(), self._no_id, tipo, campos)
         try:
@@ -53,8 +53,7 @@ class LogEstruturado:
     ) -> None:
         """Registra, no início da Réplica, a Semente, o Plano_de_Falhas e o Cenário.
 
-        É o que torna a Réplica reproduzível a partir do próprio log
-        (Requisito 2.2).
+        É o que torna a Réplica reproduzível a partir do próprio log.
         """
         self.evento(
             "inicio_replica",

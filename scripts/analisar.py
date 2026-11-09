@@ -1,10 +1,9 @@
 """CLI de análise do T2: lê os CSVs da bateria e produz as tabelas e figuras de `docs/`.
 
-Não executa Réplica nem sobe contêiner (Requisito 11.1): cada subcomando lê os
+Não executa Réplica nem sobe contêiner: cada subcomando lê os
 CSVs de `results/`, imprime a tabela markdown pronta para colar e grava a figura
 correspondente. O subcomando `conferir` reprova, com código diferente de zero,
-quando uma tabela de `docs/` fica defasada em relação aos dados atuais
-(Requisitos 11.4, 11.5).
+quando uma tabela de `docs/` fica defasada em relação aos dados atuais.
 
 Subcomandos:
 
@@ -18,7 +17,7 @@ Subcomandos:
 
 A conferência é literal: cada bloco é regerado e o texto exato precisa aparecer
 no documento. Um dígito fora do lugar reprova, o que garante que nenhuma tabela
-de `docs/` seja digitada à mão (Requisito 11.5).
+de `docs/` seja digitada à mão.
 """
 
 from __future__ import annotations

@@ -53,8 +53,7 @@ medida assim:
   resolução desses dois tempos e do tempo de recuperação da bateria.
 
 **Falhas (modelo comum).** As falhas entram por duas camadas, ambas dirigidas
-por uma **Semente** registrada no log, o que torna cada Cenário repetível
-(Requisitos 8.2, 8.4):
+por uma **Semente** registrada no log, o que torna cada Cenário repetível:
 
 - **Aplicação** (`src/comum/falhas.py`, endpoints `/falha/*`): *crash* (o Nó
   deixa de responder), *pause* (congela N s), *delay* (atrasa respostas pelo
@@ -67,7 +66,7 @@ por uma **Semente** registrada no log, o que torna cada Cenário repetível
   de aplicação, porque modela a morte do processo, que o Toxiproxy não
   representa.
 
-**Limitação do ambiente (Requisito 13.7).** Os contêineres rodam numa única
+**Limitação do ambiente.** Os contêineres rodam numa única
 máquina. Eles são **Nós lógicos**, mas **não domínios de falha independentes**:
 compartilham kernel, relógio, escalonador e memória físicos. Uma partição é
 injetada logicamente (via Toxiproxy ou via `/falha/*`), não por uma falha física
@@ -114,14 +113,17 @@ ordem lógica dos eventos, que a emulação preserva.
   rodadas anteriores e participa da próxima eleição, porque cada Nó zera as
   suspeitas (`mortos`) ao entrar numa rodada nova e tira delas quem lhe manda
   Mensagem. Não há Log Durável no Anel, e a recuperação é reeleger.
+- **Nós (M7).** Cinco Nós no compose e 3, 5 e 7 na bateria, nunca menos que os
+  três que o enunciado pede (A5). O cenário de falha derruba o Líder e ainda
+  deixa quatro vivos, o bastante para a reeleição dar a volta no Anel sem ele.
 
 ### Propriedades (M5) e como são verificadas (M6)
 
-| Propriedade | Tipo | Verificação | Requisito |
-| --- | --- | --- | --- |
-| No máximo um Líder por Rodada_de_Eleicao concluída | *safety* | **`invariante_01_lider_unico`** | 4.7, 12.2 |
-| Todos os Nós vivos convergem para o mesmo Líder | *liveness*/*safety* | **`invariante_02_convergencia`** | 4.5, 12.2 |
-| O Líder eleito é o maior id vivo | *correctness* | **`invariante_03_maior_id_vivo`** | 4.7, 12.2 |
+| Propriedade | Tipo | Verificação |
+| --- | --- | --- |
+| No máximo um Líder por Rodada_de_Eleicao concluída | *safety* | **`invariante_01_lider_unico`** |
+| Todos os Nós vivos convergem para o mesmo Líder | *liveness*/*safety* | **`invariante_02_convergencia`** |
+| O Líder eleito é o maior id vivo | *correctness* | **`invariante_03_maior_id_vivo`** |
 
 - **Unicidade do Líder** (`invariante_01_lider_unico`): agrupa os anúncios de
   Líder por id de rodada e exige um único valor de `lider` por rodada. Dois
@@ -157,9 +159,12 @@ sem variância amostral a absorver — a justificativa está em
   retransmissão da DECISAO até o ACK. Não há *presumed abort* nem o protocolo de
   terminação cooperativo, em que um Participante em dúvida consulta os outros.
   Por isso o bloqueio dura enquanto o Coordenador está fora.
+- **Nós (M7).** Um Coordenador e três Participantes. Com mais de um Participante
+  a atomicidade tem o que conferir, e com três o cenário de abort tem quem vote SIM
+  e quem vote NAO, e o crash do Coordenador deixa vários Participantes em dúvida.
 - **Temporal (M1).** Parcialmente síncrono, como o Anel. O Coordenador envia
   PREPARE, coleta Votos até o Deadline de coleta e, se ele estoura antes de
-  todos votarem, decide ABORT (Requisito 7.5). Os Deadlines de Voto e de Decisao
+  todos votarem, decide ABORT. Os Deadlines de Voto e de Decisao
   são configuráveis. A atomicidade e a validade não dependem de tempo, e um
   timeout que erra só produz um ABORT desnecessário. A terminação depende de os
   atrasos voltarem a caber no Deadline.
@@ -184,30 +189,36 @@ sem variância amostral a absorver — a justificativa está em
   do PREPARE e a Decisao **antes** da DECISAO. O Participante grava o Voto antes
   de respondê-lo e a Decisao antes de aplicá-la. A ordem das `Acao` que a
   Máquina_de_Estados emite **é** a ordem write-ahead (`src/doispc/maquina.py`,
-  `src/doispc/executor.py`). Os ACKs não vão ao log.
+  `src/doispc/executor.py`). Os ACKs não vão ao log. A durabilidade vale contra
+  **crash de processo**: cada entrada recebe `fsync` antes do efeito que depende
+  dela, mas o diretório do log não recebe `fsync` quando o arquivo é criado.
+  Perder uma entrada já gravada exigiria a queda do sistema operacional, que o
+  ambiente de contêineres numa só máquina não produz (A6).
 - **Reinício (M4).** O Coordenador relê o Log_Duravel antes de servir. A transação
   decidida tem a Decisao difundida de novo a todos, já que os ACKs não são
   duráveis. A transação em WAIT vira ABORT, gravado e difundido, porque o
   Coordenador não guardou os Votos e não sabe se todos foram SIM. O Participante
   relê o próprio log e reporta a **mesma** Decisao de antes (evento
   `recuperacao`). Um que votou SIM e não tem Decisao durável volta em dúvida e
-  sai dela quando a DECISAO chega.
+  sai dela quando a DECISAO chega. Aplicar a Decisao é só um evento de log nesta
+  implementação, sem efeito durável próprio, e por isso a recuperação trata toda
+  Decisao durável como aplicada.
 
 ### Propriedades (M5) e como são verificadas (M6)
 
-| Propriedade | Tipo | Verificação | Requisito |
-| --- | --- | --- | --- |
-| Atomicidade: nenhum COMMIT enquanto outro ABORT na mesma transação | *safety* | **`invariante_04_atomicidade`** | 6.7, 12.3 |
-| Durabilidade: a Decisao não reverte após reinício | *safety* | **`invariante_05_durabilidade`** | 6.6, 6.8, 12.3 |
-| Validade: COMMIT só com o Voto SIM de todos os Participantes | *safety* | **`invariante_06_validade`** | n/d |
-| Terminação sem falha: todos decidem, COMMIT com todos SIM e ABORT com um NAO | *liveness* | `cenario.py 2pc commit` e `2pc abort`, prazo de 10 s | n/d |
-| Terminação com o Coordenador de volta: todo Participante decide | *liveness* | `cenario.py 2pc crash-coord`, prazo de 30 s | n/d |
-| *Liveness* bloqueante: Estado_Em_Duvida enquanto o Coordenador está fora | n/d (aviso) | **`invariante_05_durabilidade`** (ramo de aviso) | 8.5, 12.4 |
+| Propriedade | Tipo | Verificação |
+| --- | --- | --- |
+| Atomicidade: nenhum COMMIT enquanto outro ABORT na mesma transação | *safety* | **`invariante_04_atomicidade`** |
+| Durabilidade: a Decisao não reverte após reinício | *safety* | **`invariante_05_durabilidade`** |
+| Validade: COMMIT só com o Voto SIM de todos os Participantes | *safety* | **`invariante_06_validade`** |
+| Terminação sem falha: todos decidem, COMMIT com todos SIM e ABORT com um NAO | *liveness* | `cenario.py 2pc commit` e `2pc abort`, prazo de 10 s |
+| Terminação com o Coordenador de volta: todo Participante decide | *liveness* | `cenario.py 2pc crash-coord`, prazo de 30 s |
+| *Liveness* bloqueante: Estado_Em_Duvida enquanto o Coordenador está fora | n/d (aviso) | **`invariante_05_durabilidade`** (ramo de aviso) |
 
 - **Atomicidade** (`invariante_04_atomicidade`): lê a Decisao durável de cada Nó
   (Coordenador e Participantes) e reprova se COMMIT e ABORT coexistem numa
   transação. Toma a **primeira** Decisao de cada Nó, pois, uma vez decidida, a
-  transação não reverte (Requisito 6.8). Tolerância zero: atomicidade é
+  transação não reverte. Tolerância zero: atomicidade é
   tudo-ou-nada.
 - **Durabilidade** (`invariante_05_durabilidade`, ramo de reprovação): quando um
   Nó registra uma `recuperacao`, a Decisao recuperada tem de bater com a Decisao
@@ -229,14 +240,14 @@ sem variância amostral a absorver — a justificativa está em
   cenário porque só ele sabe que falha injetou e o que esperar dela.
 - **Bloqueio característico do 2PC** (`invariante_05_durabilidade`, ramo de
   aviso): um Participante que gravou Voto SIM mas não tem Decisao durável está em
-  **Estado_Em_Duvida** (Requisito 8.5). Ele não pode decidir sozinho, porque não
+  **Estado_Em_Duvida**. Ele não pode decidir sozinho, porque não
   sabe se os outros votaram SIM. Nesta variante o bloqueio dura enquanto o
   Coordenador está fora. Quando ele volta, relê o log e difunde a Decisao, ou o
   ABORT de uma transação que estava em WAIT, e a retransmissão a entrega a quem
   perdeu a Mensagem. **Isso é comportamento correto do 2PC**, o preço da
   atomicidade sem um protocolo de terminação cooperativo, e não um defeito. O
   invariante o classifica como **aviso**: aparece no relatório, mas **não** muda
-  o código de saída (Requisito 12.4). Tratá-lo como reprovação transformaria uma
+  o código de saída. Tratá-lo como reprovação transformaria uma
   propriedade conhecida do 2PC num alarme falso. O aviso aparece nos logs
   coletados com o Coordenador ainda fora e some depois que ele se recupera.
 
@@ -246,7 +257,7 @@ Duas regras do modelo sustentam diretamente as propriedades acima, e afrouxá-la
 as quebra:
 
 - **Deadline obrigatório.** Sem ele, uma partição Coordenador↔Participante
-  travaria a coleta de Votos para sempre e o ABORT por timeout (Requisito 7.5)
+  travaria a coleta de Votos para sempre e o ABORT por timeout
   nunca ocorreria — a *liveness* na ausência de falhas deixaria de valer.
 - **Ordem write-ahead.** Se a gravação da Decisao migrasse para depois da
   resposta de rede, um crash entre responder e gravar perderia a Decisao, e

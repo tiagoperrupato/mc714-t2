@@ -1,4 +1,4 @@
-"""CLI da bateria de experimentos do T2 (tarefa 9, Requisito 10).
+"""CLI da bateria de experimentos do T2.
 
 Executa Réplicas com Sementes independentes variando UM parâmetro em pelo menos
 três níveis, gravando CSVs em `results/`. A do
@@ -10,7 +10,7 @@ Uso:
     python scripts/bateria.py --algoritmo anel
         Varia o número de Nós do Anel (3, 5, 7) e grava
         `results/bateria_anel_num_nos.csv`, com as métricas Tempo_de_Convergencia e
-        número de Mensagens (Requisito 10.2).
+        número de Mensagens.
 
     python scripts/bateria.py --algoritmo anel --variar taxa_falhas
         Varia a taxa de falhas do Anel (0.0, 0.1, 0.2).
@@ -21,10 +21,9 @@ Uso:
         `results/bateria_2pc_recuperacao.csv`, uma linha por crash do Coordenador.
         Os logs dos nós ficam em `results/bateria_2pc_logs/`.
 
-A bateria inteira é validada antes de sobrescrever resultados (Requisito 10.5);
-a Semente e o ambiente (hardware, SO, versões) entram em cada linha (Requisitos
-10.6, 13.6); uma Réplica que falha é registrada e a bateria prossegue
-(Requisito 10.7).
+A bateria inteira é validada antes de sobrescrever resultados. A Semente e o
+ambiente (hardware, SO, versões) entram em cada linha, e uma Réplica que falha é
+registrada sem interromper a bateria.
 """
 
 from __future__ import annotations
@@ -53,7 +52,7 @@ RESULTS_PADRAO = _RAIZ / "results"
 SEMENTE_BASE_PADRAO = 42
 REPLICAS_PADRAO = 5
 
-# Níveis padrão por parâmetro variado. Sempre >= 3 níveis (Requisito 10.1).
+# Níveis padrão por parâmetro variado. Sempre >= 3 níveis.
 NIVEIS_ANEL_NOS: tuple[int, ...] = (3, 5, 7)
 NIVEIS_ANEL_FALHAS: tuple[float, ...] = (0.0, 0.1, 0.2)
 # Atraso de ida em ms, aplicado em cada sentido de cada proxy do 2PC.
@@ -72,7 +71,7 @@ DIR_2PC_LOGS = "bateria_2pc_logs"
 
 
 def _runner_anel(item: ItemReplica) -> Mapping[str, Any]:
-    """Executa uma Réplica do Anel em processo e devolve as métricas (Requisito 10.2)."""
+    """Executa uma Réplica do Anel em processo e devolve as métricas."""
     p = item.parametros
     resultado = executar_replica_anel(
         num_nos=int(p["num_nos"]),

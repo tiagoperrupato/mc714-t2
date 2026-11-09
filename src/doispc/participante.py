@@ -1,6 +1,6 @@
 """App FastAPI do Participante do 2PC — adaptador fino sobre a Máquina_de_Estados.
 
-Este módulo **não reimplementa 2PC**. Ele é o adaptador de rede (Requisito 7.1)
+Este módulo **não reimplementa 2PC**. Ele é o adaptador de rede
 que liga a Máquina_de_Estados pura de `src.doispc.maquina` ao Transporte com
 Deadline de `src.comum.rede` e ao `Log_Duravel` de `src.doispc.log_duravel`.
 O fluxo é sempre o mesmo:
@@ -10,15 +10,15 @@ O fluxo é sempre o mesmo:
    lista ordenada de `Acao`;
 3. executa as `Acao` **na ordem em que vêm**, e nessa ordem está codificada a
    regra write-ahead: uma `GravarLog` sempre precede o `Aplicar`/`Enviar` que
-   dependem dela (Requisito 6.4, 6.5). O adaptador não precisa lembrar a regra;
+   dependem dela. O adaptador não precisa lembrar a regra;
    basta obedecer à sequência.
 
-O Participante pode ser configurado para votar NAO (Requisito 7.4): o
+O Participante pode ser configurado para votar NAO: o
 `voto_desejado` é fixado na construção a partir de uma flag (env `DOISPC_VOTO`),
 e repassado à Máquina_de_Estados a cada PREPARE. Todo o resto — atomicidade,
 não-reversão, recuperação — já está na lógica pura e é apenas exercido aqui.
 
-A recuperação após reinício (Requisito 6.6) relê o Log_Duravel na partida e
+A recuperação após reinício relê o Log_Duravel na partida e
 reconstrói o estado com `recuperar_participante`, de modo que um Participante
 reiniciado reporte a mesma Decisao de antes.
 """
@@ -95,7 +95,7 @@ class ServicoParticipante:
         self._estados[transacao] = estado
 
     def recuperar(self, transacao: str) -> Optional[EstadoParticipante]:
-        """Reconstrói o estado a partir do Log_Duravel após reinício (Requisito 6.6)."""
+        """Reconstrói o estado a partir do Log_Duravel após reinício."""
         persistido = self._log_duravel.recuperar(transacao)
         if persistido.voto is None and persistido.decisao is None:
             return None
@@ -114,7 +114,7 @@ class ServicoParticipante:
     def receber(self, mensagem: Mensagem) -> Mapping[str, Any]:
         """Entrega a Mensagem à Máquina_de_Estados e executa as `Acao` devolvidas.
 
-        A resposta HTTP é um ACK imediato de recebimento (Requisito 3.5). As
+        A resposta HTTP é um ACK imediato de recebimento. As
         Mensagens de saída (o VOTO, o ACK da DECISAO) vão para a fila do executor
         e saem depois da resposta. O estado novo só é publicado depois de gravado.
         """
@@ -166,7 +166,7 @@ def criar_servico_de_env() -> ServicoParticipante:
     Variáveis esperadas: `PART_ID`, `PART_PORTA`, `COORD_ID`, `COORD_HOST`,
     `COORD_PORTA`, `DOISPC_VOTO` (SIM/NAO), `DOISPC_DEADLINE`,
     `DOISPC_LOG_DURAVEL` (caminho do arquivo), `DOISPC_RESULTS` (dir de log).
-    O voto NAO é a flag do Requisito 7.4.
+    O voto NAO força o ABORT da transação.
     """
     eu = _no_de_env("PART", 8100)
     coordenador = _no_de_env("COORD", 8000)
@@ -196,9 +196,9 @@ def criar_app(servico: Optional[ServicoParticipante] = None, *, controlador=None
 
     Com um `controlador` de falhas, o recebimento de PREPARE/DECISAO passa pelo
     controlador antes da Máquina (drop/delay/pause/crash), os endpoints
-    `/falha/*` são expostos (Requisito 8.3) e um crash do Participante devolve
+    `/falha/*` são expostos e um crash do Participante devolve
     503. Um crash do Coordenador no meio da coleta deixa este Participante em
-    Estado_Em_Duvida (Requisito 8.5), que já é comportamento da Máquina pura.
+    Estado_Em_Duvida, que já é comportamento da Máquina pura.
     """
     from fastapi import Body, FastAPI, HTTPException
     from fastapi.responses import JSONResponse

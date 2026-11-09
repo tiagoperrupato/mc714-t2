@@ -75,6 +75,6 @@ class _FluxoQuebrado:
 
 
 def test_falha_de_escrita_nao_propaga() -> None:
-    # Uma falha de log não pode alterar as decisões do algoritmo (Requisito 2.5).
+    # Uma falha de log não pode alterar as decisões do algoritmo.
     log = LogEstruturado(no_id=1, destino=_FluxoQuebrado())
     log.evento("envio")  # não deve levantar

@@ -37,7 +37,7 @@ def test_demo_transacao_commit(capsys) -> None:
 
 
 def test_demo_transacao_abort(capsys) -> None:
-    # O Participante 2 vota NAO: a transação toda deve abortar (Req. 6.7).
+    # O Participante 2 vota NAO: a transação toda deve abortar.
     sim = DoisPCSimulado(COORD, PARTS, votos_desejados={2: VOTO_NAO})
     sim.executar_transacao("tx-abort")
 

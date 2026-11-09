@@ -1,4 +1,4 @@
-"""Testes do runner em processo do Anel (tarefa 9).
+"""Testes do runner em processo do Anel.
 
 Provam que o runner dirige a Máquina_de_Estados pura corretamente e produz
 métricas determinísticas por Semente, sem rede nem Docker: a eleição converge

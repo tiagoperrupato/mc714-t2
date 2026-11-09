@@ -6,7 +6,7 @@ repassa ao destino real (`upstream`). Sobre esse proxy aplicam-se *toxics* —
 latência, corte de banda, timeout, reset de conexão — e, derrubando o proxy
 inteiro, modela-se partição de rede. Tudo isso é controlado pelo HTTP API do
 serviço (porta 8474), sem reiniciar contêiner e sem tocar o código dos
-algoritmos (Requisito 9.1, 9.2).
+algoritmos.
 
 Por que este cliente vive em `src/comum/` e não nos algoritmos: é parte do
 Transporte/infra, complementar ao `ControladorFalhas` de aplicação
@@ -22,7 +22,7 @@ usa é o orquestrador de rede (`scripts/rede.py`) e os testes de integração. A
 latência acima do Deadline faz o `ClienteRede` (`src.comum.rede`) devolver
 `EnvioTimeout`; o corte de conexão (partição) devolve `EnvioConexaoRecusada` ou
 `EnvioIndisponivel` — é esse mapeamento de borda que deixa a falha de rede
-dirigir o salto do Anel e o ABORT por timeout do 2PC (Requisito 9.3, 9.4, 9.5).
+dirigir o salto do Anel e o ABORT por timeout do 2PC.
 
 Referência do API: https://github.com/Shopify/toxiproxy#http-api
 """
@@ -53,7 +53,7 @@ class Proxy:
     `nome` identifica o proxy no API. `listen` é o endereço host:porta onde o
     Toxiproxy aceita conexões (os Nós apontam para cá); `upstream` é o endereço
     host:porta do Nó real para onde o tráfego é repassado. `habilitado=False`
-    corta o proxy, modelando partição de rede (Requisito 9.4, 9.5).
+    corta o proxy, modelando partição de rede.
     """
 
     nome: str
@@ -82,7 +82,7 @@ class ClienteToxiproxy:
     As operações são **idempotentes onde importa**: `criar_proxy` substitui um
     proxy homônimo preexistente e `semear` limpa o estado antes de recriar, de
     modo que rodar o mesmo Cenário duas vezes produza a mesma topologia de
-    proxies — a repetibilidade exigida pelo Requisito 9.2/9.6.
+    proxies, que é o que torna o Cenário de rede repetível.
     """
 
     def __init__(
@@ -151,7 +151,7 @@ class ClienteToxiproxy:
     def definir_habilitado(self, nome: str, habilitado: bool) -> None:
         """Liga/desliga o proxy. Desligar (False) corta a rota = partição.
 
-        Modela a partição de rede do Requisito 9.4/9.5: com o proxy desabilitado
+        Modela a partição de rede: com o proxy desabilitado
         o Toxiproxy fecha as conexões, e o `ClienteRede` traduz isso em
         `EnvioConexaoRecusada`/`EnvioIndisponivel`, que o Anel lê como Sucessor
         falho (salto) e o 2PC lê para decidir/registrar o bloqueio.
@@ -162,7 +162,7 @@ class ClienteToxiproxy:
         """Zera o estado do Toxiproxy: remove todos os proxies e toxics.
 
         Chamado no início de um `semear` para garantir que a topologia de uma
-        execução não vaze para a próxima (repetibilidade, Requisito 9.2).
+        execução não vaze para a próxima (repetibilidade).
         """
         self._req("POST", "/reset")
         for nome in list(self.listar_proxies().keys()):
@@ -205,7 +205,7 @@ class ClienteToxiproxy:
         """Injeta `ms` de latência (com `jitter_ms` opcional) na rota do proxy.
 
         Latência acima do Deadline do `ClienteRede` faz a chamada estourar e
-        devolver `EnvioTimeout` (Requisito 9.3). O nome do toxic leva a direção,
+        devolver `EnvioTimeout`. O nome do toxic leva a direção,
         para que os dois sentidos de um proxy tenham latência ao mesmo tempo.
         """
         return self.adicionar_toxic(
@@ -262,7 +262,7 @@ class ClienteToxiproxy:
 
         É o ponto de entrada dos scripts de cenário: dada a lista de proxies de
         um algoritmo, zera o estado e os cria, garantindo que duas execuções do
-        mesmo Cenário partam da mesma topologia (Requisito 9.2, 9.6).
+        mesmo Cenário partam da mesma topologia.
         """
         self.resetar()
         for proxy in proxies:
@@ -304,7 +304,7 @@ def proxies_anel(ids: tuple[int, ...]) -> list[Proxy]:
 
     Cada Nó `j`, ao repassar ao Sucessor `i`, usa `http://toxiproxy:1600i`, de
     modo que todo o tráfego entre Nós do Anel atravessa o Toxiproxy e pode ser
-    degradado/particionado por proxy (Requisito 9.1). Partição do Líder é
+    degradado/particionado por proxy. Partição do Líder é
     desabilitar o proxy do Líder.
     """
     return [
@@ -324,7 +324,7 @@ def proxies_2pc(participantes: tuple[int, ...]) -> list[Proxy]:
     Participante `p` via `toxiproxy:1700?` -> `participante-?:8000`. Assim tanto
     Coordenador->Participante quanto Participante->Coordenador passam pelo
     Toxiproxy, e particionar o Coordenador de um Participante é desabilitar o
-    proxy daquele Participante (Requisito 9.5).
+    proxy daquele Participante.
     """
     proxies = [
         Proxy(

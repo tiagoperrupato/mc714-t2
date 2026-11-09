@@ -5,7 +5,7 @@ se este Nó é o Coordenador ou um Participante, de modo que a MESMA imagem sirv
 os dois papéis — o algoritmo é escolhido pelo ambiente, nunca embutido no código.
 
 Toda a configuração vem de variáveis de ambiente e é validada antes de abrir
-socket ou tocar o disco (Requisito 1.2, 1.3): uma configuração inválida encerra
+socket ou tocar o disco: uma configuração inválida encerra
 o processo sem efeito de rede ou de arquivo.
 
 Variáveis comuns:
@@ -26,7 +26,7 @@ Coordenador:
 Participante:
 - `PART_ID`, `PART_PORTA`    identidade e porta de escuta.
 - `COORD_ID/HOST/PORTA`      identidade do Coordenador.
-- `DOISPC_VOTO`              "SIM" ou "NAO" — a flag de voto (Requisito 7.4).
+- `DOISPC_VOTO`              "SIM" ou "NAO" — a flag de voto.
 - `DOISPC_DEADLINE`          Deadline de cada envio de rede, em s (default 2.0).
 - `DOISPC_LOG_DURAVEL`       caminho do Log_Duravel (default /dados/participante-{id}.log).
 """
@@ -93,9 +93,8 @@ def _abrir_log_e_controlador(
     """Abre o Log_Estruturado e cria o controlador de falhas deste Nó.
 
     O `inicio_replica` passa a sair do próprio controlador, que carimba a Semente
-    e o Plano_de_Falhas corrente (Requisito 8.4). Os streams `drop`/`delay` do
-    controlador derivam da Semente, mantendo o Cenário de falha reproduzível
-    (Requisito 8.2).
+    e o Plano_de_Falhas corrente. Os streams `drop`/`delay` do
+    controlador derivam da Semente, mantendo o Cenário de falha reproduzível.
     """
     log_dir = Path(os.environ.get("LOG_DIR", "results"))
     log = abrir_log(log_dir / f"doispc-{papel}-{no_id}.jsonl", no_id)
@@ -198,8 +197,8 @@ def construir_participante() -> tuple[object, int]:
         voto_desejado=voto,
         log=log,
     )
-    # Recupera eventual Decisao de uma transação anterior gravada no volume
-    # (Requisito 6.6): relê o Log_Duravel de todas as transações conhecidas.
+    # Recupera eventual Decisao de uma transação anterior gravada no volume:
+    # relê o Log_Duravel de todas as transações conhecidas.
     for tx in servico._log_duravel.transacoes():  # noqa: SLF001 - adaptador do próprio pacote
         servico.recuperar(tx)
     return criar_app_participante(servico, controlador=controlador), eu.porta

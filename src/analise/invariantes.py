@@ -2,16 +2,15 @@
 
 Cada invariante é uma função de `Dados` para `Veredito`: a função lê o que precisa
 dos logs já carregados e devolve um veredito que **passa**, **reprova** ou
-**avisa**. A distinção central do T2 está no enunciado (Requisito 12.4): uma
-reprovação indica violação de uma propriedade de *safety*; um aviso registra um
+**avisa**. A distinção central do T2 é decisão de projeto. Uma reprovação
+indica violação de uma propriedade de *safety*, e um aviso registra um
 fenômeno esperado — como o Estado_Em_Duvida bloqueante do 2PC quando o
 Coordenador cai — e **não** altera o código de saída. `scripts/verificar.py`
-sai com código diferente de zero só quando algum invariante reprova
-(Requisito 12.1).
+sai com código diferente de zero só quando algum invariante reprova.
 
 Os invariantes cobrem as propriedades declaradas em `docs/modelo-e-correcao.md`:
 
-Anel (Requisito 12.2)
+Anel
   1. **Unicidade do Líder por rodada** (*safety*): no máximo um Líder por
      Rodada_de_Eleicao concluída, identificada pelo id único da rodada. REPROVA.
   2. **Convergência dos vivos** (*liveness*): todos os Nós vivos que reportam um
@@ -19,26 +18,27 @@ Anel (Requisito 12.2)
   3. **O eleito é o maior id vivo** (*correctness*): o Líder anunciado numa
      rodada concluída é o maior id entre os Nós vivos. REPROVA.
 
-2PC (Requisito 12.3)
+2PC
   4. **Atomicidade** (*safety*): nenhum Nó decide COMMIT enquanto outro decide
      ABORT para a mesma transação. REPROVA.
   5. **Durabilidade** (*safety*): a Decisao gravada no Log_Duravel sobrevive ao
      reinício — a Decisao recuperada é igual à de antes. REPROVA se reverter.
      Um Participante que votou SIM mas não tem Decisao durável (Estado_Em_Duvida
-     por crash do Coordenador) vira **aviso**, não reprovação (Requisito 12.4).
+     por crash do Coordenador) vira **aviso**, não reprovação.
   6. **Validade** (*safety*): COMMIT só quando todos os Participantes votaram
      SIM. REPROVA.
 
 Este módulo é **autocontido** de propósito: lê os logs estruturados (JSONL) e os
 Logs_Duraveis direto com a biblioteca padrão (`json`), sem depender dos módulos
 de carga/estatística da camada de análise. Isso o mantém verificável mesmo
-quando a frente de análise ainda está em construção. Esta camada lê dados, não executa Réplica nem sobe contêiner.
+quando a frente de análise ainda está em construção. Esta camada lê dados, não
+executa Réplica nem sobe contêiner.
 
 As tolerâncias não usam nenhum número redondo
 escolhido para caber nos dados. As propriedades aqui são de *safety* exata sobre
 eventos discretos (um Líder, uma Decisao), então a tolerância natural é zero
 desvio — qualquer violação é um defeito, não ruído amostral. A única folga
-admitida é a distinção reprova/aviso do Requisito 12.4, justificada caso a caso
+admitida é a distinção reprova/aviso, justificada caso a caso
 na docstring de cada invariante e em `docs/invariantes.md`.
 """
 
@@ -156,7 +156,7 @@ class Dados:
 
 @dataclass(frozen=True)
 class Veredito:
-    """O resultado de um invariante. Avisos não derrubam `ok` (Requisito 12.4)."""
+    """O resultado de um invariante. Avisos não derrubam `ok`."""
 
     numero: int
     titulo: str
@@ -397,7 +397,7 @@ def _vivos_na_rodada(d: Dados, rodada: str) -> frozenset[int]:
 
 
 # --------------------------------------------------------------------------- #
-# Invariantes do Anel (Requisito 12.2).
+# Invariantes do Anel.
 # --------------------------------------------------------------------------- #
 
 
@@ -433,8 +433,8 @@ def invariante_02_convergencia(d: Dados) -> Veredito:
 
     Por rodada, todos os Nós que observaram o anúncio devem reportar o mesmo
     `lider`, e esse conjunto de observadores deve cobrir os Nós vivos da rodada —
-    a condição de convergência (Requisito 4.5: ao fim da rodada, todos os vivos
-    conhecem o mesmo Líder). Divergência entre observadores reprova; um vivo que
+    a condição de convergência: ao fim da rodada, todos os vivos conhecem o
+    mesmo Líder. Divergência entre observadores reprova; um vivo que
     jamais observou o anúncio também reprova, pois a rodada não convergiu para
     ele. A tolerância é zero: convergência é um predicado exato.
     """
@@ -473,7 +473,7 @@ def invariante_03_maior_id_vivo(d: Dados) -> Veredito:
 
     Para cada rodada concluída, o `lider` anunciado deve ser igual ao maior id
     entre os Nós vivos daquela rodada. É a definição de Líder do glossário e a
-    propriedade de safety do Requisito 4.7: a eleição determina o maior id vivo,
+    propriedade de safety da eleição: ela determina o maior id vivo,
     independentemente de quem iniciou. Tolerância zero, de novo por ser igualdade
     de inteiros — qualquer discrepância é um defeito, não flutuação.
     """
@@ -507,7 +507,7 @@ def invariante_03_maior_id_vivo(d: Dados) -> Veredito:
 
 
 # --------------------------------------------------------------------------- #
-# Invariantes do 2PC (Requisitos 12.3, 12.4).
+# Invariantes do 2PC.
 # --------------------------------------------------------------------------- #
 
 
@@ -515,7 +515,7 @@ def _decisoes_por_transacao(d: Dados) -> dict[str, dict[int, str]]:
     """Mapeia transação -> {no: primeira Decisao durável desse Nó}.
 
     A primeira Decisao por (transacao, no) é a que vale: uma vez decidida, a
-    transação não reverte (Requisito 6.8), então entradas posteriores de Decisao
+    transação não reverte, então entradas posteriores de Decisao
     do mesmo Nó são ignoradas, reproduzindo a redução de `log_duravel._reduzir`.
     """
     decisoes: dict[str, dict[int, str]] = {}
@@ -541,7 +541,7 @@ def _votos_por_transacao(d: Dados) -> dict[str, dict[int, str]]:
 def invariante_04_atomicidade(d: Dados) -> Veredito:
     """Atomicidade do 2PC: nenhum COMMIT enquanto outro ABORT na mesma transação.
 
-    Safety do Requisito 12.3: numa dada transação, todos os Nós que gravaram uma
+    Safety: numa dada transação, todos os Nós que gravaram uma
     Decisao concordam. Lemos a Decisao durável de cada Nó (Coordenador e
     Participantes) a partir dos Logs_Duraveis e reprovamos se, para alguma
     transação, aparecem COMMIT e ABORT ao mesmo tempo. A tolerância é zero: a
@@ -576,12 +576,12 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
 
     - Se um Nó registra uma `recuperacao` (releu o Log_Duravel após reinício), a
       `decisao` recuperada deve bater com a Decisao durável daquele Nó para a
-      transação. Divergência é reversão após reinício e REPROVA (Requisitos 6.6,
+      transação. Divergência é reversão após reinício e REPROVA (
       6.8).
     - Um Participante que gravou Voto SIM mas não tem Decisao durável está em
       Estado_Em_Duvida — o bloqueio esperado do 2PC quando o Coordenador cai
-      antes de difundir a Decisao (Requisito 8.5). Isso vira **aviso**, nunca
-      reprovação (Requisito 12.4): bloquear é comportamento correto do algoritmo,
+      antes de difundir a Decisao. Isso vira **aviso**, nunca
+      reprovação: bloquear é comportamento correto do algoritmo,
       não defeito de durabilidade. A reprovação fica reservada à reversão de uma
       Decisao já registrada.
 
@@ -589,7 +589,7 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
     invariante fica em lacuna, e os avisos de dúvida aparecem mesmo assim.
 
     Tolerância: zero para a reversão (igualdade de Decisao); o Estado_Em_Duvida é
-    classificado como aviso por decisão de projeto do enunciado, não por folga
+    classificado como aviso por decisão de projeto, não por folga
     numérica.
     """
     decisoes = _decisoes_por_transacao(d)
@@ -710,8 +710,7 @@ def relatar(
     Um invariante sem caso a verificar (verificados == 0) é reportado à parte,
     como lacuna de dados, e NÃO reprova por si — é `scripts/verificar.py` que
     decide se a ausência de dados do algoritmo é aceitável. Avisos (como o
-    Estado_Em_Duvida) aparecem no relatório mas não alteram o código de saída
-    (Requisito 12.4, 12.6).
+    Estado_Em_Duvida) aparecem no relatório mas não alteram o código de saída.
     """
     imprimir(f"\n=== {titulo} ===\n")
     largura = max((len(v.titulo) for v in vereditos), default=0)
@@ -736,7 +735,7 @@ def relatar(
 
     imprimir("")
     if total_avisos:
-        imprimir(f"{total_avisos} aviso(s), que não reprovam (Requisito 12.4).")
+        imprimir(f"{total_avisos} aviso(s), que não reprovam.")
     if lacunas:
         numeros = ", ".join(str(v.numero) for v in lacunas)
         imprimir(

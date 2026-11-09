@@ -1,24 +1,23 @@
 """App FastAPI do Coordenador do 2PC — adaptador fino sobre a Máquina_de_Estados.
 
 Como o Participante, este módulo **não reimplementa 2PC**. Ele é o adaptador de
-rede (Requisito 7.1) que liga `src.doispc.maquina` ao Transporte com Deadline e
+rede que liga `src.doispc.maquina` ao Transporte com Deadline e
 ao Log_Duravel. O Coordenador:
 
 - em `POST /transacao`, chama `iniciar_transacao`, que devolve os PREPARE a
-  difundir, e os despacha (Requisito 6.2);
+  difundir, e os despacha;
 - recebe os VOTO e os ACK em `POST /mensagem`, entregando-os a
   `coordenador_recebe`; ao chegar o último Voto, a Máquina_de_Estados decide
   COMMIT ou ABORT e devolve, **na ordem write-ahead**, a `GravarLog` da Decisao
-  antes das `Enviar` de DECISAO (Requisito 6.3, 6.4, 6.7);
+  antes das `Enviar` de DECISAO;
 - se o Deadline de coleta de Votos estoura antes de todos votarem, chama
-  `coordenador_decide_por_timeout`, que decide ABORT e difunde a Decisao
-  (Requisito 7.5);
+  `coordenador_decide_por_timeout`, que decide ABORT e difunde a Decisao;
 - retransmite a DECISAO a quem ainda não mandou o ACK, a cada
   `intervalo_reenvio`, numa thread própria;
 - na partida, `recuperar` relê o Log_Duravel, aborta o que estava em WAIT e
   difunde de novo o que estava decidido.
 
-Os Deadlines de Voto e de Decisao são configuráveis (Requisito 7.6): o de Voto
+Os Deadlines de Voto e de Decisao são configuráveis: o de Voto
 limita a espera pela coleta em `/transacao`; o de Decisao é o prazo de cada
 envio de rede (PREPARE, DECISAO) feito pelo Transporte.
 """
@@ -56,9 +55,9 @@ class ServicoCoordenador:
     O estado de cada transação fica num mapa pelo id, e várias transações podem
     correr ao mesmo tempo. `participantes` mapeia id → `No` de cada
     Participante, usado tanto para difundir PREPARE quanto para resolver
-    endereços no executor. `deadline_voto` limita a coleta de Votos
-    (Requisito 7.5, 7.6); `deadline_decisao` é o prazo de cada envio de rede
-    (Requisito 7.6). Um `Lock` serializa as transições, pois Votos e ACKs
+    endereços no executor. `deadline_voto` limita a coleta de Votos;
+    `deadline_decisao` é o prazo de cada envio de rede.
+    Um `Lock` serializa as transições, pois Votos e ACKs
     chegam em requisições concorrentes.
 
     A retransmissão envia direto da própria thread, e não pela fila de saída.
@@ -121,7 +120,7 @@ class ServicoCoordenador:
         """Inicia uma transação: grava a entrada em WAIT, difunde PREPARE e espera a Decisao.
 
         Retorna a Decisao final (COMMIT/ABORT). Se o Deadline de coleta de Votos
-        estoura antes de todos votarem, decide ABORT (Requisito 7.5).
+        estoura antes de todos votarem, decide ABORT.
 
         Um id já usado não abre rodada nova, que poderia decidir diferente da
         primeira. Ele devolve a Decisao, ou espera a rodada em curso. Depois de
@@ -168,7 +167,7 @@ class ServicoCoordenador:
                     break
                 self._decidiu.wait(restante)
 
-            # Deadline de coleta de Votos excedido: ABORT por timeout (Requisito 7.5).
+            # Deadline de coleta de Votos excedido: ABORT por timeout.
             if self._log is not None:
                 self._log.evento("timeout_votos", transacao=transacao)
             novo, acoes = coordenador_decide_por_timeout(estado, self._eu.id)
@@ -178,9 +177,9 @@ class ServicoCoordenador:
     def receber(self, mensagem: Mensagem) -> Mapping[str, Any]:
         """Entrega um VOTO ou um ACK à Máquina_de_Estados e executa as `Acao`.
 
-        A resposta é um ACK imediato de recebimento (Requisito 3.5). Ao completar
+        A resposta é um ACK imediato de recebimento. Ao completar
         a coleta de Votos, `coordenador_recebe` já devolve a `GravarLog` da
-        Decisao antes das `Enviar`, mantendo o write-ahead (Requisito 6.4).
+        Decisao antes das `Enviar`, mantendo o write-ahead.
         """
         if self._log is not None:
             self._log.evento(
@@ -217,7 +216,7 @@ class ServicoCoordenador:
             self._decidiu.notify_all()
 
     def recuperar(self) -> None:
-        """Relê o Log_Duravel na partida, antes de servir (Requisito 6.6).
+        """Relê o Log_Duravel na partida, antes de servir.
 
         Cada transação do log passa por `recuperar_coordenador`: a decidida é
         difundida de novo, e a que estava em WAIT vira ABORT, gravado e difundido.
@@ -334,16 +333,16 @@ def criar_servico_de_env() -> ServicoCoordenador:
 def criar_app(servico: Optional[ServicoCoordenador] = None, *, controlador=None):
     """Cria o app FastAPI do Coordenador em volta de um `ServicoCoordenador`.
 
-    Expõe `POST /mensagem` (VOTO/ACK), `POST /transacao` (inicia um commit,
-    Requisito 7.1) e `GET /estado`. Importa FastAPI localmente para preservar a
+    Expõe `POST /mensagem` (VOTO/ACK), `POST /transacao` (inicia um commit)
+    e `GET /estado`. Importa FastAPI localmente para preservar a
     fronteira de dependência.
 
     Com um `controlador` de falhas, o recebimento de VOTO/ACK passa pelo
-    controlador antes da Máquina e os endpoints `/falha/*` ficam expostos
-    (Requisito 8.3). Com o crash do controlador ligado, o despacho da DECISAO é
+    controlador antes da Máquina e os endpoints `/falha/*` ficam expostos.
+    Com o crash do controlador ligado, o despacho da DECISAO é
     suprimido (quando o `ClienteComFalhas` embrulha o cliente) e o `/mensagem`
     devolve 503. Os Participantes que votaram SIM ficam em Estado_Em_Duvida
-    (Requisito 8.5) até o crash ser limpo, e então a retransmissão os alcança.
+    até o crash ser limpo, e então a retransmissão os alcança.
     """
     from fastapi import Body, FastAPI, HTTPException
     from fastapi.responses import JSONResponse

@@ -1,4 +1,4 @@
-"""Cenários de falha de ponta a ponta e sua verificação (tarefa 12).
+"""Cenários de falha de ponta a ponta e sua verificação.
 
 Dois níveis, como no resto do projeto:
 
@@ -8,7 +8,7 @@ Dois níveis, como no resto do projeto:
   cada log uma vez, o código 1 quando o desfecho difere do esperado, e a prova
   de que um log com Participantes em Estado_Em_Duvida, como o que fica enquanto
   o Coordenador está fora, produz AVISO e não REPROVA através de
-  `src.analise.invariantes` (Requisitos 8.5, 12.4). Também cobre o caminho de
+  `src.analise.invariantes`. Também cobre o caminho de
   degradação sem Docker (código 2).
 
 - **Com Docker** (marcados `slow`): sobem cada cenário de falha de ponta a ponta
@@ -151,8 +151,8 @@ def test_participante_em_duvida_vira_aviso_nao_reprova(tmp_path: Path) -> None:
     """Imita os logs coletados com o Coordenador fora depois de decidir: Voto SIM sem Decisao.
 
     O Coordenador gravou a Decisao (COMMIT), mas os Participantes só têm Voto SIM
-    durável, porque a DECISAO não chegou. A verificação deve sair 0 (aviso, não
-    reprovação), cumprindo o Requisito 12.4.
+    durável, porque a DECISAO não chegou. A verificação deve sair 0, com aviso e
+    sem reprovação.
     """
     logs = tmp_path / "cenario_2pc_crash-coord_logs"
     # Log_Duravel do Coordenador: decidiu COMMIT.

@@ -1,7 +1,7 @@
 """Dados imutáveis compartilhados: identidade de Nó e Mensagens.
 
-Tudo aqui é `frozen`, sem estado mutável compartilhado entre componentes
-(Requisito 1.1). As Máquinas_de_Estados dos algoritmos recebem e devolvem estes
+Tudo aqui é `frozen`, sem estado mutável compartilhado entre componentes.
+As Máquinas_de_Estados dos algoritmos recebem e devolvem estes
 objetos por valor; a camada de rede os serializa para JSON e de volta.
 
 Este módulo não conhece os tipos de evento específicos de cada algoritmo: a

@@ -5,11 +5,11 @@ um cenário real sobre o Docker Compose, conduz o algoritmo pelos
 endpoints de controle, coleta as métricas observadas **e os Logs_Estruturados e
 Logs_Duraveis que os Nós reais deixaram** para `results/`, e por fim roda os
 invariantes de correção sobre esses logs (`scripts/verificar.py`). É o
-complemento "ponta a ponta" da orquestração (tarefas 9 e 12): a bateria mede
+complemento "ponta a ponta" da orquestração: a bateria mede
 tendência com reprodutibilidade; o cenário demonstra um caso único sobre a rede
 real e prova sua correção pelos invariantes.
 
-Cada cenário registra a **Semente** com que foi conduzido (Requisitos 2.2, 8.4):
+Cada cenário registra a **Semente** com que foi conduzido:
 ela aparece no registro JSON coletado e, por vir do ambiente dos contêineres,
 também no `inicio_replica` de cada Log_Estruturado. Com a mesma Semente e a
 mesma configuração do compose, o Cenário de falha é repetível.
@@ -26,8 +26,7 @@ Cenários do Anel:
 
     python scripts/cenario.py anel falha
         Idem, e então derruba o contêiner do Líder (Nó 5) e dispara nova
-        eleição: os Nós vivos reelegem o maior id vivo (4), cumprindo o
-        Requisito 8.6.
+        eleição: os Nós vivos reelegem o maior id vivo (4).
 
 Cenários do 2PC:
 
@@ -35,12 +34,12 @@ Cenários do 2PC:
         Coordenador + 3 Participantes, todos votando SIM → COMMIT em todos.
 
     python scripts/cenario.py 2pc abort          (alias: 2pc falha)
-        Participante 3 vota NAO → ABORT atômico em todos (Requisito 7.4).
+        Participante 3 vota NAO → ABORT atômico em todos.
 
     python scripts/cenario.py 2pc crash-coord
         Todos votam SIM, e o processo do Coordenador morre logo depois de
         gravar a Decisao, antes de difundi-la (flag `DOISPC_CAIR_APOS_DECIDIR`).
-        O cenário mostra os Participantes em Estado_Em_Duvida (Requisito 8.5),
+        O cenário mostra os Participantes em Estado_Em_Duvida,
         reinicia o contêiner e mostra todos decidindo COMMIT depois que o
         Coordenador relê o Log_Duravel e difunde a Decisao gravada.
 
@@ -48,7 +47,7 @@ Requer Docker com Compose v2. Sem Docker, o script falha com uma mensagem clara
 e código de saída 2, em vez de travar.
 
 O script valida a configuração do cenário ANTES de subir qualquer contêiner ou
-tocar `results/` (Requisito 10.5), e sempre derruba o compose ao final
+tocar `results/`, e sempre derruba o compose ao final
 (`down -v --remove-orphans`), para não deixar contêiner nem volume órfão.
 """
 
@@ -98,7 +97,7 @@ PORTAS_ANEL = {i: 8000 + i for i in range(1, 6)}  # 8001..8005
 SEMENTE_PADRAO = 0
 
 # Modos normalizados do 2PC. Mantemos os aliases `normal`/`falha` por
-# compatibilidade com a tarefa 9 (normal == commit, falha == abort).
+# compatibilidade (normal == commit, falha == abort).
 _MODOS_2PC = {
     "normal": "commit",
     "commit": "commit",
@@ -163,8 +162,8 @@ def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, An
     - `normal`: dispara uma eleição com os cinco Nós vivos, que converge para o
       maior id (5).
     - `falha`: depois dessa eleição, derruba o contêiner do Líder com
-      `docker compose kill` e dispara outra. Ela salta o 5 (Requisito 5.5) e
-      converge para o maior id vivo (4), cumprindo o Requisito 8.6.
+      `docker compose kill` e dispara outra. Ela salta o 5 e
+      converge para o maior id vivo (4).
 
     Cada eleição é uma rodada com id próprio, e os invariantes conferem cada uma
     contra os Nós vivos nela.

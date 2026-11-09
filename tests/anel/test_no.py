@@ -6,11 +6,11 @@ Dois níveis, nenhum exigindo Docker:
   delega a decisão à Máquina_de_Estados pura e apenas despacha as Mensagens de
   saída. O repasse ao Sucessor tem novas tentativas dentro do Deadline. Só
   quando nenhuma é aceita o adaptador chama `com_sucessor_falho` e reemite ao
-  próximo Nó vivo (Requisitos 4.6, 5.5), sem reimplementar a eleição.
+  próximo Nó vivo, sem reimplementar a eleição.
 
 - **Integração local (sem contêiner)**: sobe os 5 Nós como apps FastAPI em
   uvicorn locais, em portas efêmeras, dispara uma eleição por HTTP e confere que
-  todos convergem para o maior id ao consultar `GET /estado` (Requisitos 5.1,
+  todos convergem para o maior id ao consultar `GET /estado` (
   5.4). É a mesma prova da tarefa, só que sem Docker, para rodar no CI.
 """
 
@@ -129,7 +129,7 @@ def test_estado_atual_reporta_lider_apos_eleicao_trivial() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Unitário: regra de salto no timeout (Req. 4.6 / 5.5)
+# Unitário: regra de salto no timeout
 # ---------------------------------------------------------------------------
 
 

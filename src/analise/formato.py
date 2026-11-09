@@ -3,7 +3,7 @@
 Células já formatadas como texto,
 colunas de texto à esquerda e numéricas à direita, e um rodapé de reprodução que
 nomeia o comando que regenera a tabela e os arquivos de onde ela saiu. Toda
-tabela de `docs/` é produto de um comando da análise (Requisito 11.5), então o
+tabela de `docs/` é produto de um comando da análise, então o
 rodapé deixa isso explícito no documento.
 """
 

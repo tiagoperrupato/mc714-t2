@@ -1,14 +1,14 @@
-"""Demo de ponta a ponta dos cenários de falha (tarefa 12).
+"""Demo de ponta a ponta dos cenários de falha.
 
-Roda os dois cenários de falha exigidos pelo enunciado, em sequência, sobre o
-Docker Compose, e deixa os logs coletados sob `results/` já conferidos pelos
-invariantes de correção:
+Roda em sequência, sobre o Docker Compose, os dois cenários de falha que o E1 do
+enunciado pede, um por algoritmo, e deixa os logs coletados sob `results/` já
+conferidos pelos invariantes de correção:
 
-1. **Anel — morte do Líder → reeleição** (`anel falha`, Requisito 8.6): elege o
+1. **Anel — morte do Líder → reeleição** (`anel falha`): elege o
    maior id (5), mata o Líder e mostra os Nós vivos reelegendo o maior id vivo
    (4).
-2. **2PC, crash e recuperação do Coordenador** (`2pc crash-coord`,
-   Requisito 8.5): todos votam SIM, o processo do Coordenador cai logo depois
+2. **2PC, crash e recuperação do Coordenador** (`2pc crash-coord`): todos
+   votam SIM, o processo do Coordenador cai logo depois
    de gravar a Decisao, e os Participantes ficam em Estado_Em_Duvida. O
    contêiner reinicia, o Coordenador relê o log e todos decidem COMMIT.
 

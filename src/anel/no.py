@@ -1,23 +1,22 @@
 """Nó do Anel sobre a rede: adaptador fino FastAPI sobre a Máquina_de_Estados pura.
 
-Este módulo é a camada de rede do algoritmo de Eleição em Anel (Requisito 5.1).
+Este módulo é a camada de rede do algoritmo de Eleição em Anel.
 Ele NÃO reimplementa a lógica de eleição: toda decisão é delegada a
 `src.anel.maquina` (funções puras sobre `EstadoAnel`), e o único papel deste
 adaptador é traduzir Mensagens HTTP recebidas em chamadas à Máquina_de_Estados e
-despachar as Mensagens de saída pelo `ClienteRede` do Transporte (Requisito 3.6).
+despachar as Mensagens de saída pelo `ClienteRede` do Transporte.
 
 Responsabilidades, e só elas:
 
 - Expor `POST /mensagem` (via `criar_app_recebedor`), que entrega cada Mensagem
   recebida a `receber` e enfileira o que a Máquina devolver para despacho.
-- Expor os endpoints de controle `GET /estado` e `POST /iniciar-eleicao`
-  (Requisito 5.1).
+- Expor os endpoints de controle `GET /estado` e `POST /iniciar-eleicao`.
 - Ao repassar uma Mensagem ao Sucessor, reenviar dentro do Deadline até ele
   aceitá-la. Só quando o Deadline acaba sem aceite o adaptador chama
-  `com_sucessor_falho`, a regra de salto do Anel (Requisitos 4.6, 5.5). Uma
+  `com_sucessor_falho`, a regra de salto do Anel. Uma
   Mensagem perdida não deve tirar do Anel um Nó vivo.
 
-Despacho fora do caminho da resposta HTTP (Requisito 3.5). Um ponto sutil, mas
+Despacho fora do caminho da resposta HTTP. Um ponto sutil, mas
 essencial para a correção: o repasse ao Sucessor NÃO acontece dentro do handler
 HTTP que recebeu a Mensagem. Se acontecesse, o handler de cada Nó ficaria
 bloqueado esperando o repasse ao próximo, que por sua vez espera o seguinte, e
@@ -103,7 +102,7 @@ class NoAnel:
         """Bloqueia até a fila de saída esvaziar, útil em testes determinísticos."""
         self._saida.drenar()
 
-    # -- Consulta de estado (Requisito 5.1) --------------------------------
+    # -- Consulta de estado --------------------------------
 
     @property
     def estado(self) -> EstadoAnel:
@@ -126,10 +125,10 @@ class NoAnel:
     # -- Entradas que mudam o estado ---------------------------------------
 
     def processar_mensagem(self, mensagem: Mensagem) -> dict[str, Any]:
-        """Entrega uma Mensagem recebida à Máquina e enfileira a saída (Requisito 5.1).
+        """Entrega uma Mensagem recebida à Máquina e enfileira a saída.
 
         A resposta HTTP é um ACK imediato de recebimento; ela não espera o
-        término das rodadas que o despacho venha a provocar (Requisito 3.5). O
+        término das rodadas que o despacho venha a provocar. O
         envio em si fica a cargo do worker de background.
         """
         with self._lock:
@@ -146,7 +145,7 @@ class NoAnel:
         return {"ack": True, "no_id": self.estado.no_id}
 
     def disparar_eleicao(self) -> dict[str, Any]:
-        """Dispara uma Rodada_de_Eleicao neste Nó e enfileira a saída (Requisito 5.1).
+        """Dispara uma Rodada_de_Eleicao neste Nó e enfileira a saída.
 
         O id da rodada leva o id do Nó e um sufixo aleatório, para não repetir o
         de uma rodada anterior, nem depois de um reinício.
@@ -160,7 +159,7 @@ class NoAnel:
         self._enfileirar(saida)
         return {"iniciada": True, "no_id": self.estado.no_id, "lider": self.estado.lider}
 
-    # -- Despacho em background com a regra de salto (Requisitos 4.6, 5.5) --
+    # -- Despacho em background com a regra de salto --
 
     def _enfileirar(self, saida: list[Mensagem]) -> None:
         self._saida.enfileirar(saida)
@@ -227,15 +226,15 @@ def criar_app(no: NoAnel, *, controlador=None):
 
     Registra `POST /mensagem` (via o helper do Transporte, que desacopla a
     resposta HTTP da lógica) e os endpoints de controle `GET /estado` e
-    `POST /iniciar-eleicao` (Requisito 5.1). A lógica de eleição vive em
+    `POST /iniciar-eleicao`. A lógica de eleição vive em
     `src.anel.maquina`; este app apenas a expõe pela rede.
 
     Quando um `controlador` de falhas é fornecido, o recebimento de Mensagens
     passa por ele antes de chegar à Máquina (drop/delay/pause/crash), os
-    endpoints `/falha/*` são expostos para controle em runtime (Requisito 8.3),
+    endpoints `/falha/*` são expostos para controle em runtime,
     e um crash devolve HTTP 503 (o Nó "deixa de responder"). O despacho de saída
     é interceptado passando um `ClienteComFalhas` ao `NoAnel` na construção; a
-    Máquina continua pura (Requisito 8.1).
+    Máquina continua pura.
     """
     from src.comum.rede import criar_app_recebedor
 

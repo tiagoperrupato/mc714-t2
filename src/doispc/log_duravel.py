@@ -1,6 +1,6 @@
 """Log_Duravel write-ahead do 2PC, atrás de uma interface que isola o IO de disco.
 
-A Máquina_de_Estados do 2PC é pura (Requisito 6.1): ela não sabe se o
+A Máquina_de_Estados do 2PC é pura: ela não sabe se o
 Log_Duravel vive em memória ou em arquivo. Este módulo define essa fronteira.
 
 `LogDuravel` é o contrato (um `Protocol`): anexar uma `EntradaLog` em write-ahead
@@ -13,14 +13,14 @@ satisfazem:
 - `LogDuravelArquivo`: anexa uma linha JSON por entrada e faz `flush`/`fsync`
   antes de retornar, de modo que a entrada sobreviva a um crash do processo. A
   recuperação relê o arquivo inteiro e devolve o mesmo estado de antes do
-  reinício (Requisito 6.6).
+  reinício.
 
-A ordem write-ahead é a regra central (Requisito 6.4, 6.5): o adaptador de rede
+A ordem write-ahead é a regra central: o adaptador de rede
 grava o Voto **antes** de respondê-lo e a Decisao **antes** de aplicá-la. Como
 `registrar` só retorna depois de a entrada estar durável, chamar `registrar`
 antes de responder pela rede é o que garante a durabilidade. Uma vez anexada,
-uma Decisao nunca é reescrita nem removida, o que sustenta a não-reversão
-(Requisito 6.8): a recuperação sempre relê a primeira Decisao registrada.
+uma Decisao nunca é reescrita nem removida, o que sustenta a não-reversão:
+a recuperação sempre relê a primeira Decisao registrada.
 """
 
 from __future__ import annotations
@@ -105,9 +105,9 @@ class LogDuravel(Protocol):
     """Contrato do Log_Duravel: anexar em write-ahead e recuperar o estado.
 
     A Máquina_de_Estados depende apenas deste contrato, nunca de uma
-    implementação concreta (Requisito 6.1). `registrar` só retorna depois de a
+    implementação concreta. `registrar` só retorna depois de a
     entrada estar durável; é por isso que gravar antes de responder pela rede
-    garante a durabilidade (Requisito 6.4).
+    garante a durabilidade.
     """
 
     def registrar(self, entrada: EntradaLog) -> None:
@@ -128,8 +128,8 @@ def _reduzir(entradas: Iterable[EntradaLog], transacao: str) -> EstadoPersistido
 
     O Voto segue a última entrada de Voto. A Decisao segue a **primeira**
     Decisao registrada e ignora qualquer entrada posterior: uma vez decidida,
-    uma transação não reverte (Requisito 6.8), então a recuperação sempre
-    reporta a mesma Decisao de antes do reinício (Requisito 6.6). A entrada de
+    uma transação não reverte, então a recuperação sempre
+    reporta a mesma Decisao de antes do reinício. A entrada de
     INICIO não muda o resumo. Ela só faz a transação aparecer em `transacoes()`,
     e no Coordenador uma transação sem Decisao está em WAIT.
     """
@@ -159,7 +159,7 @@ def _ordem_transacoes(entradas: Iterable[EntradaLog]) -> tuple[str, ...]:
 class LogDuravelMemoria:
     """Log_Duravel em memória: mesma semântica write-ahead, sem tocar o disco.
 
-    Útil para testes e para as demonstrações em memória da tarefa 5. As entradas
+    Útil para testes e para as demonstrações em memória. As entradas
     ficam numa lista, na ordem de registro; `recuperar` as reduz como a
     implementação em arquivo faria após reler o arquivo.
     """
@@ -190,9 +190,9 @@ class LogDuravelArquivo:
 
     `registrar` anexa a linha, dá `flush` no buffer de Python e `fsync` no
     descritor, só então retornando — é isso que torna a entrada durável antes de
-    o adaptador responder pela rede (Requisito 6.4, 6.5). `recuperar` abre o
+    o adaptador responder pela rede. `recuperar` abre o
     arquivo, relê todas as linhas e reduz ao estado persistido, de modo que um
-    Nó reiniciado reporte a mesma Decisao de antes (Requisito 6.6).
+    Nó reiniciado reporte a mesma Decisao de antes.
 
     Linhas corrompidas (por exemplo uma escrita parcial interrompida por um
     crash no meio do append) são ignoradas na recuperação: uma entrada só conta
