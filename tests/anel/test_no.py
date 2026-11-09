@@ -4,10 +4,9 @@ Dois níveis, nenhum exigindo Docker:
 
 - **Unitário com cliente fake**: prova que `NoAnel` é um adaptador fino — ele
   delega a decisão à Máquina_de_Estados pura e apenas despacha as Mensagens de
-  saída. Em particular, quando o repasse ao Sucessor retorna um resultado de
-  transporte que indica Sucessor inalcançável (timeout, conexão recusada,
-  indisponível), o adaptador chama `com_sucessor_falho` e reemite ao próximo Nó
-  vivo (Requisitos 4.6, 5.5), sem reimplementar a eleição.
+  saída. O repasse ao Sucessor tem novas tentativas dentro do Deadline. Só
+  quando nenhuma é aceita o adaptador chama `com_sucessor_falho` e reemite ao
+  próximo Nó vivo (Requisitos 4.6, 5.5), sem reimplementar a eleição.
 
 - **Integração local (sem contêiner)**: sobe os 5 Nós como apps FastAPI em
   uvicorn locais, em portas efêmeras, dispara uma eleição por HTTP e confere que
@@ -25,7 +24,7 @@ from contextlib import closing
 import pytest
 
 from src.anel.maquina import EstadoAnel, TIPO_ELEICAO, TIPO_LIDER
-from src.anel.no import NoAnel, criar_app
+from src.anel.no import TENTATIVAS_ANTES_DO_SALTO, NoAnel, criar_app
 from src.comum.modelos import Mensagem
 from src.comum.rede import (
     EnvioConexaoRecusada,
@@ -45,19 +44,24 @@ class _ClienteFake:
     """`ClienteRede` falso: devolve um `ResultadoEnvio` por destino.
 
     `mortos` é o conjunto de ids inalcançáveis; um envio a eles devolve o
-    resultado configurado em `falha` (timeout por padrão). Os demais recebem um
-    `EnvioOk`. Registra os envios feitos para inspeção.
+    resultado configurado em `falha` (timeout por padrão). `perdas` diz quantos
+    envios a um id falham antes de ele aceitar. Os demais recebem um `EnvioOk`.
+    Registra os envios feitos para inspeção.
     """
 
-    def __init__(self, urls, *, mortos=frozenset(), falha=None) -> None:
+    def __init__(self, urls, *, mortos=frozenset(), falha=None, perdas=None) -> None:
         self._por_url = {url: no_id for no_id, url in urls.items()}
         self.mortos = set(mortos)
         self.falha = falha or EnvioTimeout(deadline=1.0, tentativas=1)
+        self.perdas = dict(perdas or {})
         self.enviadas: list[tuple[int, Mensagem]] = []
 
     def enviar(self, destino_url, mensagem, deadline):
         no_id = self._por_url[destino_url]
         self.enviadas.append((no_id, mensagem))
+        if self.perdas.get(no_id, 0) > 0:
+            self.perdas[no_id] -= 1
+            return self.falha
         if no_id in self.mortos:
             return self.falha
         return EnvioOk(status=200, corpo={"ack": True, "no_id": no_id})
@@ -97,7 +101,7 @@ def test_processar_mensagem_delega_a_maquina_e_repassa() -> None:
     cliente = _ClienteFake(urls)
     no = NoAnel(EstadoAnel(no_id=2, anel=ANEL5), urls=urls, cliente=cliente, deadline=1.0)
     try:
-        msg = Mensagem(tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"iniciador": 1, "ids": [1]})
+        msg = Mensagem(tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"rodada": "1-1", "ids": [1]})
         resposta = no.processar_mensagem(msg)
         no.drenar()
 
@@ -137,22 +141,43 @@ def test_estado_atual_reporta_lider_apos_eleicao_trivial() -> None:
     ],
 )
 def test_salta_sucessor_inalcancavel_e_reemite_ao_proximo(falha) -> None:
-    # Sucessor 2 inalcançável: o adaptador deve marcar 2 morto e reemitir a MESMA
-    # Mensagem_Eleicao ao próximo vivo (3), delegando a com_sucessor_falho.
+    # Sucessor 2 inalcançável: depois das tentativas dentro do Deadline, o
+    # adaptador marca 2 morto e reemite a MESMA Mensagem_Eleicao ao próximo vivo (3).
     urls = _urls(ANEL5)
     cliente = _ClienteFake(urls, mortos={2}, falha=falha)
-    no = NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=cliente, deadline=1.0)
+    no = NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=cliente, deadline=0.03)
     try:
         no.disparar_eleicao()
         no.drenar()
 
         destinos = [d for d, _ in cliente.enviadas]
-        # Tentou 2 (falhou) e então 3 (ok).
-        assert destinos == [2, 3]
+        assert destinos == [2] * TENTATIVAS_ANTES_DO_SALTO + [3]
         assert 2 in no.estado.mortos
         # A Mensagem reemitida preserva os ids acumulados da original.
-        _, reemitida = cliente.enviadas[1]
+        _, reemitida = cliente.enviadas[-1]
         assert list(reemitida.corpo["ids"]) == [1]
+    finally:
+        no.parar()
+
+
+@pytest.mark.parametrize(
+    "falha",
+    [
+        EnvioOk(status=200, corpo={"ack": False, "descartada": True}),
+        EnvioTimeout(deadline=1.0, tentativas=1),
+    ],
+)
+def test_reenvia_dentro_do_deadline_antes_de_saltar(falha) -> None:
+    # A primeira entrega a 2 se perde. A nova tentativa é aceita, e 2 não é saltado.
+    urls = _urls(ANEL5)
+    cliente = _ClienteFake(urls, falha=falha, perdas={2: 1})
+    no = NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=cliente, deadline=0.03)
+    try:
+        no.disparar_eleicao()
+        no.drenar()
+
+        assert [d for d, _ in cliente.enviadas] == [2, 2]
+        assert no.estado.mortos == frozenset()
     finally:
         no.parar()
 
@@ -161,13 +186,14 @@ def test_salta_varios_mortos_consecutivos_ate_vivo() -> None:
     # 2 e 3 mortos: o salto encadeia 2 -> 3 -> 4, parando no primeiro vivo.
     urls = _urls(ANEL5)
     cliente = _ClienteFake(urls, mortos={2, 3})
-    no = NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=cliente, deadline=1.0)
+    no = NoAnel(EstadoAnel(no_id=1, anel=ANEL5), urls=urls, cliente=cliente, deadline=0.03)
     try:
         no.disparar_eleicao()
         no.drenar()
 
         destinos = [d for d, _ in cliente.enviadas]
-        assert destinos == [2, 3, 4]
+        n = TENTATIVAS_ANTES_DO_SALTO
+        assert destinos == [2] * n + [3] * n + [4]
         assert {2, 3} <= no.estado.mortos
     finally:
         no.parar()

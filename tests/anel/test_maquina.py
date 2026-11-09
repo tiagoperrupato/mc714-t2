@@ -8,7 +8,10 @@ torna possível (Requisito 4.1).
 Cobrem:
 - eleição a partir de qualquer iniciador converge para o maior id (Req. 4.2–4.5);
 - rodadas concorrentes convergem para o mesmo Líder (Req. 4.7);
-- com um Nó marcado morto, a eleição salta e ainda converge (Req. 4.6).
+- com um Nó marcado morto, a eleição salta e ainda converge (Req. 4.6);
+- uma eleição atrasada não fecha de novo uma rodada concluída;
+- um Nó que volta participa da eleição seguinte;
+- o anúncio para mesmo quando o iniciador morre no meio da rodada.
 """
 
 from __future__ import annotations
@@ -37,9 +40,10 @@ class AnelSimulado:
     """Entrega Mensagens entre Nós de um Anel chamando as funções puras.
 
     Mantém um estado por Nó e uma fila de Mensagens em trânsito. `mortos` é o
-    conjunto de ids que não respondem: quando uma Mensagem é endereçada a um
-    morto, o driver não a entrega; em vez disso, invoca `com_sucessor_falho` no
-    remetente, modelando o estouro de Deadline da camada de rede (Req. 4.6).
+    conjunto de ids que não respondem, e o teste pode mudá-lo entre rodadas:
+    quando uma Mensagem é endereçada a um morto, o driver não a entrega; em vez
+    disso, invoca `com_sucessor_falho` no remetente, modelando o estouro de
+    Deadline da camada de rede (Req. 4.6).
 
     Devolve, ao final, o estado de cada Nó e o histórico de Mensagens trocadas,
     para que os testes verifiquem convergência e para a demo imprimir o tráfego.
@@ -49,11 +53,10 @@ class AnelSimulado:
         self.anel = anel
         self.mortos = mortos
         self.estados: dict[int, EstadoAnel] = {
-            no_id: EstadoAnel(no_id=no_id, anel=anel, mortos=mortos)
-            for no_id in anel
-            if no_id not in mortos
+            no_id: EstadoAnel(no_id=no_id, anel=anel) for no_id in anel
         }
         self.historico: list[Mensagem] = []
+        self._rodadas = 0
 
     def _entregar(self, pendentes: list[Mensagem]) -> None:
         """Processa Mensagens até esvaziar a fila, aplicando a regra de salto."""
@@ -82,19 +85,24 @@ class AnelSimulado:
             self.estados[msg.destino] = novo
             fila.extend(saida)
 
-    def disparar(self, iniciador: int) -> None:
-        """Dispara uma eleição a partir de `iniciador` e processa até estabilizar."""
-        estado, saida = iniciar_eleicao(self.estados[iniciador])
-        self.estados[iniciador] = estado
+    def iniciar(self, iniciador: int) -> tuple[str, list[Mensagem]]:
+        """Abre uma rodada com id novo em `iniciador`, sem entregar nada ainda."""
+        self._rodadas += 1
+        rodada = f"{iniciador}-{self._rodadas}"
+        self.estados[iniciador], saida = iniciar_eleicao(self.estados[iniciador], rodada)
+        return rodada, saida
+
+    def disparar(self, iniciador: int) -> str:
+        """Dispara uma eleição a partir de `iniciador`, processa até estabilizar e devolve a rodada."""
+        rodada, saida = self.iniciar(iniciador)
         self._entregar(saida)
+        return rodada
 
     def disparar_concorrente(self, iniciadores: list[int]) -> None:
         """Dispara várias eleições e intercala as Mensagens em trânsito."""
         fila: list[Mensagem] = []
         for iniciador in iniciadores:
-            estado, saida = iniciar_eleicao(self.estados[iniciador])
-            self.estados[iniciador] = estado
-            fila.extend(saida)
+            fila.extend(self.iniciar(iniciador)[1])
         self._entregar(fila)
 
     def vivos(self) -> list[int]:
@@ -121,27 +129,18 @@ def test_converge_para_maior_id_de_qualquer_iniciador(iniciador: int) -> None:
     assert all(l == 5 for l in lideres.values())
 
 
-def test_iniciador_encerra_sem_reenviar_a_mensagem_lider() -> None:
-    # Req. 4.5: a Mensagem_Lider que volta ao iniciador não é repassada de novo.
+def test_anuncio_da_uma_volta_e_para() -> None:
+    # Req. 4.5: cada Nó repassa a Mensagem_Lider uma vez, e quem a emitiu não a
+    # repassa quando ela volta.
     sim = AnelSimulado(ANEL5)
-    sim.disparar(1)
-    # A rodada do iniciador 1 consta como concluída em quem a originou.
-    assert 1 in sim.estados[1].rodadas_concluidas
-    # O iniciador não deve ter emitido uma Mensagem_Lider após recebê-la de volta:
-    # contamos quantas Mensagem_Lider têm origem 1. Deve haver no máximo uma volta.
-    lider_da_origem_1 = [
-        m for m in sim.historico if m.tipo == TIPO_LIDER and m.origem == 1
-    ]
-    # O iniciador 1 só emite Mensagem_Lider se for ele quem fecha a volta da
-    # eleição; nesse anel quem fecha é quem recebe a eleição de volta. De todo
-    # modo, nunca deve reenviar após a Mensagem_Lider retornar a ele.
-    destinos = [m.destino for m in lider_da_origem_1]
-    assert len(destinos) == len(set(destinos)) or not destinos
+    rodada = sim.disparar(1)
+    assert all(rodada in sim.estados[i].rodadas_concluidas for i in ANEL5)
+    assert len([m for m in sim.historico if m.tipo == TIPO_LIDER]) == len(ANEL5)
 
 
 def test_anel_de_um_no_e_lider_trivial() -> None:
     estado = EstadoAnel(no_id=7, anel=(7,))
-    novo, saida = iniciar_eleicao(estado)
+    novo, saida = iniciar_eleicao(estado, "7-1")
     assert saida == []
     assert novo.lider == 7
 
@@ -150,7 +149,7 @@ def test_mensagem_eleicao_acumula_ids_em_ordem() -> None:
     # Verifica o acúmulo do conjunto no primeiro repasse (Req. 4.3).
     estado2 = EstadoAnel(no_id=2, anel=ANEL5)
     msg = Mensagem(
-        tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"iniciador": 1, "ids": [1]}
+        tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"rodada": "1-1", "ids": [1]}
     )
     _, saida = receber(estado2, msg)
     assert len(saida) == 1
@@ -158,7 +157,7 @@ def test_mensagem_eleicao_acumula_ids_em_ordem() -> None:
     assert adiante.tipo == TIPO_ELEICAO
     assert adiante.destino == 3
     assert list(adiante.corpo["ids"]) == [1, 2]
-    assert adiante.corpo["iniciador"] == 1
+    assert adiante.corpo["rodada"] == "1-1"
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +219,7 @@ def test_com_sucessor_falho_reemite_ao_proximo_vivo() -> None:
     # Unidade: o salto marca o morto e reemite a MESMA Mensagem ao próximo vivo.
     estado = EstadoAnel(no_id=1, anel=ANEL5)
     msg = Mensagem(
-        tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"iniciador": 1, "ids": [1]}
+        tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"rodada": "1-1", "ids": [1]}
     )
     novo, saida = com_sucessor_falho(estado, msg, sucessor_falho=2)
     assert 2 in novo.mortos
@@ -233,11 +232,59 @@ def test_com_sucessor_falho_sem_mais_vivos_descarta() -> None:
     # Anel degenerado a um único vivo: a Mensagem não tem para onde seguir.
     estado = EstadoAnel(no_id=1, anel=(1, 2), mortos=frozenset())
     msg = Mensagem(
-        tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"iniciador": 1, "ids": [1]}
+        tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"rodada": "1-1", "ids": [1]}
     )
     novo, saida = com_sucessor_falho(estado, msg, sucessor_falho=2)
     assert 2 in novo.mortos
     assert saida == []
+
+
+# ---------------------------------------------------------------------------
+# Rodada única, reintegração e anúncio que termina
+# ---------------------------------------------------------------------------
+
+
+def test_eleicao_atrasada_nao_fecha_de_novo_a_rodada() -> None:
+    # O 5 estava só pausado: o 4 o saltou e a rodada elegeu 4. Ao acordar, o 5
+    # acrescenta seu id à eleição atrasada e a repassa ao 1, que já fechou a rodada.
+    sim = AnelSimulado(ANEL5, mortos=frozenset({5}))
+    rodada = sim.disparar(1)
+    assert set(sim.lideres().values()) == {4}
+
+    atrasada = Mensagem(
+        tipo=TIPO_ELEICAO, origem=5, destino=1, corpo={"rodada": rodada, "ids": [1, 2, 3, 4, 5]}
+    )
+    novo, saida = receber(sim.estados[1], atrasada)
+    assert saida == []
+    assert novo.lider == 4
+
+
+def test_no_que_volta_participa_da_eleicao_seguinte() -> None:
+    sim = AnelSimulado(ANEL5, mortos=frozenset({5}))
+    sim.disparar(1)
+    assert 5 in sim.estados[4].mortos
+    assert set(sim.lideres().values()) == {4}
+
+    sim.mortos = frozenset()  # o 5 reinicia
+    sim.disparar(1)
+    assert set(sim.lideres().values()) == {5}, sim.lideres()
+
+
+def test_quem_manda_mensagem_sai_de_mortos() -> None:
+    estado = EstadoAnel(no_id=1, anel=ANEL5, mortos=frozenset({5}))
+    anuncio = Mensagem(tipo=TIPO_LIDER, origem=5, destino=1, corpo={"rodada": "3-1", "lider": 5})
+    novo, _ = receber(estado, anuncio)
+    assert novo.mortos == frozenset()
+
+
+def test_anuncio_para_mesmo_se_o_iniciador_morre_no_meio() -> None:
+    # O 1 inicia e morre. Quem fecha a volta é o 2, e o anúncio para quando
+    # volta a ele, sem dar voltas atrás do iniciador.
+    sim = AnelSimulado(ANEL5)
+    _, saida = sim.iniciar(1)
+    sim.mortos = frozenset({1})
+    sim._entregar(saida)
+    assert set(sim.lideres().values()) == {5}
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +295,7 @@ def test_com_sucessor_falho_sem_mais_vivos_descarta() -> None:
 def test_funcoes_nao_mutam_o_estado_recebido() -> None:
     estado = EstadoAnel(no_id=2, anel=ANEL5)
     msg = Mensagem(
-        tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"iniciador": 1, "ids": [1]}
+        tipo=TIPO_ELEICAO, origem=1, destino=2, corpo={"rodada": "1-1", "ids": [1]}
     )
     antes_mortos = estado.mortos
     antes_lider = estado.lider

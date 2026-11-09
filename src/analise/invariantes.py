@@ -14,7 +14,7 @@ and Correctness" do design:
 
 Anel (Requisito 12.2)
   1. **Unicidade do Líder por rodada** (*safety*): no máximo um Líder por
-     Rodada_de_Eleicao concluída, identificada pelo id do iniciador. REPROVA.
+     Rodada_de_Eleicao concluída, identificada pelo id único da rodada. REPROVA.
   2. **Convergência dos vivos** (*liveness*): todos os Nós vivos que reportam um
      Líder ao fim de uma rodada reportam o mesmo. REPROVA se divergirem.
   3. **O eleito é o maior id vivo** (*correctness*): o Líder anunciado numa
@@ -141,15 +141,15 @@ class Dados:
 
     `eventos` são as linhas do Log_Estruturado de todos os Nós, na ordem em que
     foram lidas. `duraveis` são as entradas de todos os Logs_Duraveis do 2PC.
-    `vivos_por_rodada`, quando conhecido, mapeia o id do iniciador de uma rodada
-    do Anel ao conjunto de ids vivos naquela rodada; quando vazio, os invariantes
-    do Anel inferem os vivos dos próprios eventos (os Nós marcados `sucessor_falho`
-    são tratados como mortos).
+    `vivos_por_rodada`, quando conhecido, mapeia o id de uma rodada do Anel ao
+    conjunto de ids vivos naquela rodada; quando vazio, os invariantes do Anel
+    inferem os vivos dos próprios eventos (os Nós saltados por `sucessor_falho`
+    na rodada são tratados como mortos nela).
     """
 
     eventos: tuple[EventoLog, ...] = ()
     duraveis: tuple[EntradaDuravel, ...] = ()
-    vivos_por_rodada: Mapping[int, frozenset[int]] = field(default_factory=dict)
+    vivos_por_rodada: Mapping[str, frozenset[int]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -311,13 +311,13 @@ def _recortar(mensagens: list[str]) -> list[str]:
 class AnuncioLider:
     """Um anúncio de Líder observado num evento `recebeu` de Mensagem_Lider.
 
-    `iniciador` identifica a Rodada_de_Eleicao (Requisito 2.3: a identidade de uma
-    rodada é o id do seu iniciador). `lider` é o id anunciado, e `no` é o Nó que
-    observou o anúncio. Vários Nós observam o mesmo anúncio ao longo da circulação
-    da Mensagem_Lider; os invariantes agregam por rodada.
+    `rodada` é o id único da Rodada_de_Eleicao, gerado por quem a iniciou.
+    `lider` é o id anunciado, e `no` é o Nó que observou o anúncio. Vários Nós
+    observam o mesmo anúncio ao longo da circulação da Mensagem_Lider; os
+    invariantes agregam por rodada.
     """
 
-    iniciador: int
+    rodada: str
     lider: int
     no: int
 
@@ -326,7 +326,7 @@ def _anuncios_de_lider(eventos: Sequence[EventoLog]) -> list[AnuncioLider]:
     """Extrai os anúncios de Líder dos eventos `recebeu` de Mensagem_Lider.
 
     Um Nó registra `recebeu` com `msg_tipo="lider"` e um `corpo` que carrega
-    `iniciador` e `lider` (ver `src/anel/no.py` e `src/anel/maquina.py`). Esse é
+    `rodada` e `lider` (ver `src/anel/no.py` e `src/anel/maquina.py`). Esse é
     o sinal observável de que um Nó tomou ciência do Líder de uma rodada, do qual
     os invariantes 1, 2 e 3 derivam suas conclusões.
     """
@@ -337,12 +337,12 @@ def _anuncios_de_lider(eventos: Sequence[EventoLog]) -> list[AnuncioLider]:
         if ev.campos.get("msg_tipo") != MSG_LIDER:
             continue
         corpo = ev.campos.get("corpo") or {}
-        if "iniciador" not in corpo or "lider" not in corpo:
+        if "rodada" not in corpo or "lider" not in corpo:
             continue
         try:
             anuncios.append(
                 AnuncioLider(
-                    iniciador=int(corpo["iniciador"]),
+                    rodada=str(corpo["rodada"]),
                     lider=int(corpo["lider"]),
                     no=int(ev.no),
                 )
@@ -360,11 +360,15 @@ def _nos_do_anel(eventos: Sequence[EventoLog]) -> frozenset[int]:
     return frozenset(ev.no for ev in eventos if ev.tipo in anel_evts)
 
 
-def _mortos_observados(eventos: Sequence[EventoLog]) -> frozenset[int]:
-    """Ids descobertos falhos por salto: o alvo de cada evento `sucessor_falho`."""
+def _mortos_observados(eventos: Sequence[EventoLog], rodada: str) -> frozenset[int]:
+    """Ids saltados na `rodada`: o alvo de cada evento `sucessor_falho` dela.
+
+    Um Nó saltado numa rodada pode estar vivo na seguinte, então a morte não
+    vale para o log inteiro.
+    """
     mortos: set[int] = set()
     for ev in eventos:
-        if ev.tipo != EV_SUCESSOR_FALHO:
+        if ev.tipo != EV_SUCESSOR_FALHO or ev.campos.get("rodada") != rodada:
             continue
         sucessor = ev.campos.get("sucessor")
         if sucessor is not None:
@@ -375,18 +379,18 @@ def _mortos_observados(eventos: Sequence[EventoLog]) -> frozenset[int]:
     return frozenset(mortos)
 
 
-def _vivos_na_rodada(d: Dados, iniciador: int) -> frozenset[int]:
-    """Conjunto de Nós vivos para a rodada `iniciador`.
+def _vivos_na_rodada(d: Dados, rodada: str) -> frozenset[int]:
+    """Conjunto de Nós vivos na `rodada`.
 
     Usa `vivos_por_rodada` quando o chamador o forneceu (um cenário conhece quem
     matou e quando). Na falta disso, infere dos eventos: todos os Nós do Anel
-    menos os descobertos falhos por salto. Essa inferência é conservadora e
+    menos os saltados naquela rodada. Essa inferência é conservadora e
     suficiente para os cenários coletados, onde a morte de um Nó aparece como
     `sucessor_falho` no log de quem o contornou.
     """
-    if iniciador in d.vivos_por_rodada:
-        return frozenset(d.vivos_por_rodada[iniciador])
-    return _nos_do_anel(d.eventos) - _mortos_observados(d.eventos)
+    if rodada in d.vivos_por_rodada:
+        return frozenset(d.vivos_por_rodada[rodada])
+    return _nos_do_anel(d.eventos) - _mortos_observados(d.eventos, rodada)
 
 
 # --------------------------------------------------------------------------- #
@@ -397,25 +401,23 @@ def _vivos_na_rodada(d: Dados, iniciador: int) -> frozenset[int]:
 def invariante_01_lider_unico(d: Dados) -> Veredito:
     """No máximo um Líder por Rodada_de_Eleicao concluída (safety). REPROVA.
 
-    A identidade de uma rodada é o id do iniciador (Requisito 2.3). Agrupamos os
-    anúncios por rodada e exigimos que todos concordem num único `lider`. Dois
-    valores distintos de Líder na mesma rodada são uma violação de safety —
-    exatamente o que o Chang-Roberts sobre anel unidirecional não pode produzir,
-    pois o maior id acumulado é único. A tolerância é zero: não há margem amostral
-    numa igualdade de inteiros.
+    Cada rodada tem um id único, gerado por quem a inicia. Agrupamos os anúncios
+    por rodada e exigimos que todos concordem num único `lider`. Dois valores
+    distintos de Líder na mesma rodada são uma violação de safety, como a que
+    uma eleição atrasada produziria ao fechar de novo uma rodada já concluída. A
+    tolerância é zero: não há margem amostral numa igualdade de inteiros.
     """
     anuncios = _anuncios_de_lider(d.eventos)
-    por_rodada: dict[int, set[int]] = {}
+    por_rodada: dict[str, set[int]] = {}
     for a in anuncios:
-        por_rodada.setdefault(a.iniciador, set()).add(a.lider)
+        por_rodada.setdefault(a.rodada, set()).add(a.lider)
 
     falhas: list[str] = []
-    for iniciador in sorted(por_rodada):
-        lideres = por_rodada[iniciador]
+    for rodada in sorted(por_rodada):
+        lideres = por_rodada[rodada]
         if len(lideres) > 1:
             falhas.append(
-                f"rodada do iniciador {iniciador}: {len(lideres)} Líderes "
-                f"distintos {sorted(lideres)}"
+                f"rodada {rodada}: {len(lideres)} Líderes distintos {sorted(lideres)}"
             )
     return veredito(
         1, "Unicidade do Líder por rodada (Anel)", len(por_rodada), falhas,
@@ -434,26 +436,26 @@ def invariante_02_convergencia(d: Dados) -> Veredito:
     ele. A tolerância é zero: convergência é um predicado exato.
     """
     anuncios = _anuncios_de_lider(d.eventos)
-    por_rodada: dict[int, list[AnuncioLider]] = {}
+    por_rodada: dict[str, list[AnuncioLider]] = {}
     for a in anuncios:
-        por_rodada.setdefault(a.iniciador, []).append(a)
+        por_rodada.setdefault(a.rodada, []).append(a)
 
     falhas: list[str] = []
-    for iniciador in sorted(por_rodada):
-        grupo = por_rodada[iniciador]
+    for rodada in sorted(por_rodada):
+        grupo = por_rodada[rodada]
         lideres = {a.lider for a in grupo}
         observadores = {a.no for a in grupo}
         if len(lideres) > 1:
             falhas.append(
-                f"rodada {iniciador}: observadores reportam Líderes diferentes "
+                f"rodada {rodada}: observadores reportam Líderes diferentes "
                 f"{sorted(lideres)}"
             )
             continue
-        vivos = _vivos_na_rodada(d, iniciador)
+        vivos = _vivos_na_rodada(d, rodada)
         faltam = vivos - observadores
         if vivos and faltam:
             falhas.append(
-                f"rodada {iniciador}: Nó(s) vivo(s) {sorted(faltam)} não "
+                f"rodada {rodada}: Nó(s) vivo(s) {sorted(faltam)} não "
                 f"conheceram o Líder {next(iter(lideres))}"
             )
     return veredito(
@@ -473,18 +475,18 @@ def invariante_03_maior_id_vivo(d: Dados) -> Veredito:
     de inteiros — qualquer discrepância é um defeito, não flutuação.
     """
     anuncios = _anuncios_de_lider(d.eventos)
-    por_rodada: dict[int, set[int]] = {}
+    por_rodada: dict[str, set[int]] = {}
     for a in anuncios:
-        por_rodada.setdefault(a.iniciador, set()).add(a.lider)
+        por_rodada.setdefault(a.rodada, set()).add(a.lider)
 
     falhas: list[str] = []
     verificados = 0
-    for iniciador in sorted(por_rodada):
-        lideres = por_rodada[iniciador]
+    for rodada in sorted(por_rodada):
+        lideres = por_rodada[rodada]
         if len(lideres) != 1:
             # A unicidade é do invariante 1; aqui só checamos rodadas bem-formadas.
             continue
-        vivos = _vivos_na_rodada(d, iniciador)
+        vivos = _vivos_na_rodada(d, rodada)
         if not vivos:
             continue
         verificados += 1
@@ -492,7 +494,7 @@ def invariante_03_maior_id_vivo(d: Dados) -> Veredito:
         esperado = max(vivos)
         if eleito != esperado:
             falhas.append(
-                f"rodada {iniciador}: Líder eleito {eleito}, mas o maior id vivo "
+                f"rodada {rodada}: Líder eleito {eleito}, mas o maior id vivo "
                 f"é {esperado} (vivos {sorted(vivos)})"
             )
     return veredito(

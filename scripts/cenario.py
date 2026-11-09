@@ -21,8 +21,8 @@ Cenários do Anel:
         Tempo_de_Convergencia observado. A eleição converge para o maior id (5).
 
     python scripts/cenario.py anel falha
-        Idem, e então injeta crash no Líder (Nó 5) via `/falha/crash` e dispara
-        nova eleição: os Nós vivos reelegem o maior id vivo (4), cumprindo o
+        Idem, e então derruba o contêiner do Líder (Nó 5) e dispara nova
+        eleição: os Nós vivos reelegem o maior id vivo (4), cumprindo o
         Requisito 8.6.
 
 Cenários do 2PC:
@@ -214,64 +214,47 @@ def _esperar_lider(bases: dict[int, str], ids, alvo, timeout: float) -> dict[int
     return lideres
 
 
-def _cenario_anel(modo: str, semente: int) -> dict[str, Any]:
-    """Conduz um cenário do Anel sobre o compose e devolve as métricas observadas.
-
-    - `normal`: dispara UMA eleição com os cinco Nós vivos; converge para o maior
-      id da topologia (5).
-    - `falha`: injeta crash no Líder natural (Nó 5, o maior id) ANTES da eleição
-      observada e dispara UMA eleição, que salta o Nó 5 morto (regra do
-      Requisito 5.5) e converge para o maior id **vivo** restante (4),
-      cumprindo o Requisito 8.6.
-
-    Por que o crash vem antes da eleição observada, e não depois de uma primeira
-    eleição: a identidade de uma Rodada_de_Eleicao é o id do seu iniciador
-    (Requisito 2.3), e os invariantes inferem os Nós vivos de uma rodada a partir
-    do conjunto de eventos coletado, tratando como mortos os Nós contornados por
-    salto (`sucessor_falho`). Encadear duas eleições num mesmo log — uma com 5
-    vivo e outra com 5 morto — misturaria dois conjuntos de vivos no mesmo
-    arquivo e confundiria a inferência. Mantendo UMA rodada observada por
-    cenário, o log coletado é consistente e os invariantes passam sem ambiguidade.
-    A convergência para o maior id COM todos vivos é demonstrada pelo cenário
-    `normal`; a reeleição para o maior id vivo APÓS a morte do Líder, por este.
-    """
-    bases = {i: f"http://127.0.0.1:{PORTAS_ANEL[i]}" for i in range(1, 6)}
-
-    if modo == "falha":
-        # Mata o Líder natural (o maior id, 5) antes da eleição observada.
-        _http_json(f"{bases[5]}/falha/crash", metodo="POST")
-        vivos = [1, 2, 3, 4]
-        alvo = 4
-    else:
-        vivos = list(range(1, 6))
-        alvo = 5
-
+def _eleger(bases: dict[int, str], vivos: list[int], alvo: int) -> tuple[bool, float]:
+    """Dispara uma eleição no Nó 1. Devolve se os `vivos` chegaram a `alvo` e o tempo."""
     inicio = time.monotonic()
     _http_json(f"{bases[1]}/iniciar-eleicao", metodo="POST")
     lideres = _esperar_lider(bases, vivos, alvo, 30.0)
-    convergencia = time.monotonic() - inicio
+    return set(lideres.values()) == {alvo}, time.monotonic() - inicio
 
+
+def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, Any]:
+    """Conduz um cenário do Anel sobre o compose e devolve as métricas observadas.
+
+    - `normal`: dispara uma eleição com os cinco Nós vivos, que converge para o
+      maior id (5).
+    - `falha`: depois dessa eleição, derruba o contêiner do Líder com
+      `docker compose kill` e dispara outra. Ela salta o 5 (Requisito 5.5) e
+      converge para o maior id vivo (4), cumprindo o Requisito 8.6.
+
+    Cada eleição é uma rodada com id próprio, e os invariantes conferem cada uma
+    contra os Nós vivos nela.
+    """
+    bases = {i: f"http://127.0.0.1:{PORTAS_ANEL[i]}" for i in range(1, 6)}
+    convergiu, tempo = _eleger(bases, list(range(1, 6)), 5)
     registro: dict[str, Any] = {
         "cenario": f"anel_{modo}",
         "algoritmo": "anel",
         "modo": modo,
         "semente": semente,
         "maior_id_topologia": 5,
-        "lider": alvo if set(lideres.values()) == {alvo} else None,
-        "convergiu": set(lideres.values()) == {alvo},
-        "tempo_convergencia_s": round(convergencia, 4),
-        # Mantém as chaves históricas para compatibilidade com testes/consumidores
-        # que inspecionam a convergência inicial do cenário normal.
-        "lider_inicial": alvo if set(lideres.values()) == {alvo} else None,
-        "convergiu_inicial": set(lideres.values()) == {alvo},
+        "lider_inicial": 5 if convergiu else None,
+        "convergiu_inicial": convergiu,
+        "tempo_convergencia_s": round(tempo, 4),
     }
     if modo == "falha":
+        _compose("kill", "no-anel-5", arquivos=arquivos, timeout=60)
+        reelegeu, tempo = _eleger(bases, [1, 2, 3, 4], 4)
         registro.update(
             {
-                "falha_injetada": "crash_lider_natural(5) via /falha/crash, antes da eleicao",
-                "lider_pos_falha": alvo if set(lideres.values()) == {alvo} else None,
-                "reeleicao_ok": set(lideres.values()) == {alvo},
-                "tempo_reeleicao_s": round(convergencia, 4),
+                "falha_injetada": "docker compose kill no-anel-5, depois da primeira eleição",
+                "lider_pos_falha": 4 if reelegeu else None,
+                "reeleicao_ok": reelegeu,
+                "tempo_reeleicao_s": round(tempo, 4),
             }
         )
     return registro
@@ -497,7 +480,7 @@ def executar_cenario(
     if algoritmo == "anel":
         servicos = SERVICOS_ANEL
         override_texto = _override_anel(semente)
-        conduzir = lambda _arquivos: _cenario_anel(rotulo, semente)  # noqa: E731
+        conduzir = lambda arquivos: _cenario_anel(rotulo, semente, arquivos)  # noqa: E731
     else:
         servicos = SERVICOS_2PC
         override_texto = _override_2pc(modo_norm, semente)

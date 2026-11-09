@@ -59,25 +59,26 @@ resultado verdadeiro é um fenômeno esperado, por determinação do enunciado
 (Requisito 12.4), e não uma reprovação. A reprovação de durabilidade fica
 reservada à reversão de uma Decisao já registrada.
 
-**A identidade de uma rodada é o id do iniciador.** Os invariantes do Anel
-agrupam os anúncios de Líder por iniciador (Requisito 2.3), de modo que duas
-rodadas concorrentes não se confundam. Os Nós vivos de uma rodada, quando o
-cenário não os informa explicitamente, são inferidos do log: todos os Nós que
-emitiram algum evento do Anel, menos os descobertos falhos por salto
-(`sucessor_falho`). A inferência é conservadora e casa com os cenários coletados,
-onde a morte de um Nó aparece como o salto de quem o contornou.
+**Cada rodada tem um id único.** Quem inicia a rodada gera o id, que vai na
+Mensagem_Eleicao, na Mensagem_Lider e no evento `sucessor_falho`. Os invariantes
+do Anel agrupam os anúncios de Líder por esse id, de modo que duas rodadas,
+concorrentes ou do mesmo iniciador, não se confundam. Os Nós vivos de uma
+rodada, quando o cenário não os informa explicitamente, são inferidos do log:
+todos os Nós que emitiram algum evento do Anel, menos os saltados naquela rodada.
+Um Nó saltado numa rodada pode estar vivo na seguinte. A inferência é
+conservadora e casa com os cenários coletados, onde a morte de um Nó aparece
+como o salto de quem o contornou.
 
 ## Os cinco invariantes
 
 ### 1. Unicidade do Líder por rodada (Anel) — *safety*
 
 Cada Rodada_de_Eleicao concluída anuncia um único Líder. Agrupamos os anúncios
-observados nos eventos `recebeu` de Mensagem_Lider por id de iniciador e exigimos
+observados nos eventos `recebeu` de Mensagem_Lider por id de rodada e exigimos
 um único valor de `lider` por rodada. Dois valores distintos na mesma rodada
-reprovam. É uma propriedade que o Chang-Roberts sobre anel unidirecional não pode
-violar — o maior id acumulado é único —, então qualquer violação indica um
-defeito na circulação, não ruído. Tolerância: zero. Liga-se à *safety* do
-Requisito 4.7.
+reprovam. Uma eleição atrasada que fechasse de novo uma rodada concluída
+produziria isso, e os Nós a ignoram, então qualquer violação indica um defeito
+na circulação, não ruído. Tolerância: zero. Liga-se à *safety* do Requisito 4.7.
 
 ### 2. Convergência dos Nós vivos (Anel) — *liveness*/*safety*
 

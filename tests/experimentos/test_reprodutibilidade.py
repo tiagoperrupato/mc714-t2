@@ -45,8 +45,8 @@ def _ler_csv(caminho: Path) -> list[dict[str, str]]:
 def _log_anel_convergido(destino: Path) -> None:
     """Grava um Log_Estruturado mínimo e CORRETO de uma eleição do Anel.
 
-    Cinco Nós vivos anunciam o mesmo Líder (o maior id, 5) na rodada do iniciador
-    1 — exatamente o formato que `src/anel/no.py` deixa e que os invariantes de
+    Cinco Nós vivos anunciam o mesmo Líder (o maior id, 5) na rodada "1-a"
+    — exatamente o formato que `src/anel/no.py` deixa e que os invariantes de
     unicidade/convergência leem. Serve para exercitar o caminho de sucesso de
     `scripts/verificar.py` sem precisar subir o compose.
     """
@@ -58,7 +58,7 @@ def _log_anel_convergido(destino: Path) -> None:
             "tipo": "recebeu",
             "msg_tipo": "lider",
             "origem": 0,
-            "corpo": {"iniciador": 1, "lider": 5},
+            "corpo": {"rodada": "1-a", "lider": 5},
         }
         for no in (1, 2, 3, 4, 5)
     ]

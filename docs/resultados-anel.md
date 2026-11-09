@@ -17,8 +17,8 @@ ambiente do Requisito 13.7).
 | Nós | n | Convergiu | Tempo médio (passos) | IC 95% (±) | Mensagens médias | IC 95% msgs (±) |
 |:----|--:|----------:|---------------------:|-----------:|-----------------:|----------------:|
 | 3   | 5 |   100,0 % |                 5,00 |       0,00 |             5,00 |            0,00 |
-| 5   | 5 |   100,0 % |                10,00 |       2,78 |             9,60 |            1,67 |
-| 7   | 5 |    60,0 % |                13,00 |       0,00 |            13,00 |            0,00 |
+| 5   | 5 |   100,0 % |                 9,20 |       0,56 |             9,20 |            0,56 |
+| 7   | 5 |   100,0 % |                13,40 |       0,68 |            13,40 |            0,68 |
 
 > Tabela gerada por `python scripts/analisar.py anel` a partir de `results/bateria_anel_num_nos.csv`. Não editar à mão: cole novamente a saída do comando.
 

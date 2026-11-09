@@ -2,7 +2,7 @@
 
 Dirige a Máquina_de_Estados pura do Anel (`src.anel.maquina`) com um barramento
 de Mensagens em memória, sem rede nem contêiner. O barramento aplica a regra de
-salto do Anel quando um Nó alvo está falho e descarta Mensagens com uma taxa de
+salto do Anel quando um Nó alvo está morto e perde Mensagens com uma taxa de
 falhas derivada da Semente (stream `drop` de `Streams`), medindo as métricas do
 Requisito 10.2:
 
@@ -11,13 +11,15 @@ Requisito 10.2:
   lógicos (e não em segundos de relógio) é o que torna a Réplica reproduzível
   dígito a dígito entre máquinas, respeitando a limitação de ambiente do
   Requisito 13.7 (relógios físicos não são a base da correção nem da comparação).
-- **Mensagens**: o total de Mensagens entregues até a convergência.
+- **Mensagens**: o total de Mensagens enviadas a Nós vivos até a convergência,
+  contando as perdidas.
 
-Modelo de falhas. `taxa_falhas` em [0, 1) é a probabilidade de uma entrega ser
-descartada, sorteada do stream `drop` semeado. Como o barramento reage ao
-descarte aplicando a regra de salto (`com_sucessor_falho`), um descarte vira a
-descoberta de um Sucessor temporariamente inalcançável — exatamente o efeito que
-o Anel precisa contornar. `nos_mortos` marca Nós crash-stop, que nunca entregam.
+Modelo de falhas. `taxa_falhas` em [0, 1) é a probabilidade de uma Mensagem se
+perder, sorteada do stream `drop` semeado. O remetente a reenvia até ela chegar,
+como o Nó faz dentro do Deadline. `nos_mortos` marca Nós crash-stop, que nunca
+recebem, e só eles levam ao salto. A bateria conta passos, e não tempo, então
+não modela o Deadline que acaba antes de um reenvio dar certo, a suspeita
+errada que os testes com rede cobrem.
 
 A pureza das Máquinas é preservada: o runner só orquestra `iniciar_eleicao`,
 `receber` e `com_sucessor_falho`, sem reimplementar eleição.
@@ -120,7 +122,9 @@ def executar_replica_anel(
             nos_vivos=0,
         )
 
-    estados[iniciador_efetivo], saida = iniciar_eleicao(estados[iniciador_efetivo])
+    estados[iniciador_efetivo], saida = iniciar_eleicao(
+        estados[iniciador_efetivo], rodada=f"{iniciador_efetivo}-1"
+    )
     fila.extend(saida)
 
     passos = 0
@@ -131,11 +135,9 @@ def executar_replica_anel(
         destino = msg.destino
         remetente = msg.origem
 
-        entregue = destino in vivos and not _descartar(streams, taxa_falhas)
-        if not entregue:
-            # Entrega falhou: o remetente aplica a regra de salto para o próximo
-            # vivo, reemitindo a MESMA Mensagem (Requisito 4.6). A decisão é da
-            # Máquina pura; o runner apenas reage ao resultado de transporte.
+        if destino not in vivos:
+            # O remetente aplica a regra de salto e reemite a MESMA Mensagem ao
+            # próximo vivo (Requisito 4.6). A decisão é da Máquina pura.
             estados[remetente], reemitidas = com_sucessor_falho(
                 estados[remetente], msg, destino
             )
@@ -143,6 +145,9 @@ def executar_replica_anel(
             continue
 
         mensagens += 1
+        if _descartar(streams, taxa_falhas):
+            fila.appendleft(msg)  # perdida: o remetente reenvia
+            continue
         estados[destino], saida = receber(estados[destino], msg)
         fila.extend(saida)
 

@@ -39,14 +39,14 @@ def _ev(no: int, tipo: str, ts: float = 0.0, **campos) -> dict:
     return {"ts": ts, "no": no, "tipo": tipo, **campos}
 
 
-def _recebeu_lider(no: int, iniciador: int, lider: int) -> dict:
+def _recebeu_lider(no: int, rodada: str, lider: int) -> dict:
     """Evento `recebeu` de uma Mensagem_Lider, como `src/anel/no.py` grava."""
     return _ev(
         no,
         "recebeu",
         msg_tipo="lider",
         origem=0,
-        corpo={"iniciador": iniciador, "lider": lider},
+        corpo={"rodada": rodada, "lider": lider},
     )
 
 
@@ -71,8 +71,8 @@ def _por_numero(vereditos, numero: int) -> inv.Veredito:
 
 
 def test_anel_lider_unico_passa_com_rodada_correta() -> None:
-    # Rodada do iniciador 1: todos os vivos anunciam o Líder 5.
-    eventos = [_recebeu_lider(no, iniciador=1, lider=5) for no in (1, 2, 3, 4, 5)]
+    # Rodada r1: todos os vivos anunciam o Líder 5.
+    eventos = [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)]
     v = inv.invariante_01_lider_unico(_dados(eventos))
     assert v.ok
     assert v.verificados == 1
@@ -81,8 +81,8 @@ def test_anel_lider_unico_passa_com_rodada_correta() -> None:
 def test_anel_lider_unico_reprova_com_dois_lideres() -> None:
     # Violação: a mesma rodada anuncia dois Líderes distintos.
     eventos = [
-        _recebeu_lider(1, iniciador=1, lider=5),
-        _recebeu_lider(2, iniciador=1, lider=4),  # defeito
+        _recebeu_lider(1, rodada="r1", lider=5),
+        _recebeu_lider(2, rodada="r1", lider=4),  # defeito
     ]
     v = inv.invariante_01_lider_unico(_dados(eventos))
     assert not v.ok
@@ -95,14 +95,14 @@ def test_anel_lider_unico_reprova_com_dois_lideres() -> None:
 
 
 def test_anel_convergencia_passa_quando_todos_vivos_conhecem() -> None:
-    eventos = [_recebeu_lider(no, iniciador=3, lider=5) for no in (1, 2, 3, 4, 5)]
+    eventos = [_recebeu_lider(no, rodada="r3", lider=5) for no in (1, 2, 3, 4, 5)]
     v = inv.invariante_02_convergencia(_dados(eventos))
     assert v.ok
 
 
 def test_anel_convergencia_reprova_quando_um_vivo_nao_conhece() -> None:
     # O Nó 4 está vivo (emitiu evento do anel) mas nunca observou o anúncio.
-    eventos = [_recebeu_lider(no, iniciador=1, lider=5) for no in (1, 2, 3, 5)]
+    eventos = [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 5)]
     eventos.append(_ev(4, "iniciou_eleicao", no_id=4))  # 4 vivo, sem anúncio
     v = inv.invariante_02_convergencia(_dados(eventos))
     assert not v.ok
@@ -111,8 +111,8 @@ def test_anel_convergencia_reprova_quando_um_vivo_nao_conhece() -> None:
 
 def test_anel_convergencia_reprova_quando_observadores_divergem() -> None:
     eventos = [
-        _recebeu_lider(1, iniciador=1, lider=5),
-        _recebeu_lider(2, iniciador=1, lider=3),
+        _recebeu_lider(1, rodada="r1", lider=5),
+        _recebeu_lider(2, rodada="r1", lider=3),
     ]
     v = inv.invariante_02_convergencia(_dados(eventos))
     assert not v.ok
@@ -124,14 +124,14 @@ def test_anel_convergencia_reprova_quando_observadores_divergem() -> None:
 
 
 def test_anel_maior_id_vivo_passa() -> None:
-    eventos = [_recebeu_lider(no, iniciador=1, lider=5) for no in (1, 2, 3, 4, 5)]
+    eventos = [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)]
     v = inv.invariante_03_maior_id_vivo(_dados(eventos))
     assert v.ok
 
 
 def test_anel_maior_id_vivo_reprova_quando_elege_menor() -> None:
     # Líder anunciado é 3, mas o maior id vivo é 5 -> violação de correção.
-    eventos = [_recebeu_lider(no, iniciador=1, lider=3) for no in (1, 2, 3, 4, 5)]
+    eventos = [_recebeu_lider(no, rodada="r1", lider=3) for no in (1, 2, 3, 4, 5)]
     v = inv.invariante_03_maior_id_vivo(_dados(eventos))
     assert not v.ok
     assert any("maior id vivo" in f for f in v.falhas)
@@ -140,16 +140,37 @@ def test_anel_maior_id_vivo_reprova_quando_elege_menor() -> None:
 def test_anel_maior_id_vivo_respeita_mortos_por_salto() -> None:
     # O 5 morreu (contornado por salto): o maior id vivo passa a ser 4, e eleger
     # 4 é CORRETO.
-    eventos = [_recebeu_lider(no, iniciador=1, lider=4) for no in (1, 2, 3, 4)]
-    eventos.append(_ev(4, "sucessor_falho", sucessor=5, motivo="EnvioTimeout", reemitidas=1))
+    eventos = [_recebeu_lider(no, rodada="r1", lider=4) for no in (1, 2, 3, 4)]
+    eventos.append(
+        _ev(4, "sucessor_falho", rodada="r1", sucessor=5, motivo="EnvioTimeout", reemitidas=1)
+    )
     v = inv.invariante_03_maior_id_vivo(_dados(eventos))
     assert v.ok
 
 
+def test_anel_reeleicao_pelo_mesmo_no_e_outra_rodada() -> None:
+    # O 1 inicia as duas rodadas. Na r1 todos vivem e o 5 vence. Na r2 o 5 é
+    # saltado e o 4 vence. O salto da r2 não faz do 5 um morto na r1.
+    eventos = [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)]
+    eventos += [_recebeu_lider(no, rodada="r2", lider=4) for no in (1, 2, 3, 4)]
+    eventos.append(
+        _ev(4, "sucessor_falho", rodada="r2", sucessor=5, motivo="EnvioTimeout", reemitidas=1)
+    )
+    d = _dados(eventos)
+    for invariante in (
+        inv.invariante_01_lider_unico,
+        inv.invariante_02_convergencia,
+        inv.invariante_03_maior_id_vivo,
+    ):
+        v = invariante(d)
+        assert v.ok, (v.titulo, v.falhas)
+        assert v.verificados == 2
+
+
 def test_anel_maior_id_vivo_usa_vivos_por_rodada_quando_dado() -> None:
-    # O chamador informa que na rodada 1 os vivos são {1,2,3,4}; eleger 4 é certo.
-    eventos = [_recebeu_lider(no, iniciador=1, lider=4) for no in (1, 2, 3, 4)]
-    d = _dados(eventos, vivos_por_rodada={1: frozenset({1, 2, 3, 4})})
+    # O chamador informa que na rodada r1 os vivos são {1,2,3,4}; eleger 4 é certo.
+    eventos = [_recebeu_lider(no, rodada="r1", lider=4) for no in (1, 2, 3, 4)]
+    d = _dados(eventos, vivos_por_rodada={"r1": frozenset({1, 2, 3, 4})})
     v = inv.invariante_03_maior_id_vivo(d)
     assert v.ok
 
@@ -239,8 +260,8 @@ def test_2pc_durabilidade_voto_sim_com_decisao_nao_avisa() -> None:
 
 def test_relatar_devolve_false_quando_ha_reprovacao() -> None:
     eventos = [
-        _recebeu_lider(1, iniciador=1, lider=5),
-        _recebeu_lider(2, iniciador=1, lider=4),  # viola unicidade
+        _recebeu_lider(1, rodada="r1", lider=5),
+        _recebeu_lider(2, rodada="r1", lider=4),  # viola unicidade
     ]
     vereditos = inv.verificar_todos(_dados(eventos))
     saida: list[str] = []
@@ -265,7 +286,7 @@ def test_relatar_devolve_true_com_apenas_avisos() -> None:
 def test_carregar_distingue_eventos_de_duraveis(tmp_path: Path) -> None:
     _escrever_jsonl(
         tmp_path / "no-anel-1.log",
-        [_recebeu_lider(1, iniciador=1, lider=5), _ev(1, "iniciou_eleicao", no_id=1)],
+        [_recebeu_lider(1, rodada="r1", lider=5), _ev(1, "iniciou_eleicao", no_id=1)],
     )
     _escrever_jsonl(
         tmp_path / "participante-11.log",
@@ -281,10 +302,10 @@ def test_carregar_distingue_eventos_de_duraveis(tmp_path: Path) -> None:
 def test_carregar_ignora_linhas_corrompidas(tmp_path: Path) -> None:
     arquivo = tmp_path / "ruidoso.log"
     arquivo.write_text(
-        json.dumps(_recebeu_lider(1, iniciador=1, lider=5)) + "\n"
+        json.dumps(_recebeu_lider(1, rodada="r1", lider=5)) + "\n"
         "{linha truncada sem fechar\n"
         "\n"
-        + json.dumps(_ev(2, "recebeu", msg_tipo="lider", corpo={"iniciador": 1, "lider": 5}))
+        + json.dumps(_ev(2, "recebeu", msg_tipo="lider", corpo={"rodada": "r1", "lider": 5}))
         + "\n",
         encoding="utf-8",
     )
@@ -307,7 +328,7 @@ def test_verificar_sai_zero_em_logs_corretos(tmp_path: Path) -> None:
 
     _escrever_jsonl(
         tmp_path / "anel.log",
-        [_recebeu_lider(no, iniciador=1, lider=5) for no in (1, 2, 3, 4, 5)],
+        [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)],
     )
     _escrever_jsonl(
         tmp_path / "2pc.log",

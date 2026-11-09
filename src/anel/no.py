@@ -12,11 +12,10 @@ Responsabilidades, e só elas:
   recebida a `receber` e enfileira o que a Máquina devolver para despacho.
 - Expor os endpoints de controle `GET /estado` e `POST /iniciar-eleicao`
   (Requisito 5.1).
-- Ao repassar uma Mensagem ao Sucessor, se o envio retorna `EnvioTimeout` (ou
-  conexão recusada / indisponível, que também sinalizam Sucessor inalcançável),
-  chamar `com_sucessor_falho` para implementar a regra de salto do Anel
-  (Requisitos 4.6, 5.5). A decisão de saltar é da Máquina; o adaptador apenas
-  reconhece o resultado tipado de transporte.
+- Ao repassar uma Mensagem ao Sucessor, reenviar dentro do Deadline até ele
+  aceitá-la. Só quando o Deadline acaba sem aceite o adaptador chama
+  `com_sucessor_falho`, a regra de salto do Anel (Requisitos 4.6, 5.5). Uma
+  Mensagem perdida não deve tirar do Anel um Nó vivo.
 
 Despacho fora do caminho da resposta HTTP (Requisito 3.5). Um ponto sutil, mas
 essencial para a correção: o repasse ao Sucessor NÃO acontece dentro do handler
@@ -37,6 +36,8 @@ lógica de eleição.
 from __future__ import annotations
 
 import threading
+import time
+import uuid
 from typing import Any, Mapping
 
 from src.anel.maquina import (
@@ -49,6 +50,9 @@ from src.comum.despacho import Despachante
 from src.comum.log import LogEstruturado
 from src.comum.modelos import Mensagem
 from src.comum.rede import ClienteRede, EnvioOk
+
+# Tentativas de entrega a um Sucessor antes do salto, uma a cada fração igual do Deadline.
+TENTATIVAS_ANTES_DO_SALTO = 3
 
 
 class NoAnel:
@@ -144,14 +148,15 @@ class NoAnel:
     def disparar_eleicao(self) -> dict[str, Any]:
         """Dispara uma Rodada_de_Eleicao neste Nó e enfileira a saída (Requisito 5.1).
 
-        Delega a `iniciar_eleicao`; se este é o único Nó vivo, a Máquina já o
-        define Líder trivial e não há nada a despachar.
+        O id da rodada leva o id do Nó e um sufixo aleatório, para não repetir o
+        de uma rodada anterior, nem depois de um reinício.
         """
+        rodada = f"{self._estado.no_id}-{uuid.uuid4().hex[:8]}"
         with self._lock:
-            novo, saida = iniciar_eleicao(self._estado)
+            novo, saida = iniciar_eleicao(self._estado, rodada)
             self._estado = novo
         if self._log is not None:
-            self._log.evento("iniciou_eleicao", no_id=self.estado.no_id)
+            self._log.evento("iniciou_eleicao", no_id=self.estado.no_id, rodada=rodada)
         self._enfileirar(saida)
         return {"iniciada": True, "no_id": self.estado.no_id, "lider": self.estado.lider}
 
@@ -161,27 +166,45 @@ class NoAnel:
         self._saida.enfileirar(saida)
 
     def _despachar_uma(self, mensagem: Mensagem) -> None:
-        """Envia uma Mensagem ao destino; no fracasso, aplica o salto e reenfileira.
+        """Entrega uma Mensagem ao destino, ou aplica o salto e reenfileira.
 
-        Se o destino está inalcançável (timeout, conexão recusada ou
-        indisponível), chama `com_sucessor_falho` para que a Máquina marque o
-        Sucessor como morto e reemita a MESMA Mensagem ao próximo Nó vivo. As
-        Mensagens reemitidas voltam para a fila, preservando a circulação sem
-        recursão nem bloqueio do caminho HTTP.
+        Se o destino não aceita a Mensagem dentro do Deadline, chama
+        `com_sucessor_falho` para que a Máquina marque o Sucessor como morto e
+        reemita a MESMA Mensagem ao próximo Nó vivo. As Mensagens reemitidas
+        voltam para a fila, sem recursão nem bloqueio do caminho HTTP.
         """
         destino_url = self._urls.get(mensagem.destino)
         if destino_url is None:
             self._enfileirar(self._tratar_falha(mensagem, mensagem.destino, motivo="sem_url"))
             return
-        resultado = self._cliente.enviar(destino_url, mensagem, self._deadline)
-        if isinstance(resultado, EnvioOk):
+        motivo = self._entregar(destino_url, mensagem)
+        if motivo is None:
             if self._log is not None:
                 self._log.evento("repassou", msg_tipo=mensagem.tipo, destino=mensagem.destino)
             return
-        # Qualquer resultado não-OK sinaliza Sucessor inalcançável: salta.
-        self._enfileirar(
-            self._tratar_falha(mensagem, mensagem.destino, motivo=type(resultado).__name__)
-        )
+        self._enfileirar(self._tratar_falha(mensagem, mensagem.destino, motivo=motivo))
+
+    def _entregar(self, destino_url: str, mensagem: Mensagem) -> str | None:
+        """Envia até o destino aceitar, ou até o Deadline acabar.
+
+        As tentativas começam a cada fração do Deadline, e cada uma pode usar
+        todo o prazo que resta. Assim uma resposta lenta ainda chega, e uma
+        falha que volta logo (drop, 503, conexão recusada) tem nova tentativa.
+        Só um `EnvioOk` com `ack` verdadeiro é aceite: um destino que descartou
+        a Mensagem responde 200 com `ack` falso. Devolve `None` no aceite, ou o
+        tipo do último resultado.
+        """
+        inicio = time.monotonic()
+        intervalo = self._deadline / TENTATIVAS_ANTES_DO_SALTO
+        for tentativa in range(TENTATIVAS_ANTES_DO_SALTO):
+            time.sleep(max(0.0, inicio + tentativa * intervalo - time.monotonic()))
+            restante = self._deadline - (time.monotonic() - inicio)
+            if restante <= 0:
+                break
+            resultado = self._cliente.enviar(destino_url, mensagem, restante)
+            if isinstance(resultado, EnvioOk) and resultado.corpo.get("ack") is True:
+                return None
+        return type(resultado).__name__
 
     def _tratar_falha(self, mensagem: Mensagem, sucessor_falho: int, *, motivo: str) -> list[Mensagem]:
         """Aplica `com_sucessor_falho` sob o lock e devolve a Mensagem reemitida."""
@@ -191,6 +214,7 @@ class NoAnel:
         if self._log is not None:
             self._log.evento(
                 "sucessor_falho",
+                rodada=mensagem.corpo.get("rodada"),
                 sucessor=sucessor_falho,
                 motivo=motivo,
                 reemitidas=len(reemitidas),

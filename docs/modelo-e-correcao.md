@@ -66,20 +66,33 @@ ordem lógica dos eventos, que a emulação preserva.
 
 ### Modelo
 
+- **Algoritmo.** Eleição em anel unidirecional com lista acumulada de ids. A
+  Mensagem_Eleicao acumula os ids dos Nós que visita, e o Nó que a recebe com o
+  próprio id na lista fecha a volta e elege o maior. Uma Mensagem_Lider anuncia o
+  eleito e dá uma volta no Anel (`src/anel/maquina.py`).
+- **Rodadas.** Cada eleição é uma rodada com id único, gerado por quem a inicia,
+  que vai nas Mensagens e no log. Um Nó que já conhece o resultado de uma rodada
+  ignora uma Mensagem_Eleicao atrasada dela, que fecharia a rodada de novo com
+  outro Líder. A Mensagem_Lider para no primeiro Nó que já conhecia o resultado.
 - **Temporal.** Assíncrono com timeouts e, na prática, parcialmente síncrono: o
   progresso depende de o Deadline detectar um Sucessor que não responde. Sem o
-  Deadline, uma partição travaria a circulação; com ele, o Nó anterior salta
-  para o próximo Nó vivo (`src/anel/no.py`, regra de salto em
-  `src/anel/maquina.py`).
+  Deadline, uma partição travaria a circulação. Com ele, o Nó tenta entregar ao
+  Sucessor até três vezes dentro do Deadline, uma a cada terço dele, e só então
+  salta para o próximo Nó vivo (`src/anel/no.py`, regra de salto em
+  `src/anel/maquina.py`). Cada tentativa pode usar todo o prazo que resta, então
+  uma resposta lenta ainda chega antes do salto.
 - **Canais.** Unidirecionais na ordem do Anel: cada Nó só fala com seu Sucessor.
-  A Mensagem_Eleicao circula acumulando ids; a Mensagem_Lider circula anunciando
-  o eleito e para quando retorna ao iniciador.
+  Uma Mensagem pode se perder, e o reenvio dentro do Deadline a recupera sem
+  tirar do Anel um Nó vivo. O Sucessor aceita a Mensagem respondendo com `ack`.
 - **Falhas.** *Crash-stop* e *crash-recovery* (reinício do contêiner) de Nós, e
-  partição Líder↔resto. Um Nó falho é contornado pela regra de salto.
+  partição Líder↔resto. Um Nó falho é contornado pela regra de salto. A detecção
+  por timeout pode errar: um Nó lento ou pausado é saltado como se tivesse
+  caído, e a eleição atrasada que ele repassa ao acordar é ignorada.
 - **Relógio/persistência/reinício.** O Anel é **sem estado durável**: a eleição é
   idempotente e refeita quando disparada. Um Nó que reinicia volta sem memória de
-  rodadas anteriores e simplesmente participa da próxima eleição. Não há Log
-  Durável no Anel — a recuperação é reeleger.
+  rodadas anteriores e participa da próxima eleição, porque cada Nó zera as
+  suspeitas (`mortos`) ao entrar numa rodada nova e tira delas quem lhe manda
+  Mensagem. Não há Log Durável no Anel, e a recuperação é reeleger.
 
 ### Propriedades e os invariantes que as testam
 
@@ -90,20 +103,20 @@ ordem lógica dos eventos, que a emulação preserva.
 | O Líder eleito é o maior id vivo | *correctness* | **`invariante_03_maior_id_vivo`** | 4.7, 12.2 |
 
 - **Unicidade do Líder** (`invariante_01_lider_unico`): agrupa os anúncios de
-  Líder por id do iniciador (a identidade de uma rodada, Requisito 2.3) e exige
-  um único valor de `lider` por rodada. Dois valores distintos reprovam. O
-  Chang-Roberts sobre anel unidirecional não pode violar isso — o maior id
-  acumulado é único —, então qualquer violação é defeito, não ruído.
+  Líder por id de rodada e exige um único valor de `lider` por rodada. Dois
+  valores distintos reprovam. Como a eleição atrasada de uma rodada concluída é
+  ignorada, uma rodada fecha uma vez só, e qualquer violação é defeito, não
+  ruído.
 - **Convergência dos vivos** (`invariante_02_convergencia`): por rodada, todos os
   observadores do anúncio devem concordar no `lider`, e o conjunto de
   observadores deve cobrir os Nós vivos da rodada. Divergência reprova; um vivo
   que nunca observou o anúncio também reprova, pois a rodada não convergiu para
   ele.
 - **Maior id vivo** (`invariante_03_maior_id_vivo`): em cada rodada bem-formada, o
-  Líder anunciado é `max(vivos)`. Respeita a morte por salto: com o maior id
-  contornado (`sucessor_falho` no log), o alvo correto passa a ser o próximo
-  maior id vivo — e elegê-lo é certo (é o que o cenário `anel falha` demonstra,
-  reelegendo 4 após a morte do 5).
+  Líder anunciado é `max(vivos)`. Respeita a morte por salto na própria rodada:
+  com o maior id contornado (`sucessor_falho` no log, com o id da rodada), o alvo
+  correto passa a ser o próximo maior id vivo, e elegê-lo é certo. O cenário
+  `anel falha` mostra isso, elegendo 5 e, depois da queda do 5, reelegendo 4.
 
 Tolerância: **zero** nos três. São igualdades entre inteiros (um Líder, um id),
 sem variância amostral a absorver — a justificativa está em
@@ -207,7 +220,7 @@ Cada um registra a **Semente** com que foi conduzido.
 | Cenário | Fase exercitada | Invariante(s) relevante(s) | Resultado esperado |
 | --- | --- | --- | --- |
 | `anel normal` | eleição sem falha converge para o maior id (5) | 01, 02, 03 | passam |
-| `anel falha` | morte do Líder (5) → reeleição para o maior vivo (4) | 01, 02, 03 | passam |
+| `anel falha` | elege 5, derruba o contêiner do 5 e reelege o maior vivo (4) | 01, 02, 03 | passam |
 | `2pc commit` | todos SIM → COMMIT em todos | 04, 05 | passam |
 | `2pc abort` | um NAO → ABORT atômico em todos | 04, 05 | passam |
 | `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05 | passam, todos em COMMIT depois do reinício |
