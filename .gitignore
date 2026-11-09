@@ -1,5 +1,10 @@
-# Saída gerada em tempo de execução: dados brutos, logs e Log_Duravel do 2PC.
-results/
+# Saída gerada em tempo de execução. Os CSVs das baterias e os registros JSON dos cenários são os
+# dados brutos da entrega e entram no git. Os logs dos Nós e o stdout dos contêineres ficam fora.
+# O `!results/` desfaz, só aqui, o `results/` de um .gitignore acima desta pasta.
+!results/
+results/*
+!results/*.csv
+!results/*.json
 
 # Caches e ambientes Python.
 __pycache__/

@@ -6,6 +6,25 @@ abaixo é digitada à mão: toda tabela é produto de um comando da análise
 (Requisito 11.5), e `python scripts/analisar.py conferir` reprova se alguma ficar
 defasada em relação aos dados atuais.
 
+## Configuração
+
+- **Topologia.** Anel 1 → 2 → … → n → 1, com n de 3, 5 e 7 Nós, todos vivos, e o
+  Nó 1 como único iniciador.
+- **Perda.** Cada tentativa de entrega se perde com probabilidade 0,05, sorteada
+  do stream `drop` da Semente, e o remetente reenvia até a entrega.
+- **Réplicas.** Cinco por nível, com as Sementes de 42 a 56.
+- **Duração.** A bateria roda em processo sobre a Máquina_de_Estados pura, e cada
+  ensaio dura o tempo de convergência em passos lógicos, que está na tabela. Como
+  a métrica é lógica, não há aquecimento a descartar.
+- **Ambiente.** Carimbado em cada linha do CSV (`amb_*`). A bateria é
+  determinística por Semente, e rodá-la de novo produz o mesmo CSV.
+
+```bash
+python scripts/bateria.py --algoritmo anel     # em processo, menos de um segundo
+python scripts/analisar.py anel
+python scripts/analisar.py anel-complexidade
+```
+
 ## Convergência × número de Nós
 
 Para cada número de Nós, a tabela traz quantas Réplicas rodaram e quantas

@@ -1,0 +1,56 @@
+{
+  "cenario": "2pc_abort",
+  "algoritmo": "2pc",
+  "modo": "abort",
+  "semente": 0,
+  "decisao": "ABORT",
+  "latencia_commit_s": 0.0861,
+  "participantes": [
+    11,
+    12,
+    13
+  ],
+  "decisoes_participantes": {
+    "11": "ABORT",
+    "12": "ABORT",
+    "13": "ABORT"
+  },
+  "esperado": {
+    "decisao": "ABORT",
+    "decisoes_participantes": {
+      "11": "ABORT",
+      "12": "ABORT",
+      "13": "ABORT"
+    }
+  },
+  "desfecho": {
+    "ok": true,
+    "divergencias": []
+  },
+  "verificacao": {
+    "codigo": 0,
+    "ok": true,
+    "relatorio": [
+      "\nlidos 40 evento(s) estruturado(s) e 8 entrada(s) de Log_Duravel.",
+      "\n=== Invariantes de correção ===\n",
+      "  LACUNA  1. Unicidade do Líder por rodada (Anel)  nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  2. Convergência dos Nós vivos (Anel)     nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  3. Líder é o maior id vivo (Anel)        nenhum caso a verificar nos dados fornecidos",
+      "  OK      4. Atomicidade do 2PC                    as 1 transação(ões) com Decisao durável são atômicas (todos COMMIT ou todos ABORT)",
+      "  LACUNA  5. Durabilidade da Decisao do 2PC        nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  6. Validade do 2PC                       nenhum caso a verificar nos dados fornecidos",
+      "",
+      "5 invariante(s) sem dados a verificar (nº 1, 2, 3, 5, 6): estes logs não têm o caso que eles conferem.",
+      "Nenhuma reprovação: 1 invariante(s) passaram, sem violação de safety."
+    ]
+  },
+  "ambiente": {
+    "amb_so": "Darwin",
+    "amb_so_versao": "25.6.0",
+    "amb_arquitetura": "arm64",
+    "amb_processador": "arm",
+    "amb_num_cpus": 8,
+    "amb_python_versao": "3.12.13",
+    "amb_pacotes": "fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8"
+  }
+}

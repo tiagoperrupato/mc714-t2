@@ -1,0 +1,68 @@
+{
+  "cenario": "anel_falha",
+  "algoritmo": "anel",
+  "modo": "falha",
+  "semente": 0,
+  "maior_id_topologia": 5,
+  "lideres_iniciais": {
+    "1": 5,
+    "2": 5,
+    "3": 5,
+    "4": 5,
+    "5": 5
+  },
+  "tempo_convergencia_s": 0.2069,
+  "esperado": {
+    "lideres_iniciais": {
+      "1": 5,
+      "2": 5,
+      "3": 5,
+      "4": 5,
+      "5": 5
+    },
+    "lideres_pos_falha": {
+      "1": 4,
+      "2": 4,
+      "3": 4,
+      "4": 4
+    }
+  },
+  "falha_injetada": "docker compose kill no-anel-5, depois da primeira eleição",
+  "lideres_pos_falha": {
+    "1": 4,
+    "2": 4,
+    "3": 4,
+    "4": 4
+  },
+  "tempo_reeleicao_s": 0.7225,
+  "desfecho": {
+    "ok": true,
+    "divergencias": []
+  },
+  "verificacao": {
+    "codigo": 0,
+    "ok": true,
+    "relatorio": [
+      "\nlidos 44 evento(s) estruturado(s) e 0 entrada(s) de Log_Duravel.",
+      "\n=== Invariantes de correção ===\n",
+      "  OK      1. Unicidade do Líder por rodada (Anel)  cada uma das 2 rodada(s) concluída(s) anuncia um único Líder",
+      "  OK      2. Convergência dos Nós vivos (Anel)     em cada uma das 2 rodada(s), todos os Nós vivos reportam o mesmo Líder",
+      "  OK      3. Líder é o maior id vivo (Anel)        o Líder de cada uma das 2 rodada(s) é o maior id vivo",
+      "  LACUNA  4. Atomicidade do 2PC                    nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  5. Durabilidade da Decisao do 2PC        nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  6. Validade do 2PC                       nenhum caso a verificar nos dados fornecidos",
+      "",
+      "3 invariante(s) sem dados a verificar (nº 4, 5, 6): estes logs não têm o caso que eles conferem.",
+      "Nenhuma reprovação: 3 invariante(s) passaram, sem violação de safety."
+    ]
+  },
+  "ambiente": {
+    "amb_so": "Darwin",
+    "amb_so_versao": "25.6.0",
+    "amb_arquitetura": "arm64",
+    "amb_processador": "arm",
+    "amb_num_cpus": 8,
+    "amb_python_versao": "3.12.13",
+    "amb_pacotes": "fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8"
+  }
+}

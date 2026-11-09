@@ -272,7 +272,7 @@ src/analise/       dados, estatistica, formato, graficos, anel_exp, doispc_exp,
                    invariantes
 scripts/           bateria, analisar, verificar, cenario, demo, rede e as demos
 docs/              modelo e correção, invariantes, resultados, com dados/ e figuras/
-results/           dados brutos, logs e Logs_Duraveis coletados, no .gitignore
+results/           dados brutos (CSVs e JSON, no git), logs e Logs_Duraveis (fora dele)
 ```
 
 O **Deadline é obrigatório por projeto**: o cliente do Transporte não expõe
@@ -286,7 +286,9 @@ retransmitida até o ACK de cada Participante.
 
 ## Arquivos de saída
 
-Gravados em `results/`, criado automaticamente e ignorado pelo Git. Há dois tipos.
+Gravados em `results/`. Os CSVs das baterias e os registros JSON dos cenários são
+os dados brutos da entrega e ficam no git. Os logs dos Nós e o stdout dos
+contêineres são refeitos a cada execução e ficam fora dele. Há dois tipos.
 
 ### CSVs da bateria
 
@@ -349,30 +351,37 @@ O README não fixa as especificações de uma máquina de propósito: o que impo
 que **cada resultado traz o ambiente em que foi medido**, já que resultados
 absolutos de máquinas diferentes não são comparados diretamente.
 
-A sequência abaixo, a partir de um checkout fresco, regenera **dados, tabelas e
-figuras sem artefatos órfãos** e deixa o compose limpo. Como `results/` está no
-`.gitignore`, apagá-lo e rodar a sequência recria tudo:
+Os CSVs e os JSON versionados em `results/` são os dados de onde saem as tabelas
+de `docs/`. Num checkout fresco, sem rodar experimento nenhum, o comando abaixo
+regenera cada tabela a partir deles e sai 0:
 
 ```bash
-rm -rf results/                                    # (1) estado limpo
-docker compose build                               # (2) imagem única dos Nós
-python scripts/bateria.py --algoritmo anel         # (3) bateria do Anel (num_nos), em processo
+python scripts/analisar.py conferir
+```
+
+Para refazer os experimentos, a sequência abaixo regenera **dados, tabelas e
+figuras** e deixa o compose limpo:
+
+```bash
+docker compose build                               # (1) imagem única dos Nós
+python scripts/bateria.py --algoritmo anel         # (2) bateria do Anel (num_nos), em processo
 python scripts/bateria.py --algoritmo 2pc          #     bateria do 2PC nos Nós reais, cerca de 10 min
-python scripts/analisar.py tudo                    # (4) tabelas e figuras de docs/
-python scripts/analisar.py conferir                # (5) docs batem com os dados -> exit 0
-python scripts/cenario.py anel falha               # (6) cenário real + logs coletados
+python scripts/analisar.py tudo                    # (3) tabelas e figuras de docs/
+python scripts/analisar.py conferir                # (4) docs contra os dados novos
+python scripts/cenario.py anel falha               # (5) cenário real + logs coletados
 python scripts/cenario.py 2pc crash-coord          #     (ambos verificam ao final)
-python scripts/verificar.py                        # (7) invariantes sobre results/
-docker compose down -v --remove-orphans            # (8) teardown limpo, sem órfãos
+python scripts/verificar.py                        # (6) invariantes sobre results/
+docker compose down -v --remove-orphans            # (7) teardown limpo, sem órfãos
 ```
 
 A bateria do Anel, a análise e a verificação rodam **sem Docker**. A bateria do
 2PC, os cenários e o teardown usam o compose. As tabelas de `docs/` são geradas
-pelo passo (4) e nada é digitado à mão. A bateria do Anel é determinística por
-Semente, e rodar de novo produz o mesmo CSV. A do 2PC mede tempo de parede, que
-varia entre execuções, então uma bateria nova muda os números e o passo (5)
-aponta as tabelas do 2PC como defasadas até a saída do passo (4) ser colada de
-novo.
+pelo passo (3) e nada é digitado à mão. A bateria do Anel é determinística por
+Semente e reproduz o CSV versionado byte a byte. A do 2PC mede tempo de parede,
+que varia entre execuções. Uma bateria nova muda os números, o `git diff` mostra
+a diferença nos CSVs, e o passo (4) aponta as tabelas do 2PC como defasadas até a
+saída do passo (3) ser colada de novo. `git checkout -- results/` volta aos dados
+publicados.
 
 ## Documentos de correção
 
