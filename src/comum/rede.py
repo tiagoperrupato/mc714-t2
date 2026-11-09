@@ -107,9 +107,11 @@ class ClienteRede:
     """Cliente httpx que envia Mensagens JSON a outro Nó com Deadline obrigatório.
 
     `retries` é o número de tentativas extras além da primeira (0 = uma única
-    tentativa). Cada envio individual recebe como timeout o tempo restante do
-    Deadline total, de modo que a soma das tentativas nunca o ultrapasse:
-    não há retry infinito nem retry que estoure o prazo.
+    tentativa). Nenhuma tentativa começa depois do Deadline total, e cada uma
+    recebe como timeout o tempo que resta dele. O httpx aplica esse timeout a
+    cada fase da tentativa (conexão, escrita, cada leitura e espera por conexão
+    livre), e não à soma delas, então no pior caso uma tentativa passa do tempo
+    que restava. O Deadline limita os retries, mas não é um prazo absoluto.
 
     O cliente é reutilizável entre chamadas; `fechar` libera a conexão
     subjacente. Aceita um `transporte` alternativo (um fake) para teste sem
@@ -137,9 +139,9 @@ class ClienteRede:
     def enviar(self, destino_url: str, mensagem: Mensagem, deadline: float) -> ResultadoEnvio:
         """Envia `mensagem` como JSON para `destino_url`, respeitando o Deadline total.
 
-        `deadline` é o prazo máximo, em segundos, para a chamada inteira
-        retornar, incluindo os retries. É obrigatório e deve ser estritamente
-        positivo — não existe caminho de envio sem prazo. O
+        `deadline` é o orçamento, em segundos, da chamada inteira com os retries,
+        nos limites descritos em `ClienteRede`. É obrigatório e deve ser
+        estritamente positivo, porque não existe caminho de envio sem prazo. O
         retorno é sempre um `ResultadoEnvio` tipado; falhas de transporte nunca
         escapam como exceção.
         """
