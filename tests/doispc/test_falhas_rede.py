@@ -1,18 +1,12 @@
-"""Falhas de aplicação no 2PC sobre a rede real (Requisito 8.5), sem Docker.
+"""Crash e reinício do Coordenador do 2PC sobre a rede real, sem Docker.
 
-Sobe o Coordenador e três Participantes como apps FastAPI em uvicorn locais e
-exercita o bloqueio característico do 2PC: quando o Coordenador cai depois de
-coletar os Votos e antes de difundir a Decisao, os Participantes que votaram SIM
-permanecem em Estado_Em_Duvida (Requisito 8.5).
-
-O crash do Coordenador é modelado pelo controlador de falhas plugado no despacho
-de saída: a DECISAO que o Coordenador tenta difundir é suprimida antes de tocar
-a rede, exatamente como se o processo tivesse morrido entre decidir e difundir.
-Os PREPARE já saíram e os Votos já voltaram, então a Máquina do Coordenador
-grava a Decisao no Log_Duravel (write-ahead), mas nenhum Participante a recebe.
-
-Não depende de Docker: é a mesma prova que o cenário de compose demonstra, mas
-roda em qualquer ambiente com pytest.
+Sobe três Participantes como apps FastAPI em uvicorn locais. A primeira vida do
+Coordenador, a que cai, é modelada em processo: ou ele grava a Decisao e nenhuma
+DECISAO sai, ou só a entrada em WAIT chega ao log. A segunda vida sai de
+`construir_coordenador`, o mesmo caminho do contêiner, sobre o mesmo log e a
+mesma porta. Os Participantes ficam em dúvida enquanto o Coordenador está fora e
+decidem depois que ele volta. O cenário `2pc crash-coord` mostra o mesmo com o
+processo derrubado de verdade.
 """
 
 from __future__ import annotations
@@ -26,12 +20,18 @@ from pathlib import Path
 import pytest
 import uvicorn
 
-from src.comum.falhas import ControladorFalhas
+from src.comum.falhas import ClienteComFalhas, ControladorFalhas
 from src.comum.modelos import Mensagem, No
 from src.comum.rede import ClienteRede, EnvioOk, ResultadoEnvio
+from src.doispc.__main__ import construir_coordenador
 from src.doispc.coordenador import ServicoCoordenador, criar_app as criar_app_coord
-from src.doispc.log_duravel import DECISAO_COMMIT, VOTO_SIM, LogDuravelArquivo
-from src.doispc.maquina import MSG_DECISAO
+from src.doispc.log_duravel import (
+    DECISAO_ABORT,
+    DECISAO_COMMIT,
+    VOTO_SIM,
+    LogDuravelArquivo,
+)
+from src.doispc.maquina import MSG_DECISAO, GravarLog, iniciar_transacao
 from src.doispc.participante import ServicoParticipante, criar_app as criar_app_part
 from tests.espera import esperar_ate
 
@@ -67,11 +67,10 @@ class _ServidorLocal:
 
 
 class _ClienteSuprimeDecisao:
-    """Cliente que entrega tudo, menos a DECISAO: simula o crash antes de difundir.
+    """Cliente que entrega tudo, menos a DECISAO: o Coordenador morre logo depois de decidir.
 
-    Modela o Coordenador que morre depois de coletar os Votos e gravar a Decisao,
-    mas antes de a DECISAO alcançar qualquer Participante. Os PREPARE passam (os
-    Votos voltam normalmente); as Mensagens de tipo `decisao` são descartadas.
+    Os PREPARE passam e os Votos voltam, então o Coordenador grava a Decisao, mas nenhum
+    Participante a recebe.
     """
 
     def __init__(self, cliente: ClienteRede) -> None:
@@ -88,116 +87,131 @@ class _ClienteSuprimeDecisao:
         self._cliente.fechar()
 
 
-def test_crash_do_coordenador_deixa_participantes_em_duvida(tmp_path: Path) -> None:
-    portas = {no_id: _porta_livre() for no_id in (COORD_ID, *PART_IDS)}
-    coord_no = No(COORD_ID, "127.0.0.1", portas[COORD_ID])
-    part_nos = {pid: No(pid, "127.0.0.1", portas[pid]) for pid in PART_IDS}
+class _Participantes:
+    """Três Participantes que votam SIM, cada um com Log_Duravel em `tmp_path` e servidor local."""
 
-    servidores: list[_ServidorLocal] = []
-    servicos_part: dict[int, ServicoParticipante] = {}
-    try:
-        # Participantes sobem primeiro, todos votando SIM.
-        for pid in PART_IDS:
-            log = LogDuravelArquivo(tmp_path / f"part-{pid}.log")
-            servico = ServicoParticipante(
-                part_nos[pid],
-                coord_no,
-                log_duravel=log,
-                cliente=ClienteRede(),
-                deadline=2.0,
-                voto_desejado=VOTO_SIM,
-            )
-            servicos_part[pid] = servico
-            s = _ServidorLocal(criar_app_part(servico), portas[pid])
-            s.__enter__()
-            servidores.append(s)
-
-        # Coordenador com o cliente que suprime a DECISAO: ele decide COMMIT e
-        # grava no Log_Duravel, mas a DECISAO nunca chega aos Participantes.
-        cliente_crash = _ClienteSuprimeDecisao(ClienteRede())
-        servico_coord = ServicoCoordenador(
-            coord_no,
-            part_nos,
-            log_duravel=LogDuravelArquivo(tmp_path / "coord.log"),
-            cliente=cliente_crash,
-            deadline_voto=2.0,
-            deadline_decisao=1.0,
-        )
-        s = _ServidorLocal(criar_app_coord(servico_coord), portas[COORD_ID])
-        s.__enter__()
-        servidores.append(s)
-
-        resultado = servico_coord.iniciar("tx-crash")
-
-        # O Coordenador decidiu COMMIT (todos votaram SIM) e gravou a Decisao...
-        assert resultado["decisao"] == DECISAO_COMMIT
-        # ...mas a DECISAO foi suprimida: os Participantes ficaram sem conhecê-la.
-        # Ela sai da fila do Coordenador depois da resposta, então a contagem chega depois.
-        assert esperar_ate(lambda: cliente_crash.decisoes_suprimidas == len(PART_IDS))
-
-        # Cada Participante votou SIM e não recebeu a Decisao: Estado_Em_Duvida.
-        for pid in PART_IDS:
-            estado = servicos_part[pid].estado
-            assert estado is not None, pid
-            assert estado.voto == VOTO_SIM, (pid, estado.voto)
-            assert estado.decisao is None, (pid, estado.decisao)
-            assert estado.em_duvida is True, (pid, estado)
-    finally:
-        for s in reversed(servidores):
-            s.__exit__(None, None, None)
-
-
-def test_crash_total_do_coordenador_via_controlador_bloqueia_decisao(tmp_path: Path) -> None:
-    # Variante que usa o ControladorFalhas de verdade no despacho do Coordenador:
-    # ao injetar crash ANTES de iniciar a transação, nem os PREPARE saem; os
-    # Participantes nunca votam e, do lado do Coordenador, a coleta estoura o
-    # Deadline levando a ABORT por timeout — mas nenhum Participante conhece a
-    # Decisao, permanecendo sem Voto nem Decisao. Aqui provamos que o controlador
-    # realmente suprime o despacho de saída de um Nó em crash.
-    from src.comum.falhas import ClienteComFalhas
-
-    portas = {no_id: _porta_livre() for no_id in (COORD_ID, *PART_IDS)}
-    coord_no = No(COORD_ID, "127.0.0.1", portas[COORD_ID])
-    part_nos = {pid: No(pid, "127.0.0.1", portas[pid]) for pid in PART_IDS}
-
-    servidores: list[_ServidorLocal] = []
-    servicos_part: dict[int, ServicoParticipante] = {}
-    try:
-        for pid in PART_IDS:
-            servico = ServicoParticipante(
-                part_nos[pid],
-                coord_no,
+    def __init__(self, tmp_path: Path) -> None:
+        portas = {no_id: _porta_livre() for no_id in (COORD_ID, *PART_IDS)}
+        self.coord_no = No(COORD_ID, "127.0.0.1", portas[COORD_ID])
+        self.part_nos = {pid: No(pid, "127.0.0.1", portas[pid]) for pid in PART_IDS}
+        self.servicos = {
+            pid: ServicoParticipante(
+                self.part_nos[pid],
+                self.coord_no,
                 log_duravel=LogDuravelArquivo(tmp_path / f"part-{pid}.log"),
                 cliente=ClienteRede(),
                 deadline=1.0,
                 voto_desejado=VOTO_SIM,
             )
-            servicos_part[pid] = servico
-            s = _ServidorLocal(criar_app_part(servico), portas[pid])
-            s.__enter__()
-            servidores.append(s)
+            for pid in PART_IDS
+        }
+        self._servidores = [
+            _ServidorLocal(criar_app_part(self.servicos[pid]), portas[pid]) for pid in PART_IDS
+        ]
 
-        controlador = ControladorFalhas(2026, dormir=time.sleep)
-        cliente = ClienteComFalhas(ClienteRede(), controlador)
-        servico_coord = ServicoCoordenador(
-            coord_no,
-            part_nos,
+    def __enter__(self) -> "_Participantes":
+        for servidor in self._servidores:
+            servidor.__enter__()
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        for servidor in reversed(self._servidores):
+            servidor.__exit__(*exc)
+
+    def em_duvida(self) -> bool:
+        return all(self.servicos[p].estado.em_duvida for p in PART_IDS)
+
+    def esperar_decisao(self, esperada: str) -> None:
+        def decidiram() -> bool:
+            return all(self.servicos[p].estado.decisao == esperada for p in PART_IDS)
+
+        assert esperar_ate(decidiram), {p: self.servicos[p].estado for p in PART_IDS}
+
+
+def _coordenador_do_ambiente(tmp_path: Path, parts: _Participantes, monkeypatch) -> object:
+    """Monta o Coordenador pelo caminho do contêiner, sobre `tmp_path/coord.log`."""
+    ambiente = {
+        "COORD_ID": str(COORD_ID),
+        "COORD_PORTA": str(parts.coord_no.porta),
+        "DOISPC_PARTICIPANTES": ",".join(
+            f"{pid}@127.0.0.1:{parts.part_nos[pid].porta}" for pid in PART_IDS
+        ),
+        "DOISPC_LOG_DURAVEL": str(tmp_path / "coord.log"),
+        "DOISPC_DEADLINE_VOTO": "2.0",
+        "DOISPC_DEADLINE_DECISAO": "1.0",
+        "LOG_DIR": str(tmp_path / "logs"),
+    }
+    for nome, valor in ambiente.items():
+        monkeypatch.setenv(nome, valor)
+    monkeypatch.delenv("DOISPC_CAIR_APOS_DECIDIR", raising=False)
+    app, _porta = construir_coordenador()
+    return app
+
+
+def test_coordenador_reiniciado_depois_de_decidir_entrega_a_decisao(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _Participantes(tmp_path) as parts:
+        cliente_crash = _ClienteSuprimeDecisao(ClienteRede())
+        primeira_vida = ServicoCoordenador(
+            parts.coord_no,
+            parts.part_nos,
             log_duravel=LogDuravelArquivo(tmp_path / "coord.log"),
-            cliente=cliente,
+            cliente=cliente_crash,
+            deadline_voto=2.0,
+            deadline_decisao=1.0,
+        )
+        with _ServidorLocal(criar_app_coord(primeira_vida), parts.coord_no.porta):
+            assert primeira_vida.iniciar("tx-crash")["decisao"] == DECISAO_COMMIT
+            assert esperar_ate(lambda: cliente_crash.decisoes_suprimidas >= len(PART_IDS))
+        # Com o Coordenador fora, os três votaram SIM e não conhecem a Decisao.
+        assert parts.em_duvida()
+
+        app = _coordenador_do_ambiente(tmp_path, parts, monkeypatch)
+        with _ServidorLocal(app, parts.coord_no.porta):
+            parts.esperar_decisao(DECISAO_COMMIT)
+
+
+def test_coordenador_reiniciado_em_wait_aborta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with _Participantes(tmp_path) as parts:
+        # Primeira vida: grava a entrada em WAIT, manda os PREPARE e cai antes de
+        # receber os Votos. As Acao da Máquina são executadas à mão, sem servidor.
+        log_coord = LogDuravelArquivo(tmp_path / "coord.log")
+        _, acoes = iniciar_transacao(COORD_ID, "tx-wait", PART_IDS)
+        for acao in acoes:
+            if isinstance(acao, GravarLog):
+                log_coord.registrar(acao.entrada)
+            else:
+                parts.servicos[acao.mensagem.destino].receber(acao.mensagem)
+        assert parts.em_duvida()
+
+        app = _coordenador_do_ambiente(tmp_path, parts, monkeypatch)
+        with _ServidorLocal(app, parts.coord_no.porta):
+            parts.esperar_decisao(DECISAO_ABORT)
+
+    assert log_coord.recuperar("tx-wait").decisao == DECISAO_ABORT
+
+
+def test_crash_total_do_coordenador_via_controlador_bloqueia_decisao(tmp_path: Path) -> None:
+    # Com o ControladorFalhas em crash no despacho do Coordenador, nem os PREPARE
+    # saem. A coleta estoura o Deadline e decide ABORT, e nenhum Participante tem
+    # estado. Prova que o controlador suprime o despacho de saída de um Nó em crash.
+    with _Participantes(tmp_path) as parts:
+        controlador = ControladorFalhas(2026, dormir=time.sleep)
+        coordenador = ServicoCoordenador(
+            parts.coord_no,
+            parts.part_nos,
+            log_duravel=LogDuravelArquivo(tmp_path / "coord.log"),
+            cliente=ClienteComFalhas(ClienteRede(), controlador),
             deadline_voto=0.8,
             deadline_decisao=0.4,
         )
-        s = _ServidorLocal(criar_app_coord(servico_coord, controlador=controlador), portas[COORD_ID])
-        s.__enter__()
-        servidores.append(s)
+        app = criar_app_coord(coordenador, controlador=controlador)
+        with _ServidorLocal(app, parts.coord_no.porta):
+            controlador.injetar_crash()
+            coordenador.iniciar("tx-crash-total")
 
-        # Coordenador em crash: nenhum PREPARE sai; a coleta estoura o Deadline.
-        controlador.injetar_crash()
-        servico_coord.iniciar("tx-crash-total")
-
-        # Participantes nunca receberam PREPARE: sem estado de transação.
         for pid in PART_IDS:
-            assert servicos_part[pid].estado is None, (pid, servicos_part[pid].estado)
-    finally:
-        for s in reversed(servidores):
-            s.__exit__(None, None, None)
+            assert parts.servicos[pid].estado is None, (pid, parts.servicos[pid].estado)

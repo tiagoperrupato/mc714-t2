@@ -7,10 +7,10 @@ invariantes de correção:
 1. **Anel — morte do Líder → reeleição** (`anel falha`, Requisito 8.6): elege o
    maior id (5), mata o Líder e mostra os Nós vivos reelegendo o maior id vivo
    (4).
-2. **2PC — bloqueio por crash do Coordenador** (`2pc crash-coord`,
-   Requisito 8.5): todos votam SIM, o Coordenador cai antes de difundir a
-   Decisao, e os Participantes ficam em Estado_Em_Duvida — que a verificação
-   reporta como **aviso**, não reprovação (Requisito 12.4).
+2. **2PC, crash e recuperação do Coordenador** (`2pc crash-coord`,
+   Requisito 8.5): todos votam SIM, o processo do Coordenador cai logo depois
+   de gravar a Decisao, e os Participantes ficam em Estado_Em_Duvida. O
+   contêiner reinicia, o Coordenador relê o log e todos decidem COMMIT.
 
 Cada cenário já roda `scripts/verificar.py` sobre os seus próprios logs ao final
 (ver `scripts/cenario.py`), confirmando a correção. Esta demo apenas encadeia os
@@ -60,7 +60,7 @@ def executar_demo(
     """Roda os cenários de falha em sequência e verifica os logs coletados.
 
     Devolve 0 quando todos os cenários rodam e nenhum invariante de safety
-    reprova (avisos como o Estado_Em_Duvida são permitidos), 1 em falha de
+    reprova (avisos não reprovam), 1 em falha de
     execução ou reprovação, e 2 quando o Docker está indisponível.
     """
     if not cenario._docker_disponivel():

@@ -115,27 +115,40 @@ sem variância amostral a absorver — a justificativa está em
 
 ### Modelo
 
+- **Variante.** 2PC bloqueante, com crash-recovery do Coordenador e
+  retransmissão da DECISAO até o ACK. Não há *presumed abort* nem o protocolo de
+  terminação cooperativo, em que um Participante em dúvida consulta os outros.
+  Por isso o bloqueio dura enquanto o Coordenador está fora.
 - **Temporal.** Assíncrono com timeouts. O Coordenador envia PREPARE, coleta
   Votos até o Deadline de coleta e, se ele estoura antes de todos votarem, decide
   ABORT (Requisito 7.5). Os Deadlines de Voto e de Decisao são configuráveis.
 - **Canais.** Estrela: Coordenador↔Participantes. PREPARE e DECISAO descem;
   VOTO e ACK sobem. Partições isolam o Coordenador de um ou mais Participantes.
+  O Coordenador retransmite a DECISAO a cada Participante, a cada segundo, até
+  receber o ACK dele, e cada tentativa tem o prazo do Transporte. O ACK é a
+  Mensagem do protocolo que o Participante envia depois de gravar e aplicar a
+  Decisao, e não a resposta HTTP. Um Participante que estava fora, ou que votou
+  depois do ABORT por timeout, recebe a Decisao assim.
 - **Transações.** Cada transação tem um id, e cada Nó guarda o estado dela num
   mapa por id. Várias transações correm nos mesmos Nós, seguidas ou ao mesmo
   tempo. Um `POST /transacao` com id já usado não abre rodada nova. Ele devolve a
-  Decisao gravada, da memória ou do Log_Duravel, ou espera a rodada em curso, de
-  modo que o cliente pode repetir o pedido sem risco.
+  Decisao, que depois de um reinício a recuperação já trouxe do Log_Duravel, ou
+  espera a rodada em curso, de modo que o cliente pode repetir o pedido sem risco.
 - **Falhas.** *Crash-stop* e *crash-recovery* com estado reconstruído do
   Log_Duravel. O caso crítico é o **crash do Coordenador** depois de coletar
   alguns Votos e **antes** de difundir a Decisao.
-- **Persistência (write-ahead).** O Voto e a Decisao vão ao Log_Duravel **antes**
-  de serem respondidos ou aplicados (`src/doispc/log_duravel.py`,
-  `src/doispc/executor.py`): a ordem das `Acao` que a Máquina_de_Estados emite
-  **é** a ordem write-ahead. É isso que sustenta a durabilidade.
-- **Reinício.** Ao reiniciar, um Nó relê o Log_Duravel e reporta a **mesma**
-  Decisao de antes (evento `recuperacao` no log). Um Participante que havia
-  votado SIM mas não tem Decisao durável reinicia ainda em dúvida — porque é
-  isso que ele era.
+- **Persistência (write-ahead).** O Coordenador grava a entrada em WAIT **antes**
+  do PREPARE e a Decisao **antes** da DECISAO. O Participante grava o Voto antes
+  de respondê-lo e a Decisao antes de aplicá-la. A ordem das `Acao` que a
+  Máquina_de_Estados emite **é** a ordem write-ahead (`src/doispc/maquina.py`,
+  `src/doispc/executor.py`). Os ACKs não vão ao log.
+- **Reinício.** O Coordenador relê o Log_Duravel antes de servir. A transação
+  decidida tem a Decisao difundida de novo a todos, já que os ACKs não são
+  duráveis. A transação em WAIT vira ABORT, gravado e difundido, porque o
+  Coordenador não guardou os Votos e não sabe se todos foram SIM. O Participante
+  relê o próprio log e reporta a **mesma** Decisao de antes (evento
+  `recuperacao`). Um que votou SIM e não tem Decisao durável volta em dúvida e
+  sai dela quando a DECISAO chega.
 
 ### Propriedades e os invariantes que as testam
 
@@ -143,7 +156,7 @@ sem variância amostral a absorver — a justificativa está em
 | --- | --- | --- | --- |
 | Atomicidade: nenhum COMMIT enquanto outro ABORT na mesma transação | *safety* | **`invariante_04_atomicidade`** | 6.7, 12.3 |
 | Durabilidade: a Decisao não reverte após reinício | *safety* | **`invariante_05_durabilidade`** | 6.6, 6.8, 12.3 |
-| *Liveness* bloqueante: crash do Coordenador → Estado_Em_Duvida | — (aviso) | **`invariante_05_durabilidade`** (ramo de aviso) | 8.5, 12.4 |
+| *Liveness* bloqueante: Estado_Em_Duvida enquanto o Coordenador está fora | n/d (aviso) | **`invariante_05_durabilidade`** (ramo de aviso) | 8.5, 12.4 |
 
 - **Atomicidade** (`invariante_04_atomicidade`): lê a Decisao durável de cada Nó
   (Coordenador e Participantes) e reprova se COMMIT e ABORT coexistem numa
@@ -152,17 +165,21 @@ sem variância amostral a absorver — a justificativa está em
   tudo-ou-nada.
 - **Durabilidade** (`invariante_05_durabilidade`, ramo de reprovação): quando um
   Nó registra uma `recuperacao`, a Decisao recuperada tem de bater com a Decisao
-  durável daquele Nó. Divergência é reversão após reinício e reprova.
+  durável daquele Nó. Divergência é reversão após reinício e reprova. O cenário
+  `2pc crash-coord` reinicia o Coordenador, que registra a `recuperacao` da
+  Decisao gravada antes do crash.
 - **Bloqueio característico do 2PC** (`invariante_05_durabilidade`, ramo de
   aviso): um Participante que gravou Voto SIM mas não tem Decisao durável está em
-  **Estado_Em_Duvida** — o bloqueio que ocorre quando o Coordenador cai entre
-  decidir e difundir (Requisito 8.5). **Isso é comportamento correto do 2PC**, o
-  preço da atomicidade sem um protocolo de terminação, e não um defeito. O
+  **Estado_Em_Duvida** (Requisito 8.5). Ele não pode decidir sozinho, porque não
+  sabe se os outros votaram SIM. Nesta variante o bloqueio dura enquanto o
+  Coordenador está fora. Quando ele volta, relê o log e difunde a Decisao, ou o
+  ABORT de uma transação que estava em WAIT, e a retransmissão a entrega a quem
+  perdeu a Mensagem. **Isso é comportamento correto do 2PC**, o preço da
+  atomicidade sem um protocolo de terminação cooperativo, e não um defeito. O
   invariante o classifica como **aviso**: aparece no relatório, mas **não** muda
   o código de saída (Requisito 12.4). Tratá-lo como reprovação transformaria uma
-  propriedade conhecida do 2PC num alarme falso permanente. É exatamente o que o
-  cenário `2pc crash-coord` produz e o que `verificar.py` reporta como aviso,
-  ainda saindo com código 0.
+  propriedade conhecida do 2PC num alarme falso. O aviso aparece nos logs
+  coletados com o Coordenador ainda fora e some depois que ele se recupera.
 
 ### Por que o Deadline e o write-ahead não são detalhe de estilo
 
@@ -175,6 +192,9 @@ as quebra:
 - **Ordem write-ahead.** Se a gravação da Decisao migrasse para depois da
   resposta de rede, um crash entre responder e gravar perderia a Decisao, e
   `invariante_05_durabilidade` passaria a reprovar numa reversão real.
+- **Entrada em WAIT.** Sem ela, um Coordenador que cai antes de decidir volta sem
+  saber que a transação existiu, e os Participantes que votaram SIM ficam em
+  dúvida para sempre.
 
 ---
 
@@ -190,8 +210,8 @@ Cada um registra a **Semente** com que foi conduzido.
 | `anel falha` | morte do Líder (5) → reeleição para o maior vivo (4) | 01, 02, 03 | passam |
 | `2pc commit` | todos SIM → COMMIT em todos | 04, 05 | passam |
 | `2pc abort` | um NAO → ABORT atômico em todos | 04, 05 | passam |
-| `2pc crash-coord` | Coordenador cai antes da DECISAO → Estado_Em_Duvida | 05 (ramo de aviso) | aviso, **não** reprova |
+| `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05 | passam, todos em COMMIT depois do reinício |
 
-Em todos, `verificar.py` sai com código 0: nos quatro primeiros porque as
-propriedades de *safety* valem; no último porque o único achado é um aviso
-esperado, não uma violação.
+Em todos, `verificar.py` sai com código 0, porque as propriedades de *safety*
+valem. No `2pc crash-coord`, o 05 confere a `recuperacao` do Coordenador
+reiniciado contra a Decisao do log dele.

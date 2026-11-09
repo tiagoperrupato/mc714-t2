@@ -14,7 +14,10 @@ Cobrem:
 - a ordem write-ahead: o Voto é gravado antes de respondido e a Decisao antes de
   aplicada (Req. 6.4, 6.5);
 - não-reversão de uma Decisao já registrada (Req. 6.8);
-- ABORT por timeout de coleta de Votos (Req. 6.3).
+- ABORT por timeout de coleta de Votos (Req. 6.3);
+- recuperação do Coordenador: a Decisao gravada é difundida de novo, e a
+  transação em WAIT vira ABORT;
+- difusão da DECISAO só a quem ainda não mandou o ACK.
 """
 
 from __future__ import annotations
@@ -27,7 +30,9 @@ from src.comum.modelos import Mensagem
 from src.doispc.log_duravel import (
     DECISAO_ABORT,
     DECISAO_COMMIT,
+    ESTADO_WAIT,
     FASE_DECISAO,
+    FASE_INICIO,
     FASE_VOTO,
     VOTO_NAO,
     VOTO_SIM,
@@ -47,6 +52,7 @@ from src.doispc.maquina import (
     GravarLog,
     coordenador_decide_por_timeout,
     coordenador_recebe,
+    difundir_decisao,
     iniciar_transacao,
     participante_recebe,
     recuperar_coordenador,
@@ -70,9 +76,10 @@ class DoisPCSimulado:
     são entregues ao destino até a fila esvaziar.
 
     `votos_desejados` mapeia id de Participante ao Voto que ele emitirá (SIM por
-    padrão), modelando o Participante configurado para votar NAO.
-    `coordenador_cai_apos` descarta DECISAO em trânsito depois de N gravações de
-    Decisao do Coordenador, modelando o crash que deixa Participantes em dúvida.
+    padrão), modelando o Participante configurado para votar NAO. `perder` é o
+    conjunto de tipos de Mensagem descartados em trânsito. Perder a DECISAO
+    modela o crash do Coordenador depois de decidir, e perder o VOTO, o crash
+    antes de decidir.
     """
 
     def __init__(
@@ -95,7 +102,7 @@ class DoisPCSimulado:
         }
         self.historico: list[Mensagem] = []
         self.aplicacoes: list[tuple[int, str, str]] = []
-        self.entregar_decisao = True
+        self.perder: set[str] = set()
 
     # -- execução de ações na ordem write-ahead ---------------------------- #
 
@@ -123,8 +130,7 @@ class DoisPCSimulado:
                 raise AssertionError("transação não convergiu: possível laço")
             msg = fila.pop(0)
 
-            if msg.tipo == MSG_DECISAO and not self.entregar_decisao:
-                # Coordenador caiu: a Decisao não chega ao Participante.
+            if msg.tipo in self.perder:
                 self.historico.append(msg)
                 continue
 
@@ -153,6 +159,14 @@ class DoisPCSimulado:
         """Inicia a transação e processa toda a troca de Mensagens até estabilizar."""
         self.estado_coordenador, acoes = iniciar_transacao(
             self.coordenador_id, transacao, self.participantes
+        )
+        self._entregar(self._executar(self.coordenador_id, acoes))
+
+    def reiniciar_coordenador(self, transacao: str) -> None:
+        """Reconstrói o Coordenador só do Log_Duravel e entrega o que a recuperação difunde."""
+        persistido = self.logs[self.coordenador_id].recuperar(transacao)
+        self.estado_coordenador, acoes = recuperar_coordenador(
+            persistido, self.coordenador_id, self.participantes
         )
         self._entregar(self._executar(self.coordenador_id, acoes))
 
@@ -258,6 +272,13 @@ def test_participante_grava_decisao_antes_de_aplicar_e_confirmar() -> None:
     assert acoes[2].mensagem.tipo == MSG_ACK
 
 
+def test_coordenador_grava_inicio_antes_do_prepare() -> None:
+    # A entrada em WAIT vai ao Log_Duravel antes de qualquer PREPARE sair.
+    _, acoes = iniciar_transacao(COORD, TX, PARTS)
+    assert acoes[0] == GravarLog(EntradaLog(TX, FASE_INICIO, ESTADO_WAIT, COORD))
+    assert [a.mensagem.tipo for a in acoes[1:]] == [MSG_PREPARE] * len(PARTS)
+
+
 def test_coordenador_grava_decisao_antes_de_difundir() -> None:
     # Quando o último Voto chega, a primeira Acao do Coordenador é GravarLog da
     # Decisao, antes das Enviar de DECISAO aos Participantes.
@@ -306,11 +327,25 @@ def test_recuperacao_reporta_mesma_decisao_de_antes() -> None:
 
 
 def test_coordenador_recupera_decisao_do_log() -> None:
+    # A Decisao gravada volta e é difundida de novo a todos, sem regravar.
     sim = DoisPCSimulado(COORD, PARTS)
     sim.executar_transacao(TX)
     persistido = sim.logs[COORD].recuperar(TX)
-    recuperado = recuperar_coordenador(persistido, PARTS)
+    recuperado, acoes = recuperar_coordenador(persistido, COORD, PARTS)
     assert recuperado.decisao == DECISAO_COMMIT
+    assert all(isinstance(a, Enviar) for a in acoes)
+    assert {a.mensagem.destino for a in acoes} == set(PARTS)
+    assert {a.mensagem.corpo["decisao"] for a in acoes} == {DECISAO_COMMIT}
+
+
+def test_coordenador_em_wait_recupera_com_abort() -> None:
+    # Só a entrada em WAIT no log: a recuperação grava ABORT antes de difundi-lo.
+    log = LogDuravelMemoria()
+    log.registrar(EntradaLog(TX, FASE_INICIO, ESTADO_WAIT, COORD))
+    recuperado, acoes = recuperar_coordenador(log.recuperar(TX), COORD, PARTS)
+    assert recuperado.decisao == DECISAO_ABORT
+    assert acoes[0] == GravarLog(EntradaLog(TX, FASE_DECISAO, DECISAO_ABORT, COORD))
+    assert {a.mensagem.destino for a in acoes[1:]} == set(PARTS)
 
 
 def test_participante_em_duvida_recupera_voto_sem_decisao() -> None:
@@ -407,7 +442,7 @@ def test_timeout_apos_decisao_nao_reverte() -> None:
 
 def test_crash_do_coordenador_deixa_participantes_em_duvida() -> None:
     sim = DoisPCSimulado(COORD, PARTS)
-    sim.entregar_decisao = False  # Coordenador cai antes de difundir a Decisao.
+    sim.perder = {MSG_DECISAO}  # Coordenador cai antes de difundir a Decisao.
     sim.executar_transacao(TX)
 
     # O Coordenador chegou a decidir e gravar; os Participantes votaram SIM mas
@@ -419,6 +454,42 @@ def test_crash_do_coordenador_deixa_participantes_em_duvida() -> None:
         assert estado.em_duvida is True
         assert sim.logs[p].recuperar(TX).voto == VOTO_SIM
         assert sim.logs[p].recuperar(TX).decisao is None
+
+
+def test_coordenador_reiniciado_depois_de_decidir_tira_todos_da_duvida() -> None:
+    sim = DoisPCSimulado(COORD, PARTS)
+    sim.perder = {MSG_DECISAO}
+    sim.executar_transacao(TX)
+
+    sim.perder = set()
+    sim.reiniciar_coordenador(TX)
+    assert set(sim.decisoes_participantes().values()) == {DECISAO_COMMIT}
+    assert sim.estado_coordenador.concluido
+
+
+def test_coordenador_reiniciado_antes_de_decidir_aborta() -> None:
+    # Os Votos SIM nunca chegam: o Coordenador cai em WAIT, com os três em dúvida.
+    sim = DoisPCSimulado(COORD, PARTS)
+    sim.perder = {MSG_VOTO}
+    sim.executar_transacao(TX)
+    assert all(sim.estado_participante[p].em_duvida for p in PARTS)
+
+    sim.perder = set()
+    sim.reiniciar_coordenador(TX)
+    assert set(sim.decisoes_participantes().values()) == {DECISAO_ABORT}
+    assert sim.logs[COORD].recuperar(TX).decisao == DECISAO_ABORT
+    assert sim.estado_coordenador.concluido
+
+
+def test_difundir_decisao_so_para_quem_nao_mandou_o_ack() -> None:
+    estado, _ = iniciar_transacao(COORD, TX, PARTS)
+    assert difundir_decisao(estado, COORD) == ()  # nada a difundir antes de decidir
+    for p in PARTS:
+        voto = Mensagem(tipo=MSG_VOTO, origem=p, destino=COORD, corpo={"transacao": TX, "voto": VOTO_SIM})
+        estado, _ = coordenador_recebe(estado, COORD, voto)
+    ack = Mensagem(tipo=MSG_ACK, origem=2, destino=COORD, corpo={"transacao": TX})
+    estado, _ = coordenador_recebe(estado, COORD, ack)
+    assert [a.mensagem.destino for a in difundir_decisao(estado, COORD)] == [1, 3]
 
 
 # ---------------------------------------------------------------------------

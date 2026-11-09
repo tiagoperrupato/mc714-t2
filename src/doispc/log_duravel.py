@@ -31,11 +31,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Protocol, runtime_checkable
 
-# Fases persistidas no Log_Duravel. VOTO registra a decisão local de um
-# Participante ao PREPARE; DECISAO registra o resultado da transação (COMMIT ou
-# ABORT), tanto no Coordenador quanto no Participante.
+# Fases persistidas no Log_Duravel. INICIO registra que o Coordenador entrou em
+# WAIT, antes do PREPARE, para que a recuperação saiba que a transação existiu.
+# VOTO registra a decisão local de um Participante ao PREPARE. DECISAO registra
+# o resultado da transação (COMMIT ou ABORT), no Coordenador e no Participante.
+FASE_INICIO = "inicio"
 FASE_VOTO = "voto"
 FASE_DECISAO = "decisao"
+
+# Valor da entrada de INICIO: o estado em que o Coordenador fica até decidir.
+ESTADO_WAIT = "WAIT"
 
 # Valores de Voto e de Decisao, mantidos como constantes para evitar strings
 # soltas espalhadas pelo código.
@@ -49,8 +54,8 @@ DECISAO_ABORT = "ABORT"
 class EntradaLog:
     """Uma entrada imutável do Log_Duravel, ligada a uma transação.
 
-    `transacao` identifica a transação 2PC. `fase` é `FASE_VOTO` ou
-    `FASE_DECISAO`. `valor` é o Voto (`SIM`/`NAO`) ou a Decisao
+    `transacao` identifica a transação 2PC. `fase` é `FASE_INICIO`, `FASE_VOTO`
+    ou `FASE_DECISAO`. `valor` é `WAIT`, o Voto (`SIM`/`NAO`) ou a Decisao
     (`COMMIT`/`ABORT`). `no` é o id do Nó que gravou a entrada, útil para
     auditoria do log e para a análise.
     """
@@ -124,7 +129,9 @@ def _reduzir(entradas: Iterable[EntradaLog], transacao: str) -> EstadoPersistido
     O Voto segue a última entrada de Voto. A Decisao segue a **primeira**
     Decisao registrada e ignora qualquer entrada posterior: uma vez decidida,
     uma transação não reverte (Requisito 6.8), então a recuperação sempre
-    reporta a mesma Decisao de antes do reinício (Requisito 6.6).
+    reporta a mesma Decisao de antes do reinício (Requisito 6.6). A entrada de
+    INICIO não muda o resumo. Ela só faz a transação aparecer em `transacoes()`,
+    e no Coordenador uma transação sem Decisao está em WAIT.
     """
     voto: Optional[str] = None
     decisao: Optional[str] = None

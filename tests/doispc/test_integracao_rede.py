@@ -13,7 +13,10 @@ Cobrem:
 - transação em que um Participante vota NAO (via flag) → ABORT em todos (Req. 7.4);
 - ABORT por timeout quando um Participante está fora e não vota a tempo (Req. 7.5);
 - várias transações, seguidas e concorrentes, nos mesmos Nós;
-- id de transação repetido, que devolve a Decisao gravada sem abrir rodada nova.
+- id de transação repetido, que devolve a Decisao gravada sem abrir rodada nova;
+- DECISAO perdida com o Coordenador vivo, entregue pela retransmissão;
+- Participante que vota depois do ABORT por timeout e sai da dúvida pela
+  retransmissão.
 
 A ordem write-ahead (Req. 6.4, 6.5) é verificada indiretamente: a Decisao
 recuperada de cada Log_Duravel em arquivo coincide com a reportada, o que só
@@ -34,16 +37,20 @@ import pytest
 import uvicorn
 
 from src.comum.falhas import ControladorFalhas
-from src.comum.modelos import No
-from src.comum.rede import ClienteRede
+from src.comum.modelos import Mensagem, No
+from src.comum.rede import ClienteRede, EnvioTimeout, ResultadoEnvio
 from src.doispc.coordenador import ServicoCoordenador, criar_app as criar_app_coord
 from src.doispc.log_duravel import (
     DECISAO_ABORT,
     DECISAO_COMMIT,
+    ESTADO_WAIT,
+    FASE_DECISAO,
+    FASE_INICIO,
     VOTO_NAO,
     VOTO_SIM,
     LogDuravelArquivo,
 )
+from src.doispc.maquina import MSG_DECISAO, MSG_PREPARE
 from src.doispc.participante import (
     ServicoParticipante,
     criar_app as criar_app_part,
@@ -83,13 +90,47 @@ class _ServidorLocal:
         self._thread.join(timeout=10.0)
 
 
+class _ClienteComRoteiro:
+    """Cliente do Coordenador que perde ou atrasa as Mensagens indicadas por (tipo, destino).
+
+    `perder` diz quantas Mensagens de cada chave somem antes de a rede vê-las. `atrasar` segura
+    cada Mensagem da chave antes de enviá-la, na thread que envia.
+    """
+
+    def __init__(
+        self,
+        *,
+        perder: dict[tuple[str, int], int] | None = None,
+        atrasar: dict[tuple[str, int], float] | None = None,
+    ) -> None:
+        self._cliente = ClienteRede()
+        self._perder = dict(perder or {})
+        self._atrasar = dict(atrasar or {})
+        self._trava = threading.Lock()
+
+    def enviar(self, destino_url: str, mensagem: Mensagem, deadline: float) -> ResultadoEnvio:
+        chave = (mensagem.tipo, mensagem.destino)
+        with self._trava:
+            perder = self._perder.get(chave, 0) > 0
+            if perder:
+                self._perder[chave] -= 1
+        if perder:
+            return EnvioTimeout(deadline=deadline, tentativas=1)
+        time.sleep(self._atrasar.get(chave, 0.0))
+        return self._cliente.enviar(destino_url, mensagem, deadline)
+
+    def fechar(self) -> None:
+        self._cliente.fechar()
+
+
 class _Cenario2PC:
     """Monta Coordenador + 3 Participantes em servidores locais, com logs em disco.
 
     `votos` mapeia id de Participante ao Voto desejado (SIM por padrão); é a flag
     que faz um Participante votar NAO. `participantes_ativos` permite deixar um
     Participante fora do ar, para exercitar o ABORT por timeout de coleta.
-    `controladores` liga a injeção de falhas ao recebimento de um Participante.
+    `controladores` liga a injeção de falhas ao recebimento de um Participante, e
+    `cliente_coord` troca o cliente de rede do Coordenador.
     """
 
     def __init__(
@@ -101,8 +142,10 @@ class _Cenario2PC:
         deadline_voto: float = 3.0,
         deadline_decisao: float = 2.0,
         controladores: dict[int, ControladorFalhas] | None = None,
+        cliente_coord=None,
     ) -> None:
         self._tmp = tmp_path
+        self._cliente_coord = cliente_coord or ClienteRede()
         self._votos = votos or {}
         self._controladores = controladores or {}
         self._ativos = participantes_ativos
@@ -143,7 +186,7 @@ class _Cenario2PC:
             self.coord_no,
             self.part_nos,
             log_duravel=log_coord,
-            cliente=ClienteRede(),
+            cliente=self._cliente_coord,
             deadline_voto=self._deadline_voto,
             deadline_decisao=self._deadline_decisao,
         )
@@ -260,14 +303,20 @@ def test_id_repetido_devolve_a_decisao_gravada(tmp_path: Path) -> None:
         p13.limpar()
 
         assert cen.servico_coord.iniciar("x")["decisao"] == DECISAO_ABORT
-        assert cen._servico_part[13].estado is None
+        # P13, que estava fora, recebe o ABORT pela retransmissão. Ele nunca votou,
+        # então nenhum PREPARE de rodada nova chegou a ele.
+        cen.esperar_decisoes("x", participantes=(13,))
+        assert cen.logs[13].recuperar("x").voto is None
 
     linhas = (tmp_path / "coord.log").read_text(encoding="utf-8").splitlines()
-    assert [json.loads(l)["valor"] for l in linhas] == [DECISAO_ABORT]
+    assert [(json.loads(l)["fase"], json.loads(l)["valor"]) for l in linhas] == [
+        (FASE_INICIO, ESTADO_WAIT),
+        (FASE_DECISAO, DECISAO_ABORT),
+    ]
     for pid in (11, 12):
         assert cen.decisao_recuperada(pid, "x") == DECISAO_ABORT
 
-    # Um Coordenador novo sobre o mesmo log também devolve a Decisao gravada.
+    # Um Coordenador reiniciado sobre o mesmo log recupera "x" e também não abre rodada nova.
     reiniciado = ServicoCoordenador(
         cen.coord_no,
         cen.part_nos,
@@ -276,5 +325,37 @@ def test_id_repetido_devolve_a_decisao_gravada(tmp_path: Path) -> None:
         deadline_voto=0.6,
         deadline_decisao=0.3,
     )
+    reiniciado.recuperar()
     assert reiniciado.iniciar("x")["decisao"] == DECISAO_ABORT
-    assert reiniciado.estado is None
+    assert (tmp_path / "coord.log").read_text(encoding="utf-8").splitlines() == linhas
+
+
+def test_decisao_perdida_chega_pela_retransmissao(tmp_path: Path) -> None:
+    # A primeira DECISAO a cada Participante some, com o Coordenador vivo.
+    cliente = _ClienteComRoteiro(perder={(MSG_DECISAO, pid): 1 for pid in PART_IDS})
+    with _Cenario2PC(tmp_path, cliente_coord=cliente) as cen:
+        assert cen.servico_coord.iniciar("tx-perdida")["decisao"] == DECISAO_COMMIT
+        cen.esperar_decisoes("tx-perdida")
+        assert esperar_ate(lambda: cen.servico_coord.estado.concluido)
+
+    for pid in PART_IDS:
+        assert cen.decisao_recuperada(pid, "tx-perdida") == DECISAO_COMMIT
+
+
+def test_voto_depois_do_abort_sai_da_duvida_pela_retransmissao(tmp_path: Path) -> None:
+    # O PREPARE a P13 sai depois do prazo de coleta, então P13 vota SIM depois do
+    # ABORT por timeout. A primeira DECISAO a ele some, e só a retransmissão o
+    # tira da dúvida.
+    cliente = _ClienteComRoteiro(
+        atrasar={(MSG_PREPARE, 13): 0.8}, perder={(MSG_DECISAO, 13): 1}
+    )
+    with _Cenario2PC(
+        tmp_path, cliente_coord=cliente, deadline_voto=0.6, deadline_decisao=0.3
+    ) as cen:
+        assert cen.servico_coord.iniciar("tx-tardio")["decisao"] == DECISAO_ABORT
+        cen.esperar_decisoes("tx-tardio")
+        assert esperar_ate(lambda: cen.servico_coord.estado.concluido)
+
+    assert cen.logs[13].recuperar("tx-tardio").voto == VOTO_SIM
+    for pid in PART_IDS:
+        assert cen.decisao_recuperada(pid, "tx-tardio") == DECISAO_ABORT

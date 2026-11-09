@@ -115,8 +115,8 @@ sustentam a propriedade:
   `decisao` recuperada tem de bater com a Decisao durável daquele Nó para a
   transação. Divergência é reversão e reprova. Tolerância: zero.
 - Um Participante que gravou Voto SIM mas não tem Decisao durável está em
-  Estado_Em_Duvida — o bloqueio esperado do 2PC quando o Coordenador cai antes de
-  difundir a Decisao. Isso vira **aviso**, nunca reprovação (Requisito 12.4).
+  Estado_Em_Duvida, o bloqueio esperado do 2PC enquanto o Coordenador está fora.
+  Isso vira **aviso**, nunca reprovação (Requisito 12.4).
 
 A reprovação de durabilidade fica, portanto, restrita à reversão de uma Decisao
 já registrada; o bloqueio característico do protocolo é documentado como aviso,
@@ -129,6 +129,6 @@ Cada invariante testa uma propriedade declarada em
 propriedade↔invariante por nome: os invariantes 1 a 3 cobrem a *safety* e a
 *liveness* da Eleição em Anel; os invariantes 4 e 5 cobrem a atomicidade e a
 durabilidade do 2PC. O Estado_Em_Duvida é a *liveness* bloqueante do 2PC,
-demonstrada experimentalmente (cenário `2pc crash-coord`) e classificada como
-aviso. Os cenários reproduzíveis que exercitam cada propriedade estão em
+classificada como aviso. O cenário `2pc crash-coord` mostra o bloqueio com o
+Coordenador fora e o fim dele depois do reinício. Os cenários reproduzíveis que exercitam cada propriedade estão em
 `scripts/cenario.py` e são encadeados por `scripts/demo.py`.

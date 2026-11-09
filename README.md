@@ -136,7 +136,7 @@ python scripts/verificar.py results/cenario_anel_falha_logs   # caminhos especí
 
 Sai com código **diferente de zero apenas quando um invariante reprova** — ou
 seja, quando uma propriedade de *safety* é violada. Um aviso, como o
-Estado_Em_Duvida bloqueante do 2PC quando o Coordenador cai, aparece no relatório
+Estado_Em_Duvida bloqueante do 2PC enquanto o Coordenador está fora, aparece no relatório
 mas não altera o código de saída, porque bloquear é comportamento correto do
 algoritmo. A ausência de logs também não reprova. A lista de invariantes, com a
 tolerância de cada um e a razão dela, está em
@@ -155,7 +155,7 @@ python scripts/cenario.py anel normal        # eleição converge para o maior i
 python scripts/cenario.py anel falha         # mata o Líder (5) e reelege o maior vivo (4)
 python scripts/cenario.py 2pc commit         # todos votam SIM -> COMMIT atômico
 python scripts/cenario.py 2pc abort          # Participante 3 vota NAO -> ABORT atômico
-python scripts/cenario.py 2pc crash-coord    # Coordenador cai -> Participantes em dúvida (aviso)
+python scripts/cenario.py 2pc crash-coord    # Coordenador cai após decidir -> dúvida -> reinício -> COMMIT
 
 python scripts/demo.py                        # encadeia anel/falha + 2pc/crash-coord e verifica
 ```
@@ -167,7 +167,7 @@ portas efêmeras — úteis para ver o algoritmo sem subir o compose:
 python -m scripts.demo_rede               # dois Nós trocando Mensagens; timeout no Deadline
 python -m scripts.demo_anel               # eleição sobre o compose (supõe os Nós no ar)
 python -m scripts.demo_falhas_anel        # crash do Líder e reeleição (apps locais)
-python -m scripts.demo_falhas_2pc         # crash do Coordenador e Participantes bloqueados
+python -m scripts.demo_falhas_2pc         # crash do Coordenador, bloqueio e recuperação
 python -m scripts.demo_rede_toxiproxy     # latência e partição via Toxiproxy (compose)
 ```
 
@@ -269,7 +269,10 @@ O **Deadline é obrigatório por projeto**: o cliente do Transporte não expõe
 caminho que envie Mensagem sem timeout. Sem isso, uma partição de rede travaria
 um Nó indefinidamente, e o salto do Anel ou o ABORT por timeout do 2PC deixariam
 de acontecer. No 2PC, a **ordem write-ahead** sustenta a durabilidade: Voto e
-Decisao vão ao Log_Duravel antes de serem respondidos ou aplicados.
+Decisao vão ao Log_Duravel antes de serem respondidos ou aplicados, e o
+Coordenador grava a entrada em WAIT antes do PREPARE. Na partida, ele relê o log,
+aborta o que estava em WAIT e difunde de novo o que estava decidido. A DECISAO é
+retransmitida até o ACK de cada Participante.
 
 ## Arquivos de saída
 

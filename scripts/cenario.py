@@ -34,12 +34,11 @@ Cenários do 2PC:
         Participante 3 vota NAO → ABORT atômico em todos (Requisito 7.4).
 
     python scripts/cenario.py 2pc crash-coord
-        Todos votam SIM, mas o Coordenador cai entre decidir e difundir a
-        Decisao (flag `DOISPC_SUPRIMIR_DECISAO`): os Participantes que votaram
-        SIM ficam em Estado_Em_Duvida (Requisito 8.5). Nos logs isso aparece
-        como Voto SIM durável sem Decisao durável, que `verificar.py` reporta
-        como **aviso**, não reprovação (Requisito 12.4) — a verificação ainda
-        sai com código 0.
+        Todos votam SIM, e o processo do Coordenador morre logo depois de
+        gravar a Decisao, antes de difundi-la (flag `DOISPC_CAIR_APOS_DECIDIR`).
+        O cenário mostra os Participantes em Estado_Em_Duvida (Requisito 8.5),
+        reinicia o contêiner e mostra todos decidindo COMMIT depois que o
+        Coordenador relê o Log_Duravel e difunde a Decisao gravada.
 
 Requer Docker com Compose v2. Sem Docker, o script falha com uma mensagem clara
 e código de saída 2, em vez de travar — a demonstração por contêiner não é um
@@ -144,7 +143,7 @@ def _http_json(url: str, metodo: str = "GET", timeout: float = 5.0) -> dict[str,
 
 
 # --------------------------------------------------------------------------- #
-# Overrides de cenário (voto, supressão de decisão, semente)
+# Overrides de cenário (voto, crash do Coordenador, semente)
 # --------------------------------------------------------------------------- #
 
 
@@ -154,21 +153,21 @@ def _override_2pc(modo_norm: str, semente: int) -> str:
     - commit: Participante 3 vota SIM (COMMIT em todos).
     - abort:  Participante 3 vota NAO (ABORT atômico — é o default do base, mas
       explicitamos para o cenário ser autocontido).
-    - crash-coord: todos votam SIM e o Coordenador suprime a DECISAO, deixando os
-      Participantes em Estado_Em_Duvida (Requisito 8.5).
+    - crash-coord: todos votam SIM e o processo do Coordenador morre logo depois
+      de gravar a Decisao (Requisito 8.5).
 
     A Semente é escrita em todos os serviços do 2PC, para que o `inicio_replica`
     de cada log a carimbe (reprodutibilidade, Requisito 8.4).
     """
     voto_p3 = "NAO" if modo_norm == "abort" else "SIM"
-    suprimir = "true" if modo_norm == "crash-coord" else "false"
+    cair = "true" if modo_norm == "crash-coord" else "false"
     sem = str(semente)
     return f"""\
 services:
   coordenador:
     environment:
       SEMENTE: "{sem}"
-      DOISPC_SUPRIMIR_DECISAO: "{suprimir}"
+      DOISPC_CAIR_APOS_DECIDIR: "{cair}"
   participante-1:
     environment:
       SEMENTE: "{sem}"
@@ -311,15 +310,15 @@ def _estados_participantes(*, esperar_decisao: bool, timeout: float = 10.0) -> d
         time.sleep(0.05)
 
 
-def _cenario_2pc(modo_norm: str, semente: int) -> dict[str, Any]:
+def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> dict[str, Any]:
     """Conduz uma transação 2PC sobre o compose e devolve as métricas observadas.
 
-    O voto dos Participantes e a supressão da DECISAO vêm do override montado por
-    `_override_2pc`; este condutor apenas dispara a transação e observa a
-    Decisao e os estados dos Participantes. A DECISAO sai da fila do Coordenador
-    depois da resposta do `/transacao`, então o condutor espera cada Participante
-    decidir. Em `crash-coord` a DECISAO é suprimida, e os Participantes ficam em
-    Estado_Em_Duvida.
+    O voto dos Participantes e o crash do Coordenador vêm do override montado por
+    `_override_2pc`. A DECISAO sai da fila do Coordenador depois da resposta do
+    `/transacao`, então o condutor espera cada Participante decidir. Em
+    `crash-coord` o `/transacao` não responde, porque o processo morre depois de
+    gravar a Decisao. O condutor registra os Participantes em dúvida, reinicia o
+    contêiner e mede o tempo até todos decidirem.
     """
     base_coord = f"http://127.0.0.1:{PORTA_COORD}"
     _esperar_saude(base_coord, 30.0)
@@ -329,27 +328,57 @@ def _cenario_2pc(modo_norm: str, semente: int) -> dict[str, Any]:
     except (urllib.error.URLError, OSError) as exc:  # pragma: no cover - rede do cenário
         resposta = {"erro": str(exc)}
     latencia = time.monotonic() - inicio
-    estados_part = _estados_participantes(esperar_decisao=modo_norm != "crash-coord")
 
-    em_duvida = [
+    if modo_norm != "crash-coord":
+        return {
+            "cenario": f"2pc_{modo_norm}",
+            "algoritmo": "2pc",
+            "modo": modo_norm,
+            "semente": semente,
+            "decisao": resposta.get("decisao"),
+            "latencia_commit_s": round(latencia, 4),
+            "participantes": resposta.get("participantes"),
+            "estados_participantes": _estados_participantes(esperar_decisao=True),
+        }
+
+    em_duvida = sorted(
         pid
-        for pid, est in estados_part.items()
-        if est.get("voto") == "SIM" and est.get("decisao") in (None, "")
-    ]
-    registro = {
-        "cenario": f"2pc_{modo_norm}",
+        for pid, est in _estados_participantes(esperar_decisao=False).items()
+        if est.get("em_duvida")
+    )
+    print(f"[cenario] Coordenador caiu ({resposta.get('erro')}). Em dúvida: {em_duvida}", file=erro)
+
+    # Logo depois do crash o Docker ainda pode ver o contêiner rodando, e um `start`
+    # nessa janela não faz nada. O `wait` só volta quando ele parou.
+    _compose("wait", "coordenador", arquivos=arquivos, timeout=60)
+    inicio = time.monotonic()
+    reinicio = _compose("start", "coordenador", arquivos=arquivos, timeout=120)
+    if reinicio.returncode != 0:
+        raise RuntimeError(f"docker compose start coordenador falhou: {reinicio.stderr}")
+    estados_part = _estados_participantes(esperar_decisao=True, timeout=30.0)
+    recuperacao = time.monotonic() - inicio
+    decisoes = {pid: est.get("decisao") for pid, est in estados_part.items()}
+    print(f"[cenario] Coordenador reiniciado. Em {recuperacao:.2f} s: {decisoes}", file=erro)
+    # Os logs só são coletados depois de todos os ACKs, para incluírem a retransmissão.
+    _esperar_saude(base_coord, 30.0)
+    limite = time.monotonic() + 10.0
+    estado_coord = _http_json(f"{base_coord}/estado")
+    while not estado_coord.get("concluido") and time.monotonic() < limite:
+        time.sleep(0.05)
+        estado_coord = _http_json(f"{base_coord}/estado")
+    return {
+        "cenario": "2pc_crash-coord",
         "algoritmo": "2pc",
         "modo": modo_norm,
         "semente": semente,
-        "decisao": resposta.get("decisao"),
-        "latencia_commit_s": round(latencia, 4),
-        "participantes": resposta.get("participantes"),
+        "falha_injetada": "processo do Coordenador morre depois de gravar a Decisao "
+        "(DOISPC_CAIR_APOS_DECIDIR) e o contêiner é reiniciado",
+        "participantes_em_duvida": em_duvida,
+        "decisao": estado_coord.get("decisao"),
+        "concluido": estado_coord.get("concluido"),
+        "tempo_recuperacao_s": round(recuperacao, 4),
         "estados_participantes": estados_part,
     }
-    if modo_norm == "crash-coord":
-        registro["falha_injetada"] = "crash_coordenador antes de difundir DECISAO (DOISPC_SUPRIMIR_DECISAO)"
-        registro["participantes_em_duvida"] = sorted(em_duvida)
-    return registro
 
 
 # --------------------------------------------------------------------------- #
@@ -449,9 +478,9 @@ def executar_cenario(
 ) -> int:
     """Sobe o cenário, conduz o algoritmo, coleta logs, VERIFICA e derruba o compose.
 
-    Devolve 0 em sucesso (incluindo cenários com avisos esperados, como o
-    Estado_Em_Duvida do crash-coord), 1 em falha de execução ou reprovação de um
-    invariante de safety, e 2 quando o Docker não está disponível. A configuração
+    Devolve 0 em sucesso (avisos de invariante não reprovam), 1 em falha de
+    execução ou reprovação de um invariante de safety, e 2 quando o Docker não
+    está disponível. A configuração
     do cenário é validada antes de subir qualquer contêiner; o compose é sempre
     derrubado ao final.
     """
@@ -468,11 +497,11 @@ def executar_cenario(
     if algoritmo == "anel":
         servicos = SERVICOS_ANEL
         override_texto = _override_anel(semente)
-        conduzir = lambda: _cenario_anel(rotulo, semente)  # noqa: E731
+        conduzir = lambda _arquivos: _cenario_anel(rotulo, semente)  # noqa: E731
     else:
         servicos = SERVICOS_2PC
         override_texto = _override_2pc(modo_norm, semente)
-        conduzir = lambda: _cenario_2pc(modo_norm, semente)  # noqa: E731
+        conduzir = lambda arquivos: _cenario_2pc(modo_norm, semente, arquivos, erro)  # noqa: E731
 
     if not _docker_disponivel():
         print(
@@ -499,7 +528,7 @@ def executar_cenario(
             return 1
 
         try:
-            registro = conduzir()
+            registro = conduzir(arquivos)
             registro["semente"] = semente
 
             logs_dir = base / f"cenario_{rotulo_arq}_logs"

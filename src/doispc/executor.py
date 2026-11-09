@@ -50,7 +50,7 @@ class ExecutorAcoes:
         self._enderecos = dict(enderecos)
         self._log = log
         self._ao_aplicar = ao_aplicar
-        self._saida: Despachante[Enviar] = Despachante(self._enviar)
+        self._saida: Despachante[Enviar] = Despachante(self.enviar)
 
     def executar(self, acoes: Sequence[Acao]) -> None:
         """Grava e aplica na hora e enfileira os envios, na ordem das `Acao`.
@@ -85,8 +85,11 @@ class ExecutorAcoes:
         if self._log is not None:
             self._log.evento("aplica", transacao=acao.transacao, decisao=acao.decisao)
 
-    def _enviar(self, acao: Enviar) -> None:
-        """Envia a Mensagem ao destino pelo Transporte, com Deadline obrigatório."""
+    def enviar(self, acao: Enviar) -> None:
+        """Envia a Mensagem já, na thread de quem chama, com o Deadline obrigatório.
+
+        A fila de saída chama este método, e a retransmissão do Coordenador também.
+        """
         destino = acao.mensagem.destino
         url = self._enderecos.get(destino)
         if url is None:

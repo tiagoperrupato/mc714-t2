@@ -11,6 +11,8 @@ A ordem das `Acao` **é** a ordem write-ahead exigida pelo enunciado
 (Requisito 6.4, 6.5). Quando o Participante vota, a função devolve primeiro uma
 `GravarLog` do Voto e só depois a `Enviar` da resposta; quando decide, devolve
 primeiro a `GravarLog` da Decisao e só depois o `Aplicar` e a `Enviar` do ACK.
+O Coordenador grava a entrada em WAIT antes do PREPARE e a Decisao antes da
+DECISAO.
 O adaptador apenas obedece à ordem, de modo que a durabilidade não dependa de
 ele lembrar a regra: gravar antes de responder está codificado na sequência.
 
@@ -27,7 +29,9 @@ from src.comum.modelos import Mensagem
 from src.doispc.log_duravel import (
     DECISAO_ABORT,
     DECISAO_COMMIT,
+    ESTADO_WAIT,
     FASE_DECISAO,
+    FASE_INICIO,
     FASE_VOTO,
     VOTO_NAO,
     VOTO_SIM,
@@ -120,14 +124,17 @@ class EstadoCoordenador:
 def iniciar_transacao(
     coordenador_id: int, transacao: str, participantes: tuple[int, ...]
 ) -> tuple[EstadoCoordenador, tuple[Acao, ...]]:
-    """Inicia uma transação: cria o estado e emite PREPARE a todos (Requisito 6.2).
+    """Inicia uma transação: grava a entrada em WAIT e emite PREPARE a todos (Requisito 6.2).
 
-    Função pura: devolve o estado inicial do Coordenador e uma `Enviar` de
-    PREPARE por Participante. A coleta de Votos acontece em
-    `coordenador_recebe`.
+    A `GravarLog` do início vem antes dos PREPARE. Sem ela, um Coordenador que
+    cai antes de decidir volta sem saber que a transação existiu, e os
+    Participantes que votaram SIM ficam em dúvida para sempre.
     """
     estado = EstadoCoordenador(transacao=transacao, participantes=tuple(participantes))
-    acoes = tuple(
+    entrada = EntradaLog(
+        transacao=transacao, fase=FASE_INICIO, valor=ESTADO_WAIT, no=coordenador_id
+    )
+    prepares = tuple(
         Enviar(
             Mensagem(
                 tipo=MSG_PREPARE,
@@ -138,7 +145,7 @@ def iniciar_transacao(
         )
         for p in participantes
     )
-    return estado, acoes
+    return estado, (GravarLog(entrada), *prepares)
 
 
 def coordenador_recebe(
@@ -224,19 +231,31 @@ def _coordenador_decide(
         valor=decisao,
         no=coordenador_id,
     )
-    acoes: list[Acao] = [GravarLog(entrada)]
-    for p in estado.participantes:
-        acoes.append(
-            Enviar(
-                Mensagem(
-                    tipo=MSG_DECISAO,
-                    origem=coordenador_id,
-                    destino=p,
-                    corpo={"transacao": estado.transacao, "decisao": decisao},
-                )
+    return estado, (GravarLog(entrada), *difundir_decisao(estado, coordenador_id))
+
+
+def difundir_decisao(
+    estado: EstadoCoordenador, coordenador_id: int
+) -> tuple[Enviar, ...]:
+    """Uma `Enviar` de DECISAO a cada Participante que ainda não mandou o ACK.
+
+    Serve à primeira difusão, à recuperação e à retransmissão, que a chama de
+    novo até todos confirmarem. Antes de decidir não há o que difundir.
+    """
+    if not estado.decidido:
+        return ()
+    return tuple(
+        Enviar(
+            Mensagem(
+                tipo=MSG_DECISAO,
+                origem=coordenador_id,
+                destino=p,
+                corpo={"transacao": estado.transacao, "decisao": estado.decisao},
             )
         )
-    return estado, tuple(acoes)
+        for p in estado.participantes
+        if p not in estado.acks
+    )
 
 
 def _coordenador_recebe_ack(
@@ -250,19 +269,25 @@ def _coordenador_recebe_ack(
 
 
 def recuperar_coordenador(
-    estado_persistido: EstadoPersistido, participantes: tuple[int, ...]
-) -> EstadoCoordenador:
-    """Reconstrói o Coordenador a partir do Log_Duravel após reinício (Requisito 6.6).
+    estado_persistido: EstadoPersistido,
+    coordenador_id: int,
+    participantes: tuple[int, ...],
+) -> tuple[EstadoCoordenador, tuple[Acao, ...]]:
+    """Reconstrói uma transação do Coordenador a partir do Log_Duravel após reinício.
 
-    A mesma Decisao de antes do reinício é restaurada; os Votos individuais não
-    são reconstruídos (o Coordenador já havia decidido com base neles e a
-    Decisao não reverte).
+    Transação decidida volta com a mesma Decisao (Requisito 6.6), difundida de
+    novo a todos, porque os ACKs não são duráveis. Transação em WAIT vira ABORT,
+    gravado e difundido. Os Votos não são duráveis no Coordenador, então ele
+    não sabe se todos votaram SIM, e só o ABORT é seguro.
     """
-    return EstadoCoordenador(
+    estado = EstadoCoordenador(
         transacao=estado_persistido.transacao,
         participantes=tuple(participantes),
         decisao=estado_persistido.decisao,
     )
+    if estado.decidido:
+        return estado, difundir_decisao(estado, coordenador_id)
+    return _coordenador_decide(estado, coordenador_id, forcar=DECISAO_ABORT)
 
 
 # --------------------------------------------------------------------------- #

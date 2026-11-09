@@ -20,6 +20,8 @@ Coordenador:
 - `DOISPC_DEADLINE_VOTO`     Deadline de coleta de Votos, em s (default 3.0).
 - `DOISPC_DEADLINE_DECISAO`  Deadline de cada envio de rede, em s (default 2.0).
 - `DOISPC_LOG_DURAVEL`       caminho do Log_Duravel (default /dados/coordenador.log).
+- `DOISPC_CAIR_APOS_DECIDIR` "true" derruba o processo logo depois de gravar uma
+                             Decisao. Só para o cenário `crash-coord`.
 
 Participante:
 - `PART_ID`, `PART_PORTA`    identidade e porta de escuta.
@@ -36,54 +38,45 @@ from pathlib import Path
 
 from src.comum.config import ConfigInvalidaError, ConfigNo
 from src.comum.falhas import ClienteComFalhas, ControladorFalhas, registrar_plano_no_log
-from src.comum.log import abrir_log
+from src.comum.log import LogEstruturado, abrir_log
+from src.comum.modelos import No
 from src.comum.rede import ClienteRede
 from src.doispc.coordenador import (
     ServicoCoordenador,
     _participantes_de_env,
     criar_app as criar_app_coordenador,
 )
-from src.doispc.log_duravel import VOTO_NAO, VOTO_SIM, LogDuravelArquivo
+from src.doispc.log_duravel import (
+    FASE_DECISAO,
+    VOTO_NAO,
+    VOTO_SIM,
+    EntradaLog,
+    LogDuravelArquivo,
+)
 from src.doispc.participante import (
     ServicoParticipante,
     criar_app as criar_app_participante,
 )
-from src.comum.modelos import Mensagem, No
-from src.comum.rede import EnvioOk, ResultadoEnvio
-from src.doispc.maquina import MSG_DECISAO
 
 
-class _ClienteSuprimeDecisao:
-    """Cliente do Coordenador que entrega tudo, menos a DECISAO (cenário de crash).
+class _LogDuravelQueCai(LogDuravelArquivo):
+    """Log_Duravel do cenário `crash-coord`: o processo morre logo depois de gravar uma Decisao.
 
-    Modela, de forma determinística e reproduzível, o Coordenador que morre
-    depois de coletar os Votos e gravar a Decisao (write-ahead), mas antes de a
-    DECISAO alcançar qualquer Participante (Requisito 8.5). Os PREPARE passam —
-    os Votos voltam normalmente —, mas cada Mensagem de tipo `decisao` é
-    descartada antes de tocar a rede, como se o processo tivesse morrido entre
-    decidir e difundir. É a mesma técnica do teste
-    `test_crash_do_coordenador_deixa_participantes_em_duvida`, trazida ao
-    contêiner por uma flag de ambiente (`DOISPC_SUPRIMIR_DECISAO`), para que o
-    cenário de bloqueio seja repetível sobre o compose sem corrida de timing.
-
-    Os Participantes que votaram SIM ficam em Estado_Em_Duvida: votaram, mas não
-    conhecem a Decisao. Nos logs isso aparece como Voto SIM durável sem Decisao
-    durável, que o invariante 5 classifica como **aviso**, não reprovação
-    (Requisito 12.4).
+    O `os._exit` vem depois do `fsync` e antes de a DECISAO entrar na fila de saída. Os
+    Participantes que votaram SIM ficam em dúvida até o Coordenador reiniciar e se recuperar do
+    log. Como a recuperação de uma transação em WAIT também grava uma Decisao, um contêiner com a
+    flag ligada cai de novo nesse caso.
     """
 
-    def __init__(self, cliente) -> None:
-        self._cliente = cliente
+    def __init__(self, caminho: Path | str, log: LogEstruturado) -> None:
+        super().__init__(caminho)
+        self._log = log
 
-    def enviar(self, destino_url: str, mensagem: Mensagem, deadline: float) -> ResultadoEnvio:
-        if mensagem.tipo == MSG_DECISAO:
-            return EnvioOk(status=200, corpo={"ack": True, "descartada": True})
-        return self._cliente.enviar(destino_url, mensagem, deadline)
-
-    def fechar(self) -> None:
-        fechar = getattr(self._cliente, "fechar", None)
-        if callable(fechar):
-            fechar()
+    def registrar(self, entrada: EntradaLog) -> None:
+        super().registrar(entrada)
+        if entrada.fase == FASE_DECISAO:
+            self._log.evento("crash_apos_decidir", transacao=entrada.transacao, decisao=entrada.valor)
+            os._exit(1)
 
 
 def _no_de_env(prefixo: str, padrao_porta: int) -> No:
@@ -129,12 +122,7 @@ def construir_coordenador() -> tuple[object, int]:
     )
     config.validar()
 
-    # Flag de cenário: suprime o despacho da DECISAO (Requisito 8.5). Reproduz o
-    # Coordenador que cai entre decidir e difundir, deixando os Participantes
-    # que votaram SIM em Estado_Em_Duvida, de forma determinística sobre o
-    # compose. Fora deste cenário a flag fica desligada e o Coordenador opera
-    # normalmente.
-    suprimir_decisao = os.environ.get("DOISPC_SUPRIMIR_DECISAO", "").strip().lower() in (
+    cair_apos_decidir = os.environ.get("DOISPC_CAIR_APOS_DECIDIR", "").strip().lower() in (
         "1", "true", "sim", "yes",
     )
 
@@ -149,20 +137,22 @@ def construir_coordenador() -> tuple[object, int]:
             "participantes": sorted(participantes),
             "deadline_voto": deadline_voto,
             "deadline_decisao": deadline_decisao,
-            "suprimir_decisao": suprimir_decisao,
+            "cair_apos_decidir": cair_apos_decidir,
         },
     )
-    cliente_base = ClienteComFalhas(ClienteRede(), controlador)
-    cliente = _ClienteSuprimeDecisao(cliente_base) if suprimir_decisao else cliente_base
+    log_duravel = (
+        _LogDuravelQueCai(caminho_log, log) if cair_apos_decidir else LogDuravelArquivo(caminho_log)
+    )
     servico = ServicoCoordenador(
         eu,
         participantes,
-        log_duravel=LogDuravelArquivo(caminho_log),
-        cliente=cliente,
+        log_duravel=log_duravel,
+        cliente=ClienteComFalhas(ClienteRede(), controlador),
         deadline_voto=deadline_voto,
         deadline_decisao=deadline_decisao,
         log=log,
     )
+    servico.recuperar()
     return criar_app_coordenador(servico, controlador=controlador), eu.porta
 
 
