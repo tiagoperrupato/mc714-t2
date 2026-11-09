@@ -48,10 +48,10 @@ from src.doispc.maquina import (
 class ServicoParticipante:
     """Núcleo do Participante, independente de FastAPI, para ser testável sem servidor.
 
-    Mantém o estado da transação corrente (um Participante trata uma transação
-    por vez neste projeto), o `voto_desejado` configurado e as dependências de
-    efeito colateral (Log_Duravel e Transporte), delegando toda a decisão à
-    Máquina_de_Estados.
+    Guarda o estado de cada transação num mapa pelo id, o `voto_desejado`
+    configurado e as dependências de efeito colateral (Log_Duravel e
+    Transporte), delegando toda a decisão à Máquina_de_Estados, que trata uma
+    transação por estado.
     """
 
     def __init__(
@@ -70,7 +70,8 @@ class ServicoParticipante:
         self._voto_desejado = VOTO_SIM if voto_desejado == VOTO_SIM else VOTO_NAO
         self._log_duravel = log_duravel
         self._log = log
-        self._estado: Optional[EstadoParticipante] = None
+        self._estados: dict[str, EstadoParticipante] = {}
+        self._ultima: Optional[str] = None
         # O Participante só fala com o Coordenador; o executor resolve o id do
         # destino para a URL do Coordenador.
         self._executor = ExecutorAcoes(
@@ -84,24 +85,31 @@ class ServicoParticipante:
 
     @property
     def estado(self) -> Optional[EstadoParticipante]:
-        """Estado corrente do Participante (ou `None` antes do primeiro PREPARE)."""
-        return self._estado
+        """Estado da transação vista por último (ou `None` antes da primeira)."""
+        return self._estados.get(self._ultima) if self._ultima is not None else None
+
+    def _guardar(self, transacao: str, estado: EstadoParticipante) -> None:
+        """Guarda o estado da transação. A última é a mais recente a aparecer pela primeira vez."""
+        if transacao not in self._estados:
+            self._ultima = transacao
+        self._estados[transacao] = estado
 
     def recuperar(self, transacao: str) -> Optional[EstadoParticipante]:
         """Reconstrói o estado a partir do Log_Duravel após reinício (Requisito 6.6)."""
         persistido = self._log_duravel.recuperar(transacao)
         if persistido.voto is None and persistido.decisao is None:
             return None
-        self._estado = recuperar_participante(persistido)
+        estado = recuperar_participante(persistido)
+        self._guardar(transacao, estado)
         if self._log is not None:
             self._log.evento(
                 "recuperacao",
                 transacao=transacao,
-                voto=self._estado.voto,
-                decisao=self._estado.decisao,
-                em_duvida=self._estado.em_duvida,
+                voto=estado.voto,
+                decisao=estado.decisao,
+                em_duvida=estado.em_duvida,
             )
-        return self._estado
+        return estado
 
     def receber(self, mensagem: Mensagem) -> Mapping[str, Any]:
         """Entrega a Mensagem à Máquina_de_Estados e executa as `Acao` devolvidas.
@@ -117,20 +125,21 @@ class ServicoParticipante:
                 origem=mensagem.origem,
                 transacao=mensagem.corpo.get("transacao"),
             )
+        transacao = str(mensagem.corpo.get("transacao", ""))
         novo, acoes = participante_recebe(
-            self._estado,
+            self._estados.get(transacao),
             self._eu.id,
             self._coordenador.id,
             mensagem,
             voto_desejado=self._voto_desejado,
         )
         self._executor.executar(acoes)
-        self._estado = novo
+        self._guardar(transacao, novo)
         return {"ack": True}
 
     def instantaneo(self) -> dict[str, Any]:
-        """Resumo serializável do estado corrente, para o endpoint `/estado`."""
-        estado = self._estado
+        """Resumo serializável da transação vista por último, para o endpoint `/estado`."""
+        estado = self.estado
         return {
             "no": self._eu.id,
             "voto_desejado": self._voto_desejado,

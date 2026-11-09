@@ -44,11 +44,12 @@ from src.doispc.maquina import (
 class ServicoCoordenador:
     """Núcleo do Coordenador, independente de FastAPI, para ser testável sem servidor.
 
-    Um Coordenador conduz uma transação por vez neste projeto. `participantes`
-    mapeia id → `No` de cada Participante, usado tanto para difundir PREPARE
-    quanto para resolver endereços no executor. `deadline_voto` limita a coleta
-    de Votos (Requisito 7.5, 7.6); `deadline_decisao` é o prazo de cada envio de
-    rede (Requisito 7.6). Um `Lock` serializa as transições, pois Votos e ACKs
+    O estado de cada transação fica num mapa pelo id, e várias transações podem
+    correr ao mesmo tempo. `participantes` mapeia id → `No` de cada
+    Participante, usado tanto para difundir PREPARE quanto para resolver
+    endereços no executor. `deadline_voto` limita a coleta de Votos
+    (Requisito 7.5, 7.6); `deadline_decisao` é o prazo de cada envio de rede
+    (Requisito 7.6). Um `Lock` serializa as transições, pois Votos e ACKs
     chegam em requisições concorrentes.
     """
 
@@ -74,7 +75,8 @@ class ServicoCoordenador:
         self._relogio = relogio
         self._dormir = dormir
         self._log = log
-        self._estado: Optional[EstadoCoordenador] = None
+        self._estados: dict[str, EstadoCoordenador] = {}
+        self._ultima: Optional[str] = None
         self._trava = threading.Lock()
         enderecos = {p.id: p.base_url for p in self._participantes.values()}
         self._executor = ExecutorAcoes(
@@ -88,8 +90,8 @@ class ServicoCoordenador:
 
     @property
     def estado(self) -> Optional[EstadoCoordenador]:
-        """Estado corrente do Coordenador (ou `None` antes da primeira transação)."""
-        return self._estado
+        """Estado da transação iniciada por último (ou `None` antes da primeira)."""
+        return self._estados.get(self._ultima) if self._ultima is not None else None
 
     def iniciar(self, transacao: str) -> dict[str, Any]:
         """Inicia uma transação: difunde PREPARE e espera a Decisao até o Deadline.
@@ -99,19 +101,28 @@ class ServicoCoordenador:
         por polling do estado, que é atualizado pelos VOTO que chegam em
         `/mensagem`; o `Lock` evita corrida entre a decisão por Voto e a decisão
         por timeout.
+
+        Um id já usado não abre rodada nova, que poderia decidir diferente da
+        primeira. Ele devolve a Decisao gravada, ou espera a rodada em curso.
         """
         participantes_ids = tuple(sorted(self._participantes))
         with self._trava:
-            estado, acoes = iniciar_transacao(self._eu.id, transacao, participantes_ids)
-            if self._log is not None:
-                self._log.evento(
-                    "inicia_transacao",
-                    transacao=transacao,
-                    participantes=list(participantes_ids),
-                )
-            self._transitar(estado, acoes)
+            nova = transacao not in self._estados
+            gravada = self._log_duravel.recuperar(transacao).decisao if nova else None
+            if nova and gravada is None:
+                estado, acoes = iniciar_transacao(self._eu.id, transacao, participantes_ids)
+                if self._log is not None:
+                    self._log.evento(
+                        "inicia_transacao",
+                        transacao=transacao,
+                        participantes=list(participantes_ids),
+                    )
+                self._ultima = transacao
+                self._transitar(transacao, estado, acoes)
+            elif self._log is not None:
+                self._log.evento("transacao_repetida", transacao=transacao)
 
-        decisao = self._esperar_decisao(transacao)
+        decisao = gravada if gravada is not None else self._esperar_decisao(transacao)
         return {
             "transacao": transacao,
             "decisao": decisao,
@@ -129,22 +140,22 @@ class ServicoCoordenador:
         """
         limite = self._relogio() + self._deadline_voto
         while self._relogio() < limite:
-            estado = self._estado
-            if estado is not None and estado.transacao == transacao and estado.decidido:
+            estado = self._estados.get(transacao)
+            if estado is not None and estado.decidido:
                 return estado.decisao
             self._dormir(0.01)
 
         # Deadline de coleta de Votos excedido: ABORT por timeout (Requisito 7.5).
         with self._trava:
-            estado = self._estado
-            if estado is None or estado.transacao != transacao:
+            estado = self._estados.get(transacao)
+            if estado is None:
                 return None
             if estado.decidido:
                 return estado.decisao
             if self._log is not None:
                 self._log.evento("timeout_votos", transacao=transacao)
             novo, acoes = coordenador_decide_por_timeout(estado, self._eu.id)
-            self._transitar(novo, acoes)
+            self._transitar(transacao, novo, acoes)
         return novo.decisao
 
     def receber(self, mensagem: Mensagem) -> Mapping[str, Any]:
@@ -161,40 +172,40 @@ class ServicoCoordenador:
                 origem=mensagem.origem,
                 transacao=mensagem.corpo.get("transacao"),
             )
+        transacao = mensagem.corpo.get("transacao")
         with self._trava:
-            estado = self._estado
+            estado = self._estados.get(transacao)
             if estado is None:
                 return {"ack": False}
             novo, acoes = coordenador_recebe(estado, self._eu.id, mensagem)
-            self._transitar(novo, acoes)
+            self._transitar(transacao, novo, acoes)
         return {"ack": True}
 
-    def _transitar(self, novo: EstadoCoordenador, acoes: Sequence[Acao]) -> None:
+    def _transitar(
+        self, transacao: str, novo: EstadoCoordenador, acoes: Sequence[Acao]
+    ) -> None:
         """Grava e enfileira as `Acao` e só então publica o estado. Chamar com a trava.
 
         `_esperar_decisao` lê o estado sem a trava, então o cliente só vê uma
         Decisao que já está no Log_Duravel.
         """
         self._executor.executar(acoes)
-        self._estado = novo
+        self._estados[transacao] = novo
 
     def recuperar(self, transacao: str) -> Optional[EstadoCoordenador]:
         """Reconstrói o estado a partir do Log_Duravel após reinício (Requisito 6.6)."""
         persistido = self._log_duravel.recuperar(transacao)
         if persistido.decisao is None:
             return None
-        self._estado = recuperar_coordenador(
-            persistido, tuple(sorted(self._participantes))
-        )
+        estado = recuperar_coordenador(persistido, tuple(sorted(self._participantes)))
+        self._estados[transacao] = estado
         if self._log is not None:
-            self._log.evento(
-                "recuperacao", transacao=transacao, decisao=self._estado.decisao
-            )
-        return self._estado
+            self._log.evento("recuperacao", transacao=transacao, decisao=estado.decisao)
+        return estado
 
     def instantaneo(self) -> dict[str, Any]:
-        """Resumo serializável do estado corrente, para o endpoint `/estado`."""
-        estado = self._estado
+        """Resumo serializável da transação iniciada por último, para o endpoint `/estado`."""
+        estado = self.estado
         return {
             "no": self._eu.id,
             "participantes": sorted(self._participantes),

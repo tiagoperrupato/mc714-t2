@@ -230,6 +230,10 @@ Endpoints de controle de cada Nó:
 Os endpoints `/falha/*` (crash, pause, delay, drop) são a porta pela qual a
 injeção de falhas de aplicação é disparada, de forma determinística por Semente.
 
+O `POST /transacao` aceita o id da transação no corpo, `{"transacao": "x"}`, e
+gera um quando ele falta. Um id já usado devolve a Decisao que ele já tem, sem
+abrir rodada nova.
+
 ## Arquitetura
 
 Camadas com fronteira estrita. O núcleo comum em

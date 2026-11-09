@@ -120,6 +120,11 @@ sem variância amostral a absorver — a justificativa está em
   ABORT (Requisito 7.5). Os Deadlines de Voto e de Decisao são configuráveis.
 - **Canais.** Estrela: Coordenador↔Participantes. PREPARE e DECISAO descem;
   VOTO e ACK sobem. Partições isolam o Coordenador de um ou mais Participantes.
+- **Transações.** Cada transação tem um id, e cada Nó guarda o estado dela num
+  mapa por id. Várias transações correm nos mesmos Nós, seguidas ou ao mesmo
+  tempo. Um `POST /transacao` com id já usado não abre rodada nova. Ele devolve a
+  Decisao gravada, da memória ou do Log_Duravel, ou espera a rodada em curso, de
+  modo que o cliente pode repetir o pedido sem risco.
 - **Falhas.** *Crash-stop* e *crash-recovery* com estado reconstruído do
   Log_Duravel. O caso crítico é o **crash do Coordenador** depois de coletar
   alguns Votos e **antes** de difundir a Decisao.

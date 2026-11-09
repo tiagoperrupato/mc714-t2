@@ -11,7 +11,9 @@ está disponível).
 Cobrem:
 - transação em que todos votam SIM → COMMIT no Coordenador e em todos (Req. 7.3);
 - transação em que um Participante vota NAO (via flag) → ABORT em todos (Req. 7.4);
-- ABORT por timeout quando um Participante está fora e não vota a tempo (Req. 7.5).
+- ABORT por timeout quando um Participante está fora e não vota a tempo (Req. 7.5);
+- várias transações, seguidas e concorrentes, nos mesmos Nós;
+- id de transação repetido, que devolve a Decisao gravada sem abrir rodada nova.
 
 A ordem write-ahead (Req. 6.4, 6.5) é verificada indiretamente: a Decisao
 recuperada de cada Log_Duravel em arquivo coincide com a reportada, o que só
@@ -20,15 +22,18 @@ vale se a gravação ocorreu antes da aplicação/resposta.
 
 from __future__ import annotations
 
+import json
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
 
 import pytest
 import uvicorn
 
+from src.comum.falhas import ControladorFalhas
 from src.comum.modelos import No
 from src.comum.rede import ClienteRede
 from src.doispc.coordenador import ServicoCoordenador, criar_app as criar_app_coord
@@ -84,6 +89,7 @@ class _Cenario2PC:
     `votos` mapeia id de Participante ao Voto desejado (SIM por padrão); é a flag
     que faz um Participante votar NAO. `participantes_ativos` permite deixar um
     Participante fora do ar, para exercitar o ABORT por timeout de coleta.
+    `controladores` liga a injeção de falhas ao recebimento de um Participante.
     """
 
     def __init__(
@@ -94,9 +100,11 @@ class _Cenario2PC:
         participantes_ativos: tuple[int, ...] = PART_IDS,
         deadline_voto: float = 3.0,
         deadline_decisao: float = 2.0,
+        controladores: dict[int, ControladorFalhas] | None = None,
     ) -> None:
         self._tmp = tmp_path
         self._votos = votos or {}
+        self._controladores = controladores or {}
         self._ativos = participantes_ativos
         self._deadline_voto = deadline_voto
         self._deadline_decisao = deadline_decisao
@@ -124,7 +132,10 @@ class _Cenario2PC:
                 voto_desejado=self._votos.get(pid, VOTO_SIM),
             )
             self._servico_part[pid] = servico
-            self._abrir(criar_app_part(servico), self._portas[pid])
+            self._abrir(
+                criar_app_part(servico, controlador=self._controladores.get(pid)),
+                self._portas[pid],
+            )
 
         log_coord = LogDuravelArquivo(self._tmp / "coord.log")
         self.logs[COORD_ID] = log_coord
@@ -211,3 +222,59 @@ def test_timeout_de_votos_leva_a_abort(tmp_path: Path) -> None:
     assert cen.decisao_recuperada(12, "tx-timeout") == DECISAO_ABORT
     # A decisão saiu perto do Deadline de Voto, não antes nem muito depois.
     assert decorrido < 2.0
+
+
+def test_transacoes_seguidas_commitam(tmp_path: Path) -> None:
+    # Cada Nó guarda o estado por transação: a segunda não é ignorada.
+    with _Cenario2PC(tmp_path) as cen:
+        for tx in ("tx-a", "tx-b", "tx-c"):
+            assert cen.servico_coord.iniciar(tx)["decisao"] == DECISAO_COMMIT
+            cen.esperar_decisoes(tx)
+
+    for tx in ("tx-a", "tx-b", "tx-c"):
+        for pid in PART_IDS:
+            assert cen.decisao_recuperada(pid, tx) == DECISAO_COMMIT, (tx, pid)
+
+
+def test_transacoes_concorrentes_commitam(tmp_path: Path) -> None:
+    transacoes = [f"tx-{i}" for i in range(5)]
+    with _Cenario2PC(tmp_path) as cen:
+        with ThreadPoolExecutor(max_workers=len(transacoes)) as pool:
+            decisoes = list(pool.map(lambda tx: cen.servico_coord.iniciar(tx)["decisao"], transacoes))
+        for tx in transacoes:
+            cen.esperar_decisoes(tx)
+
+    assert decisoes == [DECISAO_COMMIT] * len(transacoes)
+
+
+def test_id_repetido_devolve_a_decisao_gravada(tmp_path: Path) -> None:
+    # Com P13 em crash, "x" aborta por timeout. Depois que P13 volta, repetir "x"
+    # não abre rodada nova, que decidiria COMMIT e deixaria P11 e P12 com ABORT.
+    p13 = ControladorFalhas(2026)
+    with _Cenario2PC(
+        tmp_path, controladores={13: p13}, deadline_voto=0.6, deadline_decisao=0.3
+    ) as cen:
+        p13.injetar_crash()
+        assert cen.servico_coord.iniciar("x")["decisao"] == DECISAO_ABORT
+        cen.esperar_decisoes("x", participantes=(11, 12))
+        p13.limpar()
+
+        assert cen.servico_coord.iniciar("x")["decisao"] == DECISAO_ABORT
+        assert cen._servico_part[13].estado is None
+
+    linhas = (tmp_path / "coord.log").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(l)["valor"] for l in linhas] == [DECISAO_ABORT]
+    for pid in (11, 12):
+        assert cen.decisao_recuperada(pid, "x") == DECISAO_ABORT
+
+    # Um Coordenador novo sobre o mesmo log também devolve a Decisao gravada.
+    reiniciado = ServicoCoordenador(
+        cen.coord_no,
+        cen.part_nos,
+        log_duravel=LogDuravelArquivo(tmp_path / "coord.log"),
+        cliente=ClienteRede(),
+        deadline_voto=0.6,
+        deadline_decisao=0.3,
+    )
+    assert reiniciado.iniciar("x")["decisao"] == DECISAO_ABORT
+    assert reiniciado.estado is None
