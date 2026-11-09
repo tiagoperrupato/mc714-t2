@@ -4,9 +4,10 @@ Dois níveis, como no resto do projeto:
 
 - **Sem Docker**: valida a lógica do `scripts/cenario.py` e do `scripts/demo.py`
   que NÃO precisa de contêiner — a normalização/validação de modos, a montagem
-  dos overrides de cenário com a Semente, o registro da Semente, e a prova de
-  que um log com Participantes em Estado_Em_Duvida, como o que fica enquanto o
-  Coordenador está fora, produz AVISO e não REPROVA através de
+  dos overrides de cenário com a Semente, o registro da Semente, a coleta de
+  cada log uma vez, o código 1 quando o desfecho difere do esperado, e a prova
+  de que um log com Participantes em Estado_Em_Duvida, como o que fica enquanto
+  o Coordenador está fora, produz AVISO e não REPROVA através de
   `src.analise.invariantes` (Requisitos 8.5, 12.4). Também cobre o caminho de
   degradação sem Docker (código 2).
 
@@ -139,6 +140,12 @@ def _escrever_jsonl(caminho: Path, registros: list[dict]) -> None:
             fluxo.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
+def _registro(base: Path, algoritmo: str, rotulo: str) -> dict:
+    return json.loads(
+        (base / f"cenario_{algoritmo}_{rotulo}.json").read_text(encoding="utf-8")
+    )
+
+
 def test_participante_em_duvida_vira_aviso_nao_reprova(tmp_path: Path) -> None:
     """Imita os logs coletados com o Coordenador fora depois de decidir: Voto SIM sem Decisao.
 
@@ -184,8 +191,48 @@ def test_atomicidade_nao_reprova_quando_so_o_coordenador_decidiu(tmp_path: Path)
     v4 = inv.invariante_04_atomicidade(d)
     v5 = inv.invariante_05_durabilidade(d)
     assert v4.ok  # atomicidade intacta
-    assert v5.ok  # não reprova
+    assert not v5.falhas  # não reprova
     assert v5.avisos  # mas avisa do Estado_Em_Duvida
+
+
+# --------------------------------------------------------------------------- #
+# Sem Docker: coleta dos logs e conferência do desfecho.
+# --------------------------------------------------------------------------- #
+
+
+def test_coleta_do_2pc_copia_cada_volume_uma_vez(tmp_path: Path, monkeypatch) -> None:
+    copias: list[tuple[str, str, Path]] = []
+    monkeypatch.setattr(
+        cenario,
+        "_copiar_de_container",
+        lambda servico, origem, destino, _arquivos: copias.append((servico, origem, destino)),
+    )
+    cenario._coletar_logs_estruturados("2pc", cenario.SERVICOS_2PC, tmp_path, [])
+    assert copias == [(s, "/dados/.", tmp_path / s) for s in cenario.SERVICOS_2PC]
+
+
+@pytest.mark.parametrize(("decisao", "codigo"), [("COMMIT", 0), ("ABORT", 1)])
+def test_cenario_sai_1_quando_o_desfecho_difere_do_esperado(
+    tmp_path: Path, monkeypatch, decisao: str, codigo: int
+) -> None:
+    # Um `2pc commit` que termina em ABORT passa nos invariantes de safety, e só
+    # a conferência do desfecho o pega. O compose e a condução são substituídos.
+    monkeypatch.setattr(cenario, "_docker_disponivel", lambda: True)
+    monkeypatch.setattr(
+        cenario, "_compose", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", "")
+    )
+    monkeypatch.setattr(cenario, "_coletar_logs_estruturados", lambda *a: None)
+    monkeypatch.setattr(cenario, "_coletar_stdout", lambda *a: None)
+    monkeypatch.setattr(
+        cenario,
+        "_cenario_2pc",
+        lambda *a: {"cenario": "2pc_commit", "decisao": decisao, "esperado": {"decisao": "COMMIT"}},
+    )
+    erro = io.StringIO()
+    assert cenario.executar_cenario("2pc", "commit", tmp_path, saida=io.StringIO(), erro=erro) == codigo
+    reg = _registro(tmp_path, "2pc", "commit")
+    assert reg["desfecho"]["ok"] is (codigo == 0)
+    assert ("difere do esperado" in erro.getvalue()) is (codigo == 1)
 
 
 # --------------------------------------------------------------------------- #
@@ -222,12 +269,6 @@ pularsem_docker = pytest.mark.skipif(
 )
 
 
-def _registro(base: Path, algoritmo: str, rotulo: str) -> dict:
-    return json.loads(
-        (base / f"cenario_{algoritmo}_{rotulo}.json").read_text(encoding="utf-8")
-    )
-
-
 @pytest.mark.slow
 @pularsem_docker
 def test_anel_falha_e2e_verifica(tmp_path: Path) -> None:
@@ -236,9 +277,8 @@ def test_anel_falha_e2e_verifica(tmp_path: Path) -> None:
     assert codigo == 0, "verificação deveria passar no cenário anel/falha"
     reg = _registro(tmp_path, "anel", "falha")
     assert reg["semente"] == 0
-    assert reg["convergiu_inicial"] is True
-    assert reg["reeleicao_ok"] is True
-    assert reg["lider_pos_falha"] == 4
+    assert reg["desfecho"]["ok"] is True
+    assert reg["lideres_pos_falha"] == {str(i): 4 for i in (1, 2, 3, 4)}
     assert reg["verificacao"]["ok"] is True
 
 
@@ -251,6 +291,7 @@ def test_2pc_commit_e2e_verifica(tmp_path: Path) -> None:
     reg = _registro(tmp_path, "2pc", "commit")
     assert reg["semente"] == 0
     assert reg["decisao"] == "COMMIT"
+    assert reg["desfecho"]["ok"] is True
     assert reg["verificacao"]["ok"] is True
 
 
@@ -262,6 +303,7 @@ def test_2pc_abort_e2e_verifica(tmp_path: Path) -> None:
     assert codigo == 0
     reg = _registro(tmp_path, "2pc", "abort")
     assert reg["decisao"] == "ABORT"
+    assert reg["desfecho"]["ok"] is True
     assert reg["verificacao"]["ok"] is True
 
 
@@ -276,7 +318,8 @@ def test_2pc_crash_coord_e2e_recupera(tmp_path: Path) -> None:
     assert reg["participantes_em_duvida"] == [11, 12, 13]
     assert reg["decisao"] == "COMMIT"
     assert reg["concluido"] is True
-    assert {e["decisao"] for e in reg["estados_participantes"].values()} == {"COMMIT"}
+    assert set(reg["decisoes_participantes"].values()) == {"COMMIT"}
+    assert reg["desfecho"]["ok"] is True
     assert reg["verificacao"]["ok"] is True
     # Ninguém termina em dúvida, então o invariante 5 não avisa nada.
     assert not any("aviso:" in l for l in reg["verificacao"]["relatorio"])

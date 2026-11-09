@@ -4,7 +4,7 @@ Este documento fixa, por algoritmo, o modelo sob o qual o Trabalho 2 raciocina �
 o modelo temporal, as propriedades dos canais, os tipos de falha, as hipóteses
 de relógio, persistência e reinício — e as propriedades de *safety* e *liveness*
 que cada algoritmo garante. Para cada propriedade, nomeia-se o invariante que a
-testa sobre os logs (`invariante_01`..`invariante_05`, em
+testa sobre os logs (`invariante_01`..`invariante_06`, em
 [`src/analise/invariantes.py`](../src/analise/invariantes.py)), de modo que a
 afirmação de correção não fique só no texto: ela é verificável com
 
@@ -18,7 +18,7 @@ invariante.
 
 ## Modelo comum aos dois algoritmos
 
-**Canais.** A comunicação é HTTP/JSON ponto a ponto, servida por FastAPI e feita
+**Canais (M2).** A comunicação é HTTP/JSON ponto a ponto, servida por FastAPI e feita
 por um cliente httpx (`src/comum/rede.py`). Os canais não são confiáveis: uma
 Mensagem pode ser **perdida**, **atrasada** ou, sob partição, não **entregue**;
 um retry pode **duplicar** uma Mensagem; e não há ordenação garantida entre
@@ -28,11 +28,25 @@ viram resultados tipados (timeout, conexão recusada, indisponível), nunca
 exceções silenciosas. É o Deadline que converte "não chegou" em uma decisão
 explícita: o salto no Anel, o ABORT por timeout no 2PC.
 
-**Relógios.** Nenhum algoritmo depende de relógios físicos sincronizados. Os
-timestamps físicos no Log_Estruturado servem à medição de desempenho
-(Tempo_de_Convergencia, Latencia_de_Commit), não à correção. A correção repousa
-em ordem causal local e em Deadlines, não em tempo de parede comparável entre
-Nós.
+**Relógios (M4).** Nenhum algoritmo depende de relógio físico, sincronizado ou
+não. A correção repousa na ordem causal de cada Nó e nos Deadlines. O `ts` do
+Log_Estruturado serve para ler o log, e nenhuma métrica o usa. Cada métrica é
+medida assim:
+
+- **Bateria do Anel** (`src/experimentos/runner_anel.py`): Tempo_de_Convergencia
+  em passos lógicos de entrega e Mensagens contadas pelo runner em processo,
+  ambos reproduzíveis dígito a dígito pela Semente.
+- **Bateria do 2PC** (`src/experimentos/runner_doispc.py`): Latencia_de_Commit,
+  vazão e Tempo_de_Recuperacao em tempo lógico, a soma de latências sorteadas
+  pela Semente ao longo do caminho crítico. Elas medem esse modelo de rede, e não
+  os Nós reais.
+- **Cenários** (`scripts/cenario.py`): o condutor mede com `time.monotonic`, no
+  próprio processo. A latência de commit vai do `POST /transacao` à resposta do
+  Coordenador, que sai quando ele decide. O tempo de convergência do Anel vai do
+  pedido de eleição até todos os vivos reportarem o Líder em `/estado`, e o de
+  recuperação do 2PC vai do `start` do Coordenador até todos os Participantes
+  reportarem a Decisao. O condutor consulta `/estado` a cada 50 ms, que é a
+  resolução desses dois tempos.
 
 **Falhas (modelo comum).** As falhas entram por duas camadas, ambas dirigidas
 por uma **Semente** registrada no log, o que torna cada Cenário repetível
@@ -74,29 +88,32 @@ ordem lógica dos eventos, que a emulação preserva.
   que vai nas Mensagens e no log. Um Nó que já conhece o resultado de uma rodada
   ignora uma Mensagem_Eleicao atrasada dela, que fecharia a rodada de novo com
   outro Líder. A Mensagem_Lider para no primeiro Nó que já conhecia o resultado.
-- **Temporal.** Assíncrono com timeouts e, na prática, parcialmente síncrono: o
-  progresso depende de o Deadline detectar um Sucessor que não responde. Sem o
+- **Temporal (M1).** Parcialmente síncrono. Os atrasos de mensagem e de
+  processamento não têm limite garantido, mas quase sempre cabem no Deadline, e
+  é com essa hipótese que o Deadline detecta um Sucessor que não responde. Sem o
   Deadline, uma partição travaria a circulação. Com ele, o Nó tenta entregar ao
   Sucessor até três vezes dentro do Deadline, uma a cada terço dele, e só então
   salta para o próximo Nó vivo (`src/anel/no.py`, regra de salto em
   `src/anel/maquina.py`). Cada tentativa pode usar todo o prazo que resta, então
   uma resposta lenta ainda chega antes do salto.
-- **Canais.** Unidirecionais na ordem do Anel: cada Nó só fala com seu Sucessor.
+- **Canais (M2).** Unidirecionais na ordem do Anel: cada Nó só fala com seu Sucessor.
   Uma Mensagem pode se perder, e o reenvio dentro do Deadline a recupera sem
   tirar do Anel um Nó vivo. O Sucessor aceita a Mensagem respondendo com `ack`.
-- **Falhas.** *Crash-stop* e *crash-recovery* (reinício do contêiner) de Nós, e
-  partição Líder↔resto. Um Nó falho é contornado pela regra de salto. A detecção
-  por timeout pode errar: um Nó lento ou pausado é saltado como se tivesse
-  caído, e a eleição atrasada que ele repassa ao acordar é ignorada.
-- **Relógio/persistência/reinício.** O Anel é **sem estado durável**: a eleição é
+- **Falhas (M3).** *Crash-stop* e *crash-recovery* (reinício do contêiner) de
+  Nós, e partição Líder↔resto. Um Nó falho é contornado pela regra de salto. A
+  detecção é por timeout e pode errar: um Nó lento ou pausado é saltado como se
+  tivesse caído. A suspeita volta a ser certa quando os atrasos cabem de novo no
+  Deadline, a semântica *fail-noisy*. A eleição atrasada que um Nó saltado
+  repassa ao acordar é ignorada.
+- **Relógio, persistência e reinício (M4).** O Anel é **sem estado durável**: a eleição é
   idempotente e refeita quando disparada. Um Nó que reinicia volta sem memória de
   rodadas anteriores e participa da próxima eleição, porque cada Nó zera as
   suspeitas (`mortos`) ao entrar numa rodada nova e tira delas quem lhe manda
   Mensagem. Não há Log Durável no Anel, e a recuperação é reeleger.
 
-### Propriedades e os invariantes que as testam
+### Propriedades (M5) e como são verificadas (M6)
 
-| Propriedade | Tipo | Invariante | Requisito |
+| Propriedade | Tipo | Verificação | Requisito |
 | --- | --- | --- | --- |
 | No máximo um Líder por Rodada_de_Eleicao concluída | *safety* | **`invariante_01_lider_unico`** | 4.7, 12.2 |
 | Todos os Nós vivos convergem para o mesmo Líder | *liveness*/*safety* | **`invariante_02_convergencia`** | 4.5, 12.2 |
@@ -104,9 +121,13 @@ ordem lógica dos eventos, que a emulação preserva.
 
 - **Unicidade do Líder** (`invariante_01_lider_unico`): agrupa os anúncios de
   Líder por id de rodada e exige um único valor de `lider` por rodada. Dois
-  valores distintos reprovam. Como a eleição atrasada de uma rodada concluída é
-  ignorada, uma rodada fecha uma vez só, e qualquer violação é defeito, não
-  ruído.
+  valores distintos reprovam. O descarte da eleição atrasada evita o segundo
+  Líder quando um Nó pausado é saltado e acorda depois. Com a detecção que pode
+  errar, porém, o algoritmo não garante a unicidade em toda execução. Se os Nós 1
+  e 5 estão pausados durante a eleição do 1, o 4 salta os dois e o 2 fecha a
+  volta com o Líder 4. Ao acordar, o 1 recebe a lista que o 5 repassou e fecha a
+  mesma rodada com o Líder 5. Por isso a unicidade é verificada em cada execução,
+  e uma reprovação aponta um defeito ou um erro de detecção como esse.
 - **Convergência dos vivos** (`invariante_02_convergencia`): por rodada, todos os
   observadores do anúncio devem concordar no `lider`, e o conjunto de
   observadores deve cobrir os Nós vivos da rodada. Divergência reprova; um vivo
@@ -132,10 +153,13 @@ sem variância amostral a absorver — a justificativa está em
   retransmissão da DECISAO até o ACK. Não há *presumed abort* nem o protocolo de
   terminação cooperativo, em que um Participante em dúvida consulta os outros.
   Por isso o bloqueio dura enquanto o Coordenador está fora.
-- **Temporal.** Assíncrono com timeouts. O Coordenador envia PREPARE, coleta
-  Votos até o Deadline de coleta e, se ele estoura antes de todos votarem, decide
-  ABORT (Requisito 7.5). Os Deadlines de Voto e de Decisao são configuráveis.
-- **Canais.** Estrela: Coordenador↔Participantes. PREPARE e DECISAO descem;
+- **Temporal (M1).** Parcialmente síncrono, como o Anel. O Coordenador envia
+  PREPARE, coleta Votos até o Deadline de coleta e, se ele estoura antes de
+  todos votarem, decide ABORT (Requisito 7.5). Os Deadlines de Voto e de Decisao
+  são configuráveis. A atomicidade e a validade não dependem de tempo, e um
+  timeout que erra só produz um ABORT desnecessário. A terminação depende de os
+  atrasos voltarem a caber no Deadline.
+- **Canais (M2).** Estrela: Coordenador↔Participantes. PREPARE e DECISAO descem,
   VOTO e ACK sobem. Partições isolam o Coordenador de um ou mais Participantes.
   O Coordenador retransmite a DECISAO a cada Participante, a cada segundo, até
   receber o ACK dele, e cada tentativa tem o prazo do Transporte. O ACK é a
@@ -147,15 +171,17 @@ sem variância amostral a absorver — a justificativa está em
   tempo. Um `POST /transacao` com id já usado não abre rodada nova. Ele devolve a
   Decisao, que depois de um reinício a recuperação já trouxe do Log_Duravel, ou
   espera a rodada em curso, de modo que o cliente pode repetir o pedido sem risco.
-- **Falhas.** *Crash-stop* e *crash-recovery* com estado reconstruído do
+- **Falhas (M3).** *Crash-stop* e *crash-recovery* com estado reconstruído do
   Log_Duravel. O caso crítico é o **crash do Coordenador** depois de coletar
-  alguns Votos e **antes** de difundir a Decisao.
-- **Persistência (write-ahead).** O Coordenador grava a entrada em WAIT **antes**
+  alguns Votos e **antes** de difundir a Decisao. A detecção é por timeout e
+  pode errar, a mesma semântica *fail-noisy* do Anel: um Participante lento é
+  tratado como falho, e o Coordenador aborta.
+- **Persistência (M4, write-ahead).** O Coordenador grava a entrada em WAIT **antes**
   do PREPARE e a Decisao **antes** da DECISAO. O Participante grava o Voto antes
   de respondê-lo e a Decisao antes de aplicá-la. A ordem das `Acao` que a
   Máquina_de_Estados emite **é** a ordem write-ahead (`src/doispc/maquina.py`,
   `src/doispc/executor.py`). Os ACKs não vão ao log.
-- **Reinício.** O Coordenador relê o Log_Duravel antes de servir. A transação
+- **Reinício (M4).** O Coordenador relê o Log_Duravel antes de servir. A transação
   decidida tem a Decisao difundida de novo a todos, já que os ACKs não são
   duráveis. A transação em WAIT vira ABORT, gravado e difundido, porque o
   Coordenador não guardou os Votos e não sabe se todos foram SIM. O Participante
@@ -163,12 +189,15 @@ sem variância amostral a absorver — a justificativa está em
   `recuperacao`). Um que votou SIM e não tem Decisao durável volta em dúvida e
   sai dela quando a DECISAO chega.
 
-### Propriedades e os invariantes que as testam
+### Propriedades (M5) e como são verificadas (M6)
 
-| Propriedade | Tipo | Invariante | Requisito |
+| Propriedade | Tipo | Verificação | Requisito |
 | --- | --- | --- | --- |
 | Atomicidade: nenhum COMMIT enquanto outro ABORT na mesma transação | *safety* | **`invariante_04_atomicidade`** | 6.7, 12.3 |
 | Durabilidade: a Decisao não reverte após reinício | *safety* | **`invariante_05_durabilidade`** | 6.6, 6.8, 12.3 |
+| Validade: COMMIT só com o Voto SIM de todos os Participantes | *safety* | **`invariante_06_validade`** | n/d |
+| Terminação sem falha: todos decidem, COMMIT com todos SIM e ABORT com um NAO | *liveness* | `cenario.py 2pc commit` e `2pc abort`, prazo de 10 s | n/d |
+| Terminação com o Coordenador de volta: todo Participante decide | *liveness* | `cenario.py 2pc crash-coord`, prazo de 30 s | n/d |
 | *Liveness* bloqueante: Estado_Em_Duvida enquanto o Coordenador está fora | n/d (aviso) | **`invariante_05_durabilidade`** (ramo de aviso) | 8.5, 12.4 |
 
 - **Atomicidade** (`invariante_04_atomicidade`): lê a Decisao durável de cada Nó
@@ -180,7 +209,20 @@ sem variância amostral a absorver — a justificativa está em
   Nó registra uma `recuperacao`, a Decisao recuperada tem de bater com a Decisao
   durável daquele Nó. Divergência é reversão após reinício e reprova. O cenário
   `2pc crash-coord` reinicia o Coordenador, que registra a `recuperacao` da
-  Decisao gravada antes do crash.
+  Decisao gravada antes do crash. Sem `recuperacao` nos logs não houve reinício a
+  conferir, e o 05 fica em lacuna.
+- **Validade** (`invariante_06_validade`): numa transação com COMMIT, todo
+  Participante tem Voto SIM no próprio Log_Duravel. Os Participantes são os que o
+  Coordenador lista no evento `inicia_transacao` e os que gravaram Voto, então um
+  COMMIT que não esperou um deles também reprova. ABORT é sempre válido. Sem a
+  validade, um sistema que sempre aborta, ou que confirma sem ouvir todos,
+  passaria na atomicidade.
+- **Terminação** (`scripts/cenario.py`): o cenário registra o desfecho esperado
+  ao lado do observado e sai 1 quando eles diferem. No `2pc commit` e no
+  `2pc abort`, cada Participante tem de decidir até 10 s depois da resposta do
+  Coordenador. No `2pc crash-coord`, os três ficam em dúvida com o Coordenador
+  fora e têm de decidir COMMIT até 30 s depois do reinício. A conferência fica no
+  cenário porque só ele sabe que falha injetou e o que esperar dela.
 - **Bloqueio característico do 2PC** (`invariante_05_durabilidade`, ramo de
   aviso): um Participante que gravou Voto SIM mas não tem Decisao durável está em
   **Estado_Em_Duvida** (Requisito 8.5). Ele não pode decidir sozinho, porque não
@@ -221,10 +263,11 @@ Cada um registra a **Semente** com que foi conduzido.
 | --- | --- | --- | --- |
 | `anel normal` | eleição sem falha converge para o maior id (5) | 01, 02, 03 | passam |
 | `anel falha` | elege 5, derruba o contêiner do 5 e reelege o maior vivo (4) | 01, 02, 03 | passam |
-| `2pc commit` | todos SIM → COMMIT em todos | 04, 05 | passam |
-| `2pc abort` | um NAO → ABORT atômico em todos | 04, 05 | passam |
-| `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05 | passam, todos em COMMIT depois do reinício |
+| `2pc commit` | todos SIM → COMMIT em todos | 04, 05, 06 | 04 e 06 passam, 05 em lacuna |
+| `2pc abort` | um NAO → ABORT atômico em todos | 04, 05, 06 | 04 passa, 05 e 06 em lacuna |
+| `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05, 06 | passam, todos em COMMIT depois do reinício |
 
 Em todos, `verificar.py` sai com código 0, porque as propriedades de *safety*
-valem. No `2pc crash-coord`, o 05 confere a `recuperacao` do Coordenador
-reiniciado contra a Decisao do log dele.
+valem, e o desfecho observado é o esperado. `cenario.py` sai 1 se um invariante
+reprova ou se o desfecho difere. No `2pc crash-coord`, o 05 confere a
+`recuperacao` do Coordenador reiniciado contra a Decisao do log dele.

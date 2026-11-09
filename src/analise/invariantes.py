@@ -9,8 +9,7 @@ Coordenador cai — e **não** altera o código de saída. `scripts/verificar.py
 sai com código diferente de zero só quando algum invariante reprova
 (Requisito 12.1).
 
-Os cinco invariantes cobrem as propriedades declaradas na seção "System Model
-and Correctness" do design:
+Os invariantes cobrem as propriedades declaradas em `docs/modelo-e-correcao.md`:
 
 Anel (Requisito 12.2)
   1. **Unicidade do Líder por rodada** (*safety*): no máximo um Líder por
@@ -27,6 +26,8 @@ Anel (Requisito 12.2)
      reinício — a Decisao recuperada é igual à de antes. REPROVA se reverter.
      Um Participante que votou SIM mas não tem Decisao durável (Estado_Em_Duvida
      por crash do Coordenador) vira **aviso**, não reprovação (Requisito 12.4).
+  6. **Validade** (*safety*): COMMIT só quando todos os Participantes votaram
+     SIM. REPROVA.
 
 Este módulo é **autocontido** de propósito: lê os logs estruturados (JSONL) e os
 Logs_Duraveis direto com a biblioteca padrão (`json`), sem depender dos módulos
@@ -66,6 +67,7 @@ MSG_LIDER = "lider"
 EV_GRAVA_LOG = "grava_log"
 EV_APLICA = "aplica"
 EV_RECUPERACAO = "recuperacao"
+EV_INICIA_TRANSACAO = "inicia_transacao"
 
 # Fases e valores do Log_Duravel (ver src/doispc/log_duravel.py).
 FASE_VOTO = "voto"
@@ -192,9 +194,9 @@ def carregar_eventos(*caminhos: Path) -> tuple[EventoLog, ...]:
 def carregar_duraveis(*caminhos: Path) -> tuple[EntradaDuravel, ...]:
     """Lê entradas de Log_Duravel de arquivos ou diretórios.
 
-    Reconhece uma linha como entrada durável quando tem as quatro chaves
-    `transacao`, `fase`, `valor` e `no`. Demais linhas são ignoradas, de modo que
-    um mesmo diretório possa conter logs estruturados e durables sem confusão.
+    Uma linha é entrada durável quando tem exatamente as chaves de
+    `EntradaLog.para_json`. O evento `grava_log` do Log_Estruturado repete
+    essas chaves junto com `ts` e `tipo`, e por isso não conta como durável.
     """
     entradas: list[EntradaDuravel] = []
     for arquivo in _expandir_arquivos(caminhos):
@@ -208,8 +210,8 @@ def carregar_duraveis(*caminhos: Path) -> tuple[EntradaDuravel, ...]:
 
 
 def _parece_entrada_duravel(registro: Mapping[str, Any]) -> bool:
-    """Verdadeiro quando o registro tem a forma de uma `EntradaLog` durável."""
-    return all(chave in registro for chave in ("transacao", "fase", "valor", "no"))
+    """Verdadeiro quando o registro é uma linha de Log_Duravel, e não um evento."""
+    return registro.keys() == {"transacao", "fase", "valor", "no"}
 
 
 def _expandir_arquivos(caminhos: Iterable[Path]) -> list[Path]:
@@ -282,6 +284,7 @@ def veredito(
         return Veredito(
             numero, titulo, False, 0,
             "nenhum caso a verificar nos dados fornecidos",
+            avisos=tuple(_recortar(avisos or [])),
         )
     return Veredito(
         numero=numero,
@@ -582,6 +585,9 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
       não defeito de durabilidade. A reprovação fica reservada à reversão de uma
       Decisao já registrada.
 
+    Só a `recuperacao` conta como caso verificado. Sem reinício nos logs, o
+    invariante fica em lacuna, e os avisos de dúvida aparecem mesmo assim.
+
     Tolerância: zero para a reversão (igualdade de Decisao); o Estado_Em_Duvida é
     classificado como aviso por decisão de projeto do enunciado, não por folga
     numérica.
@@ -616,7 +622,6 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
             if votos[transacao][no] != VOTO_SIM:
                 continue
             if no not in decisoes_tx:
-                verificados += 1
                 avisos.append(
                     f"transação {transacao}, nó {no}: votou SIM e segue sem "
                     "Decisao durável (Estado_Em_Duvida, bloqueio esperado do 2PC)"
@@ -624,24 +629,73 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
 
     return veredito(
         5, "Durabilidade da Decisao do 2PC", verificados, falhas,
-        "a Decisao recuperada após reinício reproduz a registrada; "
-        "Participantes em Estado_Em_Duvida são avisos, não reprovações",
+        f"as {verificados} recuperação(ões) após reinício reproduzem a Decisao registrada",
         avisos,
     )
 
 
-# Os cinco invariantes, na ordem em que o relatório os apresenta.
+def _participantes_por_transacao(d: Dados) -> dict[str, set[int]]:
+    """Mapeia transação -> Participantes que o Coordenador listou em `inicia_transacao`."""
+    participantes: dict[str, set[int]] = {}
+    for ev in d.eventos:
+        if ev.tipo == EV_INICIA_TRANSACAO and "transacao" in ev.campos:
+            participantes.setdefault(str(ev.campos["transacao"]), set()).update(
+                int(p) for p in ev.campos.get("participantes", [])
+            )
+    return participantes
+
+
+def invariante_06_validade(d: Dados) -> Veredito:
+    """Validade do 2PC: COMMIT só quando todos os Participantes votaram SIM. REPROVA.
+
+    A atomicidade sozinha aprova um sistema que sempre aborta, ou que confirma
+    sem ouvir um Participante. Os Participantes de uma transação são os que o
+    Coordenador listou no Log_Estruturado e os que gravaram Voto, e cada um
+    precisa de um Voto SIM no próprio Log_Duravel. ABORT é sempre válido, então
+    só as transações com COMMIT contam como casos.
+    """
+    decisoes = _decisoes_por_transacao(d)
+    votos = _votos_por_transacao(d)
+    declarados = _participantes_por_transacao(d)
+    falhas: list[str] = []
+    verificados = 0
+    for transacao in sorted(decisoes):
+        if DECISAO_COMMIT not in decisoes[transacao].values():
+            continue
+        verificados += 1
+        votos_tx = votos.get(transacao, {})
+        participantes = declarados.get(transacao, set()) | set(votos_tx)
+        sem_sim = sorted(p for p in participantes if votos_tx.get(p) != VOTO_SIM)
+        if not participantes:
+            falhas.append(
+                f"transação {transacao}: COMMIT sem Participante conhecido, porque "
+                "falta o `inicia_transacao` do Coordenador e não há Voto durável"
+            )
+        elif sem_sim:
+            falhas.append(
+                f"transação {transacao}: COMMIT sem o Voto SIM de {sem_sim} "
+                f"(votos duráveis: {dict(sorted(votos_tx.items()))})"
+            )
+    return veredito(
+        6, "Validade do 2PC", verificados, falhas,
+        f"as {verificados} transação(ões) com COMMIT tiveram o Voto SIM de todos "
+        "os Participantes",
+    )
+
+
+# Os invariantes, na ordem em que o relatório os apresenta.
 INVARIANTES = (
     invariante_01_lider_unico,
     invariante_02_convergencia,
     invariante_03_maior_id_vivo,
     invariante_04_atomicidade,
     invariante_05_durabilidade,
+    invariante_06_validade,
 )
 
 
 def verificar_todos(d: Dados) -> list[Veredito]:
-    """Executa os cinco invariantes na ordem e devolve os vereditos."""
+    """Executa os invariantes na ordem e devolve os vereditos."""
     return [invariante(d) for invariante in INVARIANTES]
 
 
@@ -686,8 +740,8 @@ def relatar(
     if lacunas:
         numeros = ", ".join(str(v.numero) for v in lacunas)
         imprimir(
-            f"{len(lacunas)} invariante(s) sem dados a verificar (nº {numeros}); "
-            "o algoritmo correspondente pode não ter sido exercitado."
+            f"{len(lacunas)} invariante(s) sem dados a verificar (nº {numeros}): "
+            "estes logs não têm o caso que eles conferem."
         )
     if reprovados:
         imprimir(

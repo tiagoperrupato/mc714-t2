@@ -232,15 +232,17 @@ def test_2pc_durabilidade_reprova_quando_decisao_reverte() -> None:
     assert any("recuperou" in f for f in v.falhas)
 
 
-def test_2pc_estado_em_duvida_vira_aviso_nao_reprova() -> None:
+def test_2pc_estado_em_duvida_avisa_e_sem_reinicio_fica_em_lacuna() -> None:
     # Participante votou SIM e NÃO tem Decisao durável: bloqueio esperado do 2PC.
+    # Sem `recuperacao` no log, não há reinício a conferir.
     duraveis = [
         _entrada_duravel("tx1", "voto", "SIM", 11),
         _entrada_duravel("tx1", "voto", "SIM", 12),
     ]
     v = inv.invariante_05_durabilidade(_dados([], duraveis))
-    assert v.ok  # aviso não reprova
-    assert v.avisos
+    assert v.verificados == 0
+    assert not v.falhas
+    assert len(v.avisos) == 2
     assert all("Estado_Em_Duvida" in a for a in v.avisos)
 
 
@@ -251,6 +253,58 @@ def test_2pc_durabilidade_voto_sim_com_decisao_nao_avisa() -> None:
     ]
     v = inv.invariante_05_durabilidade(_dados([], duraveis))
     assert not v.avisos
+
+
+# --------------------------------------------------------------------------- #
+# 2PC — invariante 6: validade.
+# --------------------------------------------------------------------------- #
+
+
+def _inicia_transacao(transacao: str, participantes: list[int]) -> dict:
+    """Evento `inicia_transacao` do Coordenador, como `src/doispc/coordenador.py` grava."""
+    return _ev(1, "inicia_transacao", transacao=transacao, participantes=participantes)
+
+
+def test_2pc_validade_passa_commit_com_todos_sim() -> None:
+    duraveis = [_entrada_duravel("tx1", "voto", "SIM", p) for p in (11, 12, 13)]
+    duraveis += [_entrada_duravel("tx1", "decisao", "COMMIT", no) for no in (1, 11, 12, 13)]
+    v = inv.invariante_06_validade(_dados([_inicia_transacao("tx1", [11, 12, 13])], duraveis))
+    assert v.ok, v.falhas
+    assert v.verificados == 1
+
+
+@pytest.mark.parametrize(
+    ("votos", "faltam"),
+    [
+        ({11: "SIM", 12: "SIM", 13: "NAO"}, [13]),  # COMMIT com um NAO
+        ({11: "SIM", 12: "SIM"}, [13]),  # COMMIT sem ouvir o 13
+    ],
+)
+def test_2pc_validade_reprova_commit_sem_todos_sim(votos: dict[int, str], faltam: list[int]) -> None:
+    duraveis = [_entrada_duravel("tx1", "voto", valor, p) for p, valor in votos.items()]
+    duraveis += [_entrada_duravel("tx1", "decisao", "COMMIT", no) for no in (1, 11, 12, 13)]
+    v = inv.invariante_06_validade(_dados([_inicia_transacao("tx1", [11, 12, 13])], duraveis))
+    assert not v.ok
+    assert f"sem o Voto SIM de {faltam}" in v.falhas[0]
+
+
+def test_2pc_validade_reprova_commit_sem_participante_conhecido() -> None:
+    duraveis = [_entrada_duravel("tx1", "decisao", "COMMIT", 1)]
+    v = inv.invariante_06_validade(_dados([], duraveis))
+    assert not v.ok
+    assert "sem Participante conhecido" in v.falhas[0]
+
+
+def test_2pc_validade_nao_confere_abort() -> None:
+    # ABORT é válido com qualquer combinação de Votos.
+    duraveis = [
+        _entrada_duravel("tx1", "voto", "SIM", 11),
+        _entrada_duravel("tx1", "voto", "NAO", 12),
+        _entrada_duravel("tx1", "decisao", "ABORT", 1),
+    ]
+    v = inv.invariante_06_validade(_dados([_inicia_transacao("tx1", [11, 12])], duraveis))
+    assert v.verificados == 0
+    assert not v.falhas
 
 
 # --------------------------------------------------------------------------- #
@@ -299,6 +353,16 @@ def test_carregar_distingue_eventos_de_duraveis(tmp_path: Path) -> None:
     assert len(duraveis) == 2
 
 
+def test_carregar_duraveis_ignora_o_evento_grava_log(tmp_path: Path) -> None:
+    # O evento repete transacao, fase, valor e no, mas é do Log_Estruturado.
+    _escrever_jsonl(
+        tmp_path / "doispc-participante-11.jsonl",
+        [_ev(11, "grava_log", transacao="tx1", fase="voto", valor="SIM")],
+    )
+    assert inv.carregar_duraveis(tmp_path) == ()
+    assert len(inv.carregar_eventos(tmp_path)) == 1
+
+
 def test_carregar_ignora_linhas_corrompidas(tmp_path: Path) -> None:
     arquivo = tmp_path / "ruidoso.log"
     arquivo.write_text(
@@ -330,13 +394,15 @@ def test_verificar_sai_zero_em_logs_corretos(tmp_path: Path) -> None:
         tmp_path / "anel.log",
         [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)],
     )
+    _escrever_jsonl(tmp_path / "2pc.jsonl", [_inicia_transacao("tx1", [11, 12, 13])])
     _escrever_jsonl(
         tmp_path / "2pc.log",
-        [_entrada_duravel("tx1", "decisao", "COMMIT", no) for no in (1, 11, 12, 13)],
+        [_entrada_duravel("tx1", "voto", "SIM", p) for p in (11, 12, 13)]
+        + [_entrada_duravel("tx1", "decisao", "COMMIT", no) for no in (1, 11, 12, 13)],
     )
     saida: list[str] = []
     codigo = verificar.verificar([tmp_path], imprimir=saida.append)
-    assert codigo == 0
+    assert codigo == 0, "\n".join(saida)
 
 
 def test_verificar_sai_um_em_violacao_de_safety(tmp_path: Path) -> None:
@@ -352,6 +418,28 @@ def test_verificar_sai_um_em_violacao_de_safety(tmp_path: Path) -> None:
     saida: list[str] = []
     codigo = verificar.verificar([tmp_path], imprimir=saida.append)
     assert codigo == 1
+
+
+def test_verificar_sai_um_em_commit_com_voto_nao(tmp_path: Path) -> None:
+    from scripts import verificar
+
+    # Todos decidem COMMIT, então a atomicidade passa. Só a validade reprova.
+    _escrever_jsonl(
+        tmp_path / "coordenador.log", [_entrada_duravel("tx1", "decisao", "COMMIT", 1)]
+    )
+    for pid, voto in ((11, "SIM"), (12, "SIM"), (13, "NAO")):
+        _escrever_jsonl(
+            tmp_path / f"participante-{pid}.log",
+            [
+                _entrada_duravel("tx1", "voto", voto, pid),
+                _entrada_duravel("tx1", "decisao", "COMMIT", pid),
+            ],
+        )
+    saida: list[str] = []
+    codigo = verificar.verificar([tmp_path], imprimir=saida.append)
+    assert codigo == 1
+    assert any("FALHA   6." in linha for linha in saida), "\n".join(saida)
+    assert any("OK      4." in linha for linha in saida), "\n".join(saida)
 
 
 def test_verificar_sai_zero_com_apenas_aviso_de_duvida(tmp_path: Path) -> None:

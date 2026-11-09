@@ -1,7 +1,7 @@
 """Roda os invariantes de correção do T2 sobre os logs coletados (tarefa 11).
 
 Lê os Logs_Estruturados (JSONL) e os Logs_Duraveis do 2PC que os Nós reais
-deixaram sob `results/`, executa os cinco invariantes de `src.analise.invariantes`
+deixaram sob `results/`, executa os invariantes de `src.analise.invariantes`
 e reporta, por invariante, se passou, reprovou ou emitiu aviso (Requisito 12.6).
 
 Sai com código **diferente de zero apenas quando algum invariante reprova** — ou

@@ -126,7 +126,7 @@ lugar reprova, o que garante que nenhuma tabela de `docs/` seja digitada à mão
 
 ### 3. Verificação (`scripts/verificar.py`)
 
-Roda os cinco invariantes de correção (safety e liveness) sobre os
+Roda os invariantes de correção (safety e liveness) sobre os
 Logs_Estruturados e Logs_Duraveis que os Nós reais deixaram sob `results/`.
 
 ```bash
@@ -147,8 +147,10 @@ tolerância de cada um e a razão dela, está em
 Enquanto a bateria mede tendência em processo, estes scripts sobem um cenário
 **real** sobre o Docker Compose, conduzem o algoritmo pelos endpoints de
 controle, coletam os logs dos Nós para `results/` e rodam os invariantes sobre
-eles. Todos derrubam o compose ao final (`down -v --remove-orphans`) e, sem
-Docker, saem com uma mensagem clara em vez de travar.
+eles. Cada cenário confere o desfecho contra o esperado e sai 1 quando ele
+difere ou quando um invariante reprova. Todos derrubam o compose ao final
+(`down -v --remove-orphans`) e, sem Docker, saem com uma mensagem clara em vez
+de travar.
 
 ```bash
 python scripts/cenario.py anel normal        # eleição converge para o maior id (5)
@@ -362,7 +364,7 @@ Em [`docs/`](docs/):
 ## Verificação
 
 ```bash
-python scripts/verificar.py           # os cinco invariantes de correção sobre results/
+python scripts/verificar.py           # os invariantes de correção sobre results/
 python scripts/analisar.py conferir   # tabelas de docs/ contra os dados atuais
 python -m pytest -m "not slow"        # a suíte completa sem Docker
 python -m pytest -m slow              # os testes que sobem o compose (precisam de Docker)

@@ -14,6 +14,10 @@ ela aparece no registro JSON coletado e, por vir do ambiente dos contêineres,
 também no `inicio_replica` de cada Log_Estruturado. Com a mesma Semente e a
 mesma configuração do compose, o Cenário de falha é repetível.
 
+O registro guarda o desfecho esperado ao lado do observado. O script sai 1
+quando eles diferem, mesmo que os invariantes passem, porque um `2pc commit`
+que termina em ABORT não viola nenhuma propriedade de safety.
+
 Cenários do Anel:
 
     python scripts/cenario.py anel normal
@@ -84,6 +88,10 @@ PORTAS_PART = {11: 8011, 12: 8012, 13: 8013}
 # Semente padrão dos cenários (casa com SEMENTE do compose). Registrada no
 # resultado e sobreponível por --semente para reproduzir uma execução.
 SEMENTE_PADRAO = 0
+
+# Intervalo entre as consultas a `/estado` e `/saude`. É a resolução dos tempos
+# que o cenário mede.
+SONDAGEM_S = 0.05
 
 # Modos normalizados do 2PC. Mantemos os aliases `normal`/`falha` por
 # compatibilidade com a tarefa 9 (normal == commit, falha == abort).
@@ -206,20 +214,24 @@ def _esperar_lider(bases: dict[int, str], ids, alvo, timeout: float) -> dict[int
         try:
             lideres = {i: _http_json(f"{bases[i]}/estado")["lider"] for i in ids}
         except (urllib.error.URLError, OSError):
-            time.sleep(0.5)
+            time.sleep(SONDAGEM_S)
             continue
         if all(v == alvo for v in lideres.values()):
             break
-        time.sleep(0.5)
+        time.sleep(SONDAGEM_S)
     return lideres
 
 
-def _eleger(bases: dict[int, str], vivos: list[int], alvo: int) -> tuple[bool, float]:
-    """Dispara uma eleição no Nó 1. Devolve se os `vivos` chegaram a `alvo` e o tempo."""
+def _eleger(bases: dict[int, str], vivos: list[int], alvo: int) -> tuple[dict[int, Any], float]:
+    """Dispara uma eleição no Nó 1 e espera os `vivos` reportarem `alvo`.
+
+    Devolve o Líder que cada vivo reporta e o tempo até todos reportarem `alvo`,
+    ou até o prazo de 30 s.
+    """
     inicio = time.monotonic()
     _http_json(f"{bases[1]}/iniciar-eleicao", metodo="POST")
     lideres = _esperar_lider(bases, vivos, alvo, 30.0)
-    return set(lideres.values()) == {alvo}, time.monotonic() - inicio
+    return lideres, time.monotonic() - inicio
 
 
 def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, Any]:
@@ -234,29 +246,31 @@ def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, An
     Cada eleição é uma rodada com id próprio, e os invariantes conferem cada uma
     contra os Nós vivos nela.
     """
-    bases = {i: f"http://127.0.0.1:{PORTAS_ANEL[i]}" for i in range(1, 6)}
-    convergiu, tempo = _eleger(bases, list(range(1, 6)), 5)
+    bases = {i: f"http://127.0.0.1:{porta}" for i, porta in PORTAS_ANEL.items()}
+    todos = list(PORTAS_ANEL)
+    lideres, tempo = _eleger(bases, todos, 5)
     registro: dict[str, Any] = {
         "cenario": f"anel_{modo}",
         "algoritmo": "anel",
         "modo": modo,
         "semente": semente,
         "maior_id_topologia": 5,
-        "lider_inicial": 5 if convergiu else None,
-        "convergiu_inicial": convergiu,
+        "lideres_iniciais": lideres,
         "tempo_convergencia_s": round(tempo, 4),
+        "esperado": {"lideres_iniciais": dict.fromkeys(todos, 5)},
     }
     if modo == "falha":
         _compose("kill", "no-anel-5", arquivos=arquivos, timeout=60)
-        reelegeu, tempo = _eleger(bases, [1, 2, 3, 4], 4)
+        vivos = [i for i in todos if i != 5]
+        lideres, tempo = _eleger(bases, vivos, 4)
         registro.update(
             {
                 "falha_injetada": "docker compose kill no-anel-5, depois da primeira eleição",
-                "lider_pos_falha": 4 if reelegeu else None,
-                "reeleicao_ok": reelegeu,
+                "lideres_pos_falha": lideres,
                 "tempo_reeleicao_s": round(tempo, 4),
             }
         )
+        registro["esperado"]["lideres_pos_falha"] = dict.fromkeys(vivos, 4)
     return registro
 
 
@@ -273,7 +287,7 @@ def _esperar_saude(base: str, timeout: float) -> bool:
                 return True
         except (urllib.error.URLError, OSError):
             pass
-        time.sleep(0.5)
+        time.sleep(SONDAGEM_S)
     return False
 
 
@@ -290,7 +304,12 @@ def _estados_participantes(*, esperar_decisao: bool, timeout: float = 10.0) -> d
         decidiram = all(est.get("decisao") for est in estados.values())
         if not esperar_decisao or decidiram or time.monotonic() >= limite:
             return estados
-        time.sleep(0.05)
+        time.sleep(SONDAGEM_S)
+
+
+def _decisoes(estados: dict[int, Any]) -> dict[int, Any]:
+    """A Decisao de cada Participante, ou None se ele não decidiu."""
+    return {pid: est.get("decisao") for pid, est in estados.items()}
 
 
 def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> dict[str, Any]:
@@ -298,11 +317,16 @@ def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> di
 
     O voto dos Participantes e o crash do Coordenador vêm do override montado por
     `_override_2pc`. A DECISAO sai da fila do Coordenador depois da resposta do
-    `/transacao`, então o condutor espera cada Participante decidir. Em
-    `crash-coord` o `/transacao` não responde, porque o processo morre depois de
-    gravar a Decisao. O condutor registra os Participantes em dúvida, reinicia o
-    contêiner e mede o tempo até todos decidirem.
+    `/transacao`, então o condutor espera cada Participante decidir, com prazo.
+    Em `crash-coord` o `/transacao` não responde, porque o processo morre depois
+    de gravar a Decisao. O condutor registra os Participantes em dúvida, reinicia
+    o contêiner e mede o tempo até todos decidirem.
     """
+    esperada = "ABORT" if modo_norm == "abort" else "COMMIT"
+    esperado: dict[str, Any] = {
+        "decisao": esperada,
+        "decisoes_participantes": dict.fromkeys(PORTAS_PART, esperada),
+    }
     base_coord = f"http://127.0.0.1:{PORTA_COORD}"
     _esperar_saude(base_coord, 30.0)
     inicio = time.monotonic()
@@ -321,7 +345,8 @@ def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> di
             "decisao": resposta.get("decisao"),
             "latencia_commit_s": round(latencia, 4),
             "participantes": resposta.get("participantes"),
-            "estados_participantes": _estados_participantes(esperar_decisao=True),
+            "decisoes_participantes": _decisoes(_estados_participantes(esperar_decisao=True)),
+            "esperado": esperado,
         }
 
     em_duvida = sorted(
@@ -338,16 +363,15 @@ def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> di
     reinicio = _compose("start", "coordenador", arquivos=arquivos, timeout=120)
     if reinicio.returncode != 0:
         raise RuntimeError(f"docker compose start coordenador falhou: {reinicio.stderr}")
-    estados_part = _estados_participantes(esperar_decisao=True, timeout=30.0)
+    decisoes = _decisoes(_estados_participantes(esperar_decisao=True, timeout=30.0))
     recuperacao = time.monotonic() - inicio
-    decisoes = {pid: est.get("decisao") for pid, est in estados_part.items()}
     print(f"[cenario] Coordenador reiniciado. Em {recuperacao:.2f} s: {decisoes}", file=erro)
     # Os logs só são coletados depois de todos os ACKs, para incluírem a retransmissão.
     _esperar_saude(base_coord, 30.0)
     limite = time.monotonic() + 10.0
     estado_coord = _http_json(f"{base_coord}/estado")
     while not estado_coord.get("concluido") and time.monotonic() < limite:
-        time.sleep(0.05)
+        time.sleep(SONDAGEM_S)
         estado_coord = _http_json(f"{base_coord}/estado")
     return {
         "cenario": "2pc_crash-coord",
@@ -360,7 +384,8 @@ def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> di
         "decisao": estado_coord.get("decisao"),
         "concluido": estado_coord.get("concluido"),
         "tempo_recuperacao_s": round(recuperacao, 4),
-        "estados_participantes": estados_part,
+        "decisoes_participantes": decisoes,
+        "esperado": esperado | {"participantes_em_duvida": sorted(PORTAS_PART), "concluido": True},
     }
 
 
@@ -389,23 +414,18 @@ def _coletar_logs_estruturados(
     """Extrai os Logs_Estruturados (JSONL) e Logs_Duraveis dos Nós para `destino`.
 
     - Anel: o Log_Estruturado fica em `/app/results` dentro do contêiner (LOG_DIR
-      default). Copiamos o diretório inteiro de cada Nó.
-    - 2PC: o Log_Estruturado fica em `/dados/logs` e o Log_Duravel em `/dados`
-      (um volume por Nó). Copiamos ambos, pois os invariantes de atomicidade e
-      durabilidade leem os Logs_Duraveis.
+      default).
+    - 2PC: o volume de cada Nó, em `/dados`, guarda o Log_Duravel e, em
+      `/dados/logs`, o Log_Estruturado. Uma cópia de `/dados` traz os dois, e
+      cada arquivo chega uma vez só.
 
     Esses são os logs que `scripts/verificar.py` consome — distintos do stdout do
     contêiner (coletado à parte por `_coletar_stdout`).
     """
     destino.mkdir(parents=True, exist_ok=True)
+    origem = "/app/results/." if algoritmo == "anel" else "/dados/."
     for servico in servicos:
-        alvo = destino / servico
-        if algoritmo == "anel":
-            _copiar_de_container(servico, "/app/results/.", alvo, arquivos)
-        else:
-            # Log_Estruturado em /dados/logs e Log_Duravel(s) em /dados.
-            _copiar_de_container(servico, "/dados/logs/.", alvo / "logs", arquivos)
-            _copiar_de_container(servico, "/dados/.", alvo / "dados", arquivos)
+        _copiar_de_container(servico, origem, destino / servico, arquivos)
 
 
 def _coletar_stdout(servicos: list[str], destino: Path, arquivos: list[Path]) -> None:
@@ -414,6 +434,15 @@ def _coletar_stdout(servicos: list[str], destino: Path, arquivos: list[Path]) ->
     for servico in servicos:
         saida = _compose("logs", "--no-color", servico, arquivos=arquivos, timeout=60)
         (destino / f"{servico}.txt").write_text(saida.stdout, encoding="utf-8")
+
+
+def _divergencias(registro: dict[str, Any]) -> list[str]:
+    """Os campos de `registro["esperado"]` que o desfecho observado não reproduz."""
+    return [
+        f"{campo}: esperado {valor}, obtido {registro.get(campo)}"
+        for campo, valor in registro["esperado"].items()
+        if registro.get(campo) != valor
+    ]
 
 
 def _gravar_registro(registro: dict[str, Any], destino: Path) -> None:
@@ -462,10 +491,10 @@ def executar_cenario(
     """Sobe o cenário, conduz o algoritmo, coleta logs, VERIFICA e derruba o compose.
 
     Devolve 0 em sucesso (avisos de invariante não reprovam), 1 em falha de
-    execução ou reprovação de um invariante de safety, e 2 quando o Docker não
-    está disponível. A configuração
-    do cenário é validada antes de subir qualquer contêiner; o compose é sempre
-    derrubado ao final.
+    execução, desfecho diferente do esperado ou reprovação de um invariante de
+    safety, e 2 quando o Docker não está disponível. A configuração do cenário é
+    validada antes de subir qualquer contêiner, e o compose é sempre derrubado ao
+    final.
     """
     try:
         rotulo, modo_norm = _normalizar(algoritmo, modo)
@@ -513,6 +542,8 @@ def executar_cenario(
         try:
             registro = conduzir(arquivos)
             registro["semente"] = semente
+            divergencias = _divergencias(registro)
+            registro["desfecho"] = {"ok": not divergencias, "divergencias": divergencias}
 
             logs_dir = base / f"cenario_{rotulo_arq}_logs"
             if logs_dir.exists():
@@ -529,20 +560,27 @@ def executar_cenario(
                 "relatorio": linhas_verif,
             }
 
-            _gravar_registro(registro, base / f"cenario_{rotulo_arq}.json")
+            arquivo_registro = base / f"cenario_{rotulo_arq}.json"
+            _gravar_registro(registro, arquivo_registro)
             print(
                 f"[cenario] {algoritmo}/{rotulo} (semente={semente}): "
                 f"{json.dumps({k: v for k, v in registro.items() if k != 'verificacao'}, ensure_ascii=False)}",
                 file=saida,
             )
             print("\n".join(linhas_verif), file=saida)
+            if divergencias:
+                print(
+                    f"[cenario] o desfecho de {algoritmo}/{rotulo} difere do esperado: "
+                    f"{'; '.join(divergencias)}. Registro em {arquivo_registro}, "
+                    f"logs dos Nós em {logs_dir}",
+                    file=erro,
+                )
             if codigo_verif != 0:
                 print(
                     f"[cenario] VERIFICAÇÃO REPROVOU para {algoritmo}/{rotulo}",
                     file=erro,
                 )
-                return 1
-            return 0
+            return 1 if divergencias or codigo_verif != 0 else 0
         except Exception as exc:  # noqa: BLE001 - qualquer falha de condução
             print(f"[cenario] falha ao conduzir {algoritmo}/{rotulo}: {exc}", file=erro)
             return 1

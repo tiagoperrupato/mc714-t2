@@ -76,6 +76,6 @@ def test_cenario_anel_normal_sobre_compose(tmp_path: Path) -> None:
     registro = json.loads(
         (tmp_path / "cenario_anel_normal.json").read_text(encoding="utf-8")
     )
-    assert registro["convergiu_inicial"] is True
-    assert registro["lider_inicial"] == 5
+    assert registro["desfecho"]["ok"] is True
+    assert registro["lideres_iniciais"] == {str(i): 5 for i in range(1, 6)}
     assert "ambiente" in registro
