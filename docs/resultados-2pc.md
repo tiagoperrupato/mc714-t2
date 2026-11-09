@@ -47,8 +47,31 @@ transação, dos eventos `envia` nos logs de todos os Nós.
 
 ![Latência de commit do 2PC × latência de rede](figuras/doispc_latencia.png)
 
-A latência cresce em linha com o atraso de ida, e o número de mensagens não muda com ele. Os PREPARE
-saem um depois do outro, então o Voto do último Participante só chega depois de seis atrasos de ida.
+## Mensagens e latência × complexidade esperada
+
+Cada transação sem falha custa 4N mensagens, com N Participantes. PREPARE, Voto e DECISAO são as 3N do
+protocolo básico, e o ACK de cada Participante é a mensagem a mais que a retransmissão da DECISAO
+exige. O caminho crítico da latência também sai do protocolo. O Coordenador envia os PREPARE um depois
+do outro, e cada envio espera a resposta do Participante, uma ida e volta. O último PREPARE sai depois
+de N − 1 idas e voltas e leva mais uma ida até o Participante, e o Voto dele leva outra ida de volta.
+São 2N atrasos de ida ao todo, seis com N = 3. O resto do custo (`fsync`, HTTP, escalonamento) é o que
+se mede com atraso zero, e a tabela compara o acréscimo sobre esse piso com os 2N atrasos.
+
+| Latência de rede (ms) | Transações | Mensagens médias | 4N | Latência média (ms) | Acréscimo sobre 0 ms | 2N × atraso (ms) | Acréscimo / 2N × atraso |
+|:----------------------|-----------:|-----------------:|---:|--------------------:|---------------------:|-----------------:|------------------------:|
+| 0                     |        200 |            12,00 | 12 |                 8,5 |                  0,0 |              0,0 |                     n/d |
+| 10                    |        200 |            12,00 | 12 |                83,3 |                 74,8 |             60,0 |                    1,25 |
+| 25                    |        200 |            12,00 | 12 |               189,8 |                181,3 |            150,0 |                    1,21 |
+| 50                    |        200 |            12,00 | 12 |               344,6 |                336,1 |            300,0 |                    1,12 |
+
+> Tabela gerada por `python scripts/analisar.py 2pc-complexidade` a partir de `results/bateria_2pc_latencia_rede.csv`. Não editar à mão: cole novamente a saída do comando.
+
+As mensagens batem com 4N em todas as transações, sem nenhuma retransmissão, e não dependem do atraso.
+A latência cresce em linha com os 2N atrasos de ida, mas fica um pouco acima deles. Nos logs de uma
+transação, cada uma das seis pernas do caminho crítico leva alguns milissegundos além do atraso,
+somando o `fsync` do Voto, o repasse pelo Toxiproxy e o despacho pela fila de saída de cada Nó. Os
+PREPARE em sequência fazem o custo crescer com N. Enviados em paralelo, eles deixariam o caminho
+crítico em dois atrasos de ida para qualquer N.
 
 ## Tempo de recuperação × latência de rede
 

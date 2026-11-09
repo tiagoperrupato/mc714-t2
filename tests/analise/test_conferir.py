@@ -142,7 +142,49 @@ def test_consolidar_anel_medias_conhecidas() -> None:
     por_nos = {int(r["num_nos"]): r for _, r in tabela.iterrows()}
     assert por_nos[3]["tempo_medio"] == pytest.approx(5.0)
     assert por_nos[5]["tempo_medio"] == pytest.approx(10.0)
-    assert por_nos[3]["frac_convergiu"] == pytest.approx(1.0)
+    assert (por_nos[3]["n_replicas"], por_nos[3]["n_convergiram"]) == (2, 2)
+
+
+def test_anel_conta_so_as_convergidas_e_espera_2n_menos_1_com_perda() -> None:
+    import pandas as pd
+
+    tabela = anel_exp.consolidar(
+        pd.DataFrame(
+            [
+                {"num_nos": 5, "taxa_falhas": 0.05, "tempo_convergencia": 9,
+                 "mensagens": 9, "convergiu": 1},
+                {"num_nos": 5, "taxa_falhas": 0.05, "tempo_convergencia": 11,
+                 "mensagens": 11, "convergiu": 1},
+                {"num_nos": 5, "taxa_falhas": 0.05, "tempo_convergencia": 99,
+                 "mensagens": 99, "convergiu": 0},
+            ]
+        )
+    )
+    linha = tabela.iloc[0]
+    assert (linha["n_replicas"], linha["n_convergiram"]) == (3, 2)
+    assert linha["msgs_medio"] == pytest.approx(10.0)
+    assert linha["msgs_esperado_sem_perda"] == 9
+    assert linha["msgs_esperado_com_perda"] == pytest.approx(9 / 0.95)
+
+
+def test_complexidade_do_2pc_compara_com_4n_e_2n_atrasos_de_ida() -> None:
+    import pandas as pd
+
+    def linha(latencia: int, semente: int, valor: float) -> dict:
+        return {"latencia_rede": latencia, "semente": semente, "aquecimento": 0,
+                "decisao": "COMMIT", "latencia_commit_s": valor, "mensagens": 12,
+                "num_participantes": 3}
+
+    tabela = doispc_exp.consolidar_complexidade(
+        pd.DataFrame([linha(0, 1, 0.010), linha(0, 2, 0.010),
+                      linha(10, 3, 0.085), linha(10, 4, 0.085)])
+    )
+    por_lat = {int(r["latencia_rede"]): r for _, r in tabela.iterrows()}
+    assert por_lat[0]["mensagens_esperado"] == 12
+    assert por_lat[10]["acrescimo_ms"] == pytest.approx(75.0)
+    assert por_lat[10]["caminho_critico_ms"] == pytest.approx(60.0)
+    assert por_lat[10]["razao"] == pytest.approx(1.25)
+    assert pd.isna(por_lat[0]["razao"])
 
 
 def test_consolidar_2pc_descarta_aquecimento_e_abort() -> None:
@@ -187,7 +229,11 @@ def test_subcomandos_escrevem_tabelas_e_figuras(tmp_path: Path) -> None:
     assert cli.main(["anel", *comuns]) == 0
     assert cli.main(["2pc-latencia", *comuns]) == 0
     assert cli.main(["2pc-recuperacao", *comuns]) == 0
+    assert cli.main(["anel-complexidade", *comuns]) == 0
+    assert cli.main(["2pc-complexidade", *comuns]) == 0
 
+    assert (dir_dados / "anel_complexidade.csv").exists()
+    assert (dir_dados / "doispc_complexidade.csv").exists()
     assert (dir_dados / "anel_convergencia.csv").exists()
     assert (dir_figs / "anel_convergencia.png").exists()
     assert (dir_figs / "anel_convergencia.pdf").exists()
@@ -215,6 +261,16 @@ def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
     bloco_anel = anel_exp.como_markdown(
         anel_exp.consolidar(df_anel), cli.COMANDOS["anel"], [dados.relativo(anel_csv)]
     )
+    bloco_anel_complexidade = anel_exp.complexidade_como_markdown(
+        anel_exp.consolidar(df_anel),
+        cli.COMANDOS["anel-complexidade"],
+        [dados.relativo(anel_csv)],
+    )
+    bloco_2pc_complexidade = doispc_exp.complexidade_como_markdown(
+        doispc_exp.consolidar_complexidade(dados.carregar_2pc_latencia(latencia_csv)),
+        cli.COMANDOS["2pc-complexidade"],
+        [dados.relativo(latencia_csv)],
+    )
     bloco_lat = doispc_exp.latencia_como_markdown(
         doispc_exp.consolidar_latencia(dados.carregar_2pc_latencia(latencia_csv)),
         cli.COMANDOS["2pc-latencia"],
@@ -225,8 +281,10 @@ def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
         cli.COMANDOS["2pc-recuperacao"],
         [dados.relativo(recuperacao_csv)],
     )
-    doc_anel.write_text(f"# Anel\n\n{bloco_anel}\n", encoding="utf-8")
-    doc_2pc.write_text(f"# 2PC\n\n{bloco_lat}\n\n{bloco_rec}\n", encoding="utf-8")
+    doc_anel.write_text(f"# Anel\n\n{bloco_anel}\n\n{bloco_anel_complexidade}\n", encoding="utf-8")
+    doc_2pc.write_text(
+        f"# 2PC\n\n{bloco_lat}\n\n{bloco_2pc_complexidade}\n\n{bloco_rec}\n", encoding="utf-8"
+    )
 
     assert cli.main(["conferir", *comuns]) == 0
 

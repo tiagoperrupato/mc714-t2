@@ -3,9 +3,17 @@
 A latência entra por transação, sem as de aquecimento. Média e IC 95% saem das médias por Réplica,
 que são as amostras independentes, e os percentis saem de todas as transações do nível. A recuperação
 tem uma amostra por Réplica, então a tabela mostra mínimo e máximo, e não percentis.
+
+Cada transação sem falha custa 4N mensagens: PREPARE, VOTO e DECISAO, as 3N do protocolo básico, e o
+ACK que a retransmissão da DECISAO exige. O Coordenador envia os PREPARE em sequência, e cada envio
+espera a resposta. O último Voto chega depois de 2(N − 1) atrasos de ida das N − 1 primeiras idas e
+voltas, mais a ida do último PREPARE e a do Voto, ou 2N atrasos de ida ao todo. O que não é rede
+(fsync, HTTP, escalonamento) é o que se mede com atraso zero.
 """
 
 from __future__ import annotations
+
+import math
 
 import pandas as pd
 
@@ -41,6 +49,35 @@ def consolidar_latencia(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(linhas)
 
 
+def consolidar_complexidade(df: pd.DataFrame) -> pd.DataFrame:
+    """Mensagens e latência medidas contra o esperado do protocolo, por nível de latência de rede.
+
+    O acréscimo é a latência média do nível menos a do nível sem atraso, e o caminho crítico é 2N
+    vezes o atraso de ida. Sem o nível 0, ou com N variando no CSV, o esperado fica ausente.
+    """
+    tabela = consolidar_latencia(df)
+    if tabela.empty:
+        return tabela
+    participantes = df["num_participantes"].unique()
+    n = int(participantes[0]) if len(participantes) == 1 else math.nan
+    base = tabela.loc[tabela["latencia_rede"] == 0, "media_ms"]
+    piso = float(base.iloc[0]) if not base.empty else math.nan
+    acrescimo = tabela["media_ms"] - piso
+    caminho = 2 * n * tabela["latencia_rede"].astype(float)
+    return pd.DataFrame(
+        {
+            "latencia_rede": tabela["latencia_rede"],
+            "n_transacoes": tabela["n_transacoes"],
+            "mensagens": tabela["mensagens"],
+            "mensagens_esperado": 4 * n,
+            "media_ms": tabela["media_ms"],
+            "acrescimo_ms": acrescimo,
+            "caminho_critico_ms": caminho,
+            "razao": (acrescimo / caminho).where(caminho > 0),
+        }
+    )
+
+
 def consolidar_recuperacao(df: pd.DataFrame) -> pd.DataFrame:
     """Tempo de recuperação em s por nível de latência de rede, das Réplicas que terminaram em COMMIT."""
     linhas = []
@@ -74,6 +111,29 @@ def latencia_como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[str]
             "p95 (ms)": formato.numero(r["p95_ms"], 1),
             "p99 (ms)": formato.numero(r["p99_ms"], 1),
             "Mensagens": formato.numero(r["mensagens"], 2),
+        }
+        for _, r in tabela.iterrows()
+    ]
+    colunas = list(linhas[0]) if linhas else []
+    return (
+        formato.tabela_markdown(linhas, colunas, colunas_texto=["Latência de rede (ms)"])
+        + "\n\n"
+        + formato.rodape_reproducao(comando, fontes)
+    )
+
+
+def complexidade_como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[str]) -> str:
+    """Tabela markdown das mensagens e da latência medidas contra o esperado."""
+    linhas = [
+        {
+            "Latência de rede (ms)": formato.inteiro(r["latencia_rede"]),
+            "Transações": formato.inteiro(r["n_transacoes"]),
+            "Mensagens médias": formato.numero(r["mensagens"], 2),
+            "4N": formato.inteiro(r["mensagens_esperado"]),
+            "Latência média (ms)": formato.numero(r["media_ms"], 1),
+            "Acréscimo sobre 0 ms": formato.numero(r["acrescimo_ms"], 1),
+            "2N × atraso (ms)": formato.numero(r["caminho_critico_ms"], 1),
+            "Acréscimo / 2N × atraso": formato.numero(r["razao"], 2),
         }
         for _, r in tabela.iterrows()
     ]

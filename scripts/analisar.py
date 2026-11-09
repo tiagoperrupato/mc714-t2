@@ -9,7 +9,9 @@ quando uma tabela de `docs/` fica defasada em relação aos dados atuais
 Subcomandos:
 
     anel              convergência do Anel × número de Nós (tabela + figura)
+    anel-complexidade mensagens do Anel medidas contra 2n − 1, com e sem perda
     2pc-latencia      latência de commit do 2PC × latência de rede (p50/p95/p99)
+    2pc-complexidade  mensagens e latência do 2PC medidas contra 4N e 2N atrasos de ida
     2pc-recuperacao   tempo de recuperação após o crash do Coordenador × latência de rede
     conferir          confere se as tabelas de docs/ batem com os dados atuais
     tudo              executa todos os subcomandos acima
@@ -37,7 +39,9 @@ from src.analise.dados import DadosError  # noqa: E402
 # Comandos citados no rodapé das tabelas e na mensagem da conferência.
 COMANDOS: dict[str, str] = {
     "anel": "python scripts/analisar.py anel",
+    "anel-complexidade": "python scripts/analisar.py anel-complexidade",
     "2pc-latencia": "python scripts/analisar.py 2pc-latencia",
+    "2pc-complexidade": "python scripts/analisar.py 2pc-complexidade",
     "2pc-recuperacao": "python scripts/analisar.py 2pc-recuperacao",
 }
 
@@ -52,7 +56,9 @@ FIG_2PC_RECUPERACAO = dados.DIR_FIGURAS / "doispc_recuperacao.png"
 
 # CSVs de análise, versionados junto dos documentos que as citam.
 CSV_ANEL = dados.DIR_DADOS / "anel_convergencia.csv"
+CSV_ANEL_COMPLEXIDADE = dados.DIR_DADOS / "anel_complexidade.csv"
 CSV_2PC_LATENCIA = dados.DIR_DADOS / "doispc_latencia.csv"
+CSV_2PC_COMPLEXIDADE = dados.DIR_DADOS / "doispc_complexidade.csv"
 CSV_2PC_RECUPERACAO = dados.DIR_DADOS / "doispc_recuperacao.csv"
 
 
@@ -184,9 +190,19 @@ def _construir_parser() -> argparse.ArgumentParser:
         "anel", parents=[comum], help="convergência do Anel × número de Nós"
     )
     sub.add_parser(
+        "anel-complexidade",
+        parents=[comum],
+        help="mensagens do Anel medidas contra 2n − 1, com e sem perda",
+    )
+    sub.add_parser(
         "2pc-latencia",
         parents=[comum],
         help="latência de commit do 2PC × latência de rede (p50/p95/p99)",
+    )
+    sub.add_parser(
+        "2pc-complexidade",
+        parents=[comum],
+        help="mensagens e latência do 2PC medidas contra 4N e 2N atrasos de ida",
     )
     sub.add_parser(
         "2pc-recuperacao",
@@ -225,6 +241,42 @@ def _executar_anel(dfs, args) -> int:
     destino = args.dir_figuras / FIG_ANEL.name
     anel_exp.gerar_grafico(tabela, destino)
     print(f"Figura gravada em: {dados.relativo(destino)}", file=sys.stderr)
+    return 0
+
+
+def _executar_anel_complexidade(dfs, args) -> int:
+    tabela = anel_exp.consolidar(dfs["anel"])
+    if tabela.empty:
+        print(
+            "erro: nenhuma configuração do Anel com réplicas convergidas para "
+            "comparar. Rode a bateria: python scripts/bateria.py --algoritmo anel",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        anel_exp.complexidade_como_markdown(
+            tabela, COMANDOS["anel-complexidade"], _fontes(args.anel_nos)
+        )
+    )
+    _gravar_csv(tabela, args.dir_dados / CSV_ANEL_COMPLEXIDADE.name, "Complexidade do Anel")
+    return 0
+
+
+def _executar_2pc_complexidade(dfs, args) -> int:
+    tabela = doispc_exp.consolidar_complexidade(dfs["2pc-latencia"])
+    if tabela.empty:
+        print(
+            "erro: nenhuma transação do 2PC com COMMIT fora do aquecimento para "
+            "comparar. Rode a bateria: python scripts/bateria.py --algoritmo 2pc",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        doispc_exp.complexidade_como_markdown(
+            tabela, COMANDOS["2pc-complexidade"], _fontes(args.doispc_latencia)
+        )
+    )
+    _gravar_csv(tabela, args.dir_dados / CSV_2PC_COMPLEXIDADE.name, "Complexidade do 2PC")
     return 0
 
 
@@ -284,6 +336,26 @@ def _blocos_conferiveis(dfs, args) -> list[Bloco]:
             comando=COMANDOS["anel"],
         ),
         Bloco(
+            documento=DOC_ANEL,
+            rotulo="mensagens do Anel × esperado",
+            texto=anel_exp.complexidade_como_markdown(
+                anel_exp.consolidar(dfs["anel"]),
+                COMANDOS["anel-complexidade"],
+                _fontes(args.anel_nos),
+            ),
+            comando=COMANDOS["anel-complexidade"],
+        ),
+        Bloco(
+            documento=DOC_2PC,
+            rotulo="mensagens e latência × esperado",
+            texto=doispc_exp.complexidade_como_markdown(
+                doispc_exp.consolidar_complexidade(dfs["2pc-latencia"]),
+                COMANDOS["2pc-complexidade"],
+                _fontes(args.doispc_latencia),
+            ),
+            comando=COMANDOS["2pc-complexidade"],
+        ),
+        Bloco(
             documento=DOC_2PC,
             rotulo="latência de commit",
             texto=doispc_exp.latencia_como_markdown(
@@ -322,7 +394,9 @@ def main(argv: list[str] | None = None) -> int:
 
     acoes = {
         "anel": _executar_anel,
+        "anel-complexidade": _executar_anel_complexidade,
         "2pc-latencia": _executar_2pc_latencia,
+        "2pc-complexidade": _executar_2pc_complexidade,
         "2pc-recuperacao": _executar_2pc_recuperacao,
         "conferir": _executar_conferir,
     }

@@ -1,56 +1,54 @@
-"""Análise dos experimentos da Eleição em Anel (Requisito 11.3).
+"""Análise da bateria da Eleição em Anel: convergência e mensagens contra o esperado, por número de Nós.
 
-Lê o CSV da bateria do Anel e consolida a convergência em função do número de
-Nós: por nível, a média e o IC 95% do Tempo_de_Convergencia (em passos lógicos)
-e do número de Mensagens, mais a fração de Réplicas que convergiram. Produz a
-tabela markdown de `docs/` e a figura do Tempo_de_Convergencia × número de Nós.
+O tempo é medido em passos lógicos de entrega (ver `runner_anel`), reproduzíveis dígito a dígito entre
+máquinas. Média e IC saem só das Réplicas que convergiram, e as tabelas mostram quantas foram.
 
-Convenção de métrica: o Tempo_de_Convergencia é medido em passos lógicos de
-entrega (ver `runner_anel`), e não em segundos de relógio, para ser reproduzível
-dígito a dígito entre máquinas (limitação de ambiente do Requisito 13.7).
+Uma rodada completa com um iniciador custa 2n mensagens: n de eleição até a lista voltar ao iniciador
+e n de anúncio do Líder até o anúncio voltar a ele. A bateria para quando o último Nó conhece o Líder,
+um salto antes, e por isso espera 2n − 1. Com perda p e reenvio até a entrega, cada mensagem custa em
+média 1/(1 − p) tentativas.
 """
 
 from __future__ import annotations
+
+import math
 
 import pandas as pd
 
 from src.analise import formato, graficos
 from src.analise.estatistica import resumir
 
-# Pelo menos duas Réplicas por nível para que o IC 95% tenha graus de liberdade.
-MINIMO_REPLICAS: int = 2
-
 
 def consolidar(df: pd.DataFrame) -> pd.DataFrame:
-    """Média e IC 95% de Tempo_de_Convergencia e Mensagens por número de Nós.
+    """Tempo de convergência e mensagens por número de Nós, com o esperado das mensagens.
 
-    Uma linha por nível de `num_nos`, ordenada pelo número de Nós. Inclui a
-    fração de Réplicas convergidas, para que um nível instável não se esconda
-    atrás de uma média de poucos sucessos.
+    O esperado com perda fica ausente quando o nível mistura taxas de perda diferentes.
     """
     linhas = []
     for num_nos, grupo in df.groupby("num_nos", sort=True):
-        convergiu = grupo["convergiu"].astype(float)
-        convergidas = grupo[convergiu > 0.5]
+        convergidas = grupo[grupo["convergiu"].astype(float) > 0.5]
         if convergidas.empty:
             continue
         resumo_tempo = resumir(convergidas["tempo_convergencia"].to_numpy(dtype=float))
         resumo_msgs = resumir(convergidas["mensagens"].to_numpy(dtype=float))
+        taxas = grupo["taxa_falhas"].astype(float).unique()
+        perda = float(taxas[0]) if len(taxas) == 1 else math.nan
+        sem_perda = 2 * int(num_nos) - 1
         linhas.append(
             {
                 "num_nos": int(num_nos),
                 "n_replicas": int(len(grupo)),
-                "frac_convergiu": float(convergiu.mean()),
+                "n_convergiram": resumo_tempo.n,
                 "tempo_medio": resumo_tempo.media,
                 "tempo_ic95": resumo_tempo.ic95_meio,
+                "taxa_falhas": perda,
                 "msgs_medio": resumo_msgs.media,
                 "msgs_ic95": resumo_msgs.ic95_meio,
+                "msgs_esperado_sem_perda": sem_perda,
+                "msgs_esperado_com_perda": sem_perda / (1.0 - perda),
             }
         )
-    tabela = pd.DataFrame(linhas)
-    if tabela.empty:
-        return tabela
-    return tabela.sort_values("num_nos").reset_index(drop=True)
+    return pd.DataFrame(linhas)
 
 
 def como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[str]) -> str:
@@ -58,26 +56,38 @@ def como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[str]) -> str:
     linhas = [
         {
             "Nós": formato.inteiro(r["num_nos"]),
-            "n": formato.inteiro(r["n_replicas"]),
-            "Convergiu": formato.numero(r["frac_convergiu"] * 100.0, 1) + " %",
+            "Réplicas": formato.inteiro(r["n_replicas"]),
+            "Convergiram": formato.inteiro(r["n_convergiram"]),
             "Tempo médio (passos)": formato.numero(r["tempo_medio"], 2),
             "IC 95% (±)": formato.numero(r["tempo_ic95"], 2),
-            "Mensagens médias": formato.numero(r["msgs_medio"], 2),
-            "IC 95% msgs (±)": formato.numero(r["msgs_ic95"], 2),
         }
         for _, r in tabela.iterrows()
     ]
-    colunas = [
-        "Nós",
-        "n",
-        "Convergiu",
-        "Tempo médio (passos)",
-        "IC 95% (±)",
-        "Mensagens médias",
-        "IC 95% msgs (±)",
-    ]
+    colunas = list(linhas[0]) if linhas else []
     return (
         formato.tabela_markdown(linhas, colunas, colunas_texto=["Nós"])
+        + "\n\n"
+        + formato.rodape_reproducao(comando, fontes)
+    )
+
+
+def complexidade_como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[str]) -> str:
+    """Tabela markdown das mensagens medidas contra o esperado, por número de Nós."""
+    linhas = [
+        {
+            "Nós (n)": formato.inteiro(r["num_nos"]),
+            "Perda (p)": formato.numero(r["taxa_falhas"], 2),
+            "Convergiram": formato.inteiro(r["n_convergiram"]),
+            "Mensagens médias": formato.numero(r["msgs_medio"], 2),
+            "IC 95% (±)": formato.numero(r["msgs_ic95"], 2),
+            "2n − 1": formato.inteiro(r["msgs_esperado_sem_perda"]),
+            "(2n − 1)/(1 − p)": formato.numero(r["msgs_esperado_com_perda"], 2),
+        }
+        for _, r in tabela.iterrows()
+    ]
+    colunas = list(linhas[0]) if linhas else []
+    return (
+        formato.tabela_markdown(linhas, colunas, colunas_texto=["Nós (n)"])
         + "\n\n"
         + formato.rodape_reproducao(comando, fontes)
     )

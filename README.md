@@ -119,6 +119,8 @@ python scripts/analisar.py tudo
 | Subcomando | O que produz |
 |:-----------|:-------------|
 | `anel` | convergência do Anel × número de Nós (tabela + figura) |
+| `anel-complexidade` | mensagens do Anel medidas contra 2n − 1, com e sem perda |
+| `2pc-complexidade` | mensagens e latência do 2PC medidas contra 4N e 2N atrasos de ida |
 | `2pc-latencia` | latência de commit do 2PC × latência de rede, com p50/p95/p99 e mensagens por transação |
 | `2pc-recuperacao` | tempo de recuperação após o crash do Coordenador × latência de rede |
 | `conferir` | confere se as tabelas de `docs/` batem com os dados atuais |
