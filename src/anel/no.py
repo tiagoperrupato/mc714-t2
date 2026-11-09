@@ -25,9 +25,9 @@ bloqueado esperando o repasse ao próximo, que por sua vez espera o seguinte, e
 assim por diante — uma cadeia de chamadas HTTP aninhadas e síncronas. Numa
 circulação de Anel, isso estoura o Deadline de cada hop e dispara a regra de
 salto por engano, com Nós vivos sendo marcados como mortos. Para evitar isso, as
-Mensagens de saída vão para uma fila processada por um worker em background; a
-resposta HTTP é um ACK imediato de recebimento, desacoplado do término das
-rodadas subsequentes.
+Mensagens de saída vão para a fila de `src.comum.despacho`, esvaziada por uma
+thread; a resposta HTTP é um ACK imediato de recebimento, desacoplado do término
+das rodadas subsequentes.
 
 A Máquina continua pura: o lock protege apenas a troca atômica do `EstadoAnel`
 corrente por um novo valor, e a fila/worker são mecanismo de transporte, não
@@ -36,7 +36,6 @@ lógica de eleição.
 
 from __future__ import annotations
 
-import queue
 import threading
 from typing import Any, Mapping
 
@@ -46,6 +45,7 @@ from src.anel.maquina import (
     iniciar_eleicao,
     receber,
 )
+from src.comum.despacho import Despachante
 from src.comum.log import LogEstruturado
 from src.comum.modelos import Mensagem
 from src.comum.rede import ClienteRede, EnvioOk
@@ -81,29 +81,23 @@ class NoAnel:
         self._deadline = deadline
         self._log = log
         self._lock = threading.Lock()
-        self._saida: "queue.Queue[Mensagem | None]" = queue.Queue()
-        self._worker: threading.Thread | None = None
-        if iniciar_worker:
-            self.iniciar()
+        self._saida: Despachante[Mensagem] = Despachante(
+            self._despachar_uma, iniciar=iniciar_worker
+        )
 
     # -- Ciclo de vida do worker de despacho -------------------------------
 
     def iniciar(self) -> None:
         """Inicia o worker de despacho em background, se ainda não está rodando."""
-        if self._worker is not None and self._worker.is_alive():
-            return
-        self._worker = threading.Thread(target=self._laco_despacho, daemon=True)
-        self._worker.start()
+        self._saida.iniciar()
 
     def parar(self) -> None:
         """Sinaliza o worker a encerrar e aguarda, drenando a fila."""
-        self._saida.put(None)
-        if self._worker is not None:
-            self._worker.join(timeout=5.0)
+        self._saida.parar()
 
-    def drenar(self, timeout: float = 10.0) -> None:
-        """Bloqueia até a fila de saída esvaziar — útil em testes determinísticos."""
-        self._saida.join()
+    def drenar(self) -> None:
+        """Bloqueia até a fila de saída esvaziar, útil em testes determinísticos."""
+        self._saida.drenar()
 
     # -- Consulta de estado (Requisito 5.1) --------------------------------
 
@@ -164,19 +158,7 @@ class NoAnel:
     # -- Despacho em background com a regra de salto (Requisitos 4.6, 5.5) --
 
     def _enfileirar(self, saida: list[Mensagem]) -> None:
-        for mensagem in saida:
-            self._saida.put(mensagem)
-
-    def _laco_despacho(self) -> None:
-        """Loop do worker: consome Mensagens da fila e as envia uma a uma."""
-        while True:
-            mensagem = self._saida.get()
-            try:
-                if mensagem is None:
-                    return
-                self._despachar_uma(mensagem)
-            finally:
-                self._saida.task_done()
+        self._saida.enfileirar(saida)
 
     def _despachar_uma(self, mensagem: Mensagem) -> None:
         """Envia uma Mensagem ao destino; no fracasso, aplica o salto e reenfileira.

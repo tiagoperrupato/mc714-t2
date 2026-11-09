@@ -106,9 +106,9 @@ class ServicoParticipante:
     def receber(self, mensagem: Mensagem) -> Mapping[str, Any]:
         """Entrega a Mensagem à Máquina_de_Estados e executa as `Acao` devolvidas.
 
-        A resposta HTTP é um ACK imediato de recebimento; ela não espera rodadas
-        subsequentes (Requisito 3.5). As Mensagens de saída (o VOTO, o ACK da
-        DECISAO) são despachadas pelo executor, por fora da resposta.
+        A resposta HTTP é um ACK imediato de recebimento (Requisito 3.5). As
+        Mensagens de saída (o VOTO, o ACK da DECISAO) vão para a fila do executor
+        e saem depois da resposta. O estado novo só é publicado depois de gravado.
         """
         if self._log is not None:
             self._log.evento(
@@ -124,8 +124,8 @@ class ServicoParticipante:
             mensagem,
             voto_desejado=self._voto_desejado,
         )
-        self._estado = novo
         self._executor.executar(acoes)
+        self._estado = novo
         return {"ack": True}
 
     def instantaneo(self) -> dict[str, Any]:

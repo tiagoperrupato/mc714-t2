@@ -1,11 +1,11 @@
 """Executor de `Acao` do 2PC: a ponte entre a lógica pura e os efeitos colaterais.
 
 A Máquina_de_Estados do 2PC devolve uma lista ordenada de `Acao` (`GravarLog`,
-`Aplicar`, `Enviar`). Este executor as cumpre **na ordem exata** em que vêm.
-Essa fidelidade à ordem é o que preserva a regra write-ahead sem o adaptador
-precisar conhecê-la: como a Máquina_de_Estados sempre emite a `GravarLog` antes
-do `Enviar`/`Aplicar` que dela dependem, obedecer à sequência já grava a Decisao
-no Log_Duravel antes de difundi-la ou aplicá-la (Requisito 6.4, 6.5).
+`Aplicar`, `Enviar`). Este executor as cumpre **na ordem exata** em que vêm:
+grava e aplica na hora, e põe cada `Enviar` na fila de `src.comum.despacho`, que
+o envia depois, fora do handler. Como a Máquina_de_Estados sempre emite a
+`GravarLog` antes do `Enviar`/`Aplicar` que dela dependem, a entrada já está no
+Log_Duravel quando a Mensagem entra na fila (Requisito 6.4, 6.5).
 
 O executor concentra os três tipos de efeito num só lugar, de modo que
 `coordenador.py` e `participante.py` fiquem adaptadores finos, sem duplicar o
@@ -16,8 +16,9 @@ from __future__ import annotations
 
 from typing import Callable, Mapping, Optional, Sequence
 
+from src.comum.despacho import Despachante
 from src.comum.log import LogEstruturado
-from src.comum.rede import ClienteRede, EnvioOk, ResultadoEnvio
+from src.comum.rede import ClienteRede, EnvioOk
 from src.doispc.log_duravel import LogDuravel
 from src.doispc.maquina import Acao, Aplicar, Enviar, GravarLog
 
@@ -49,24 +50,22 @@ class ExecutorAcoes:
         self._enderecos = dict(enderecos)
         self._log = log
         self._ao_aplicar = ao_aplicar
+        self._saida: Despachante[Enviar] = Despachante(self._enviar)
 
-    def executar(self, acoes: Sequence[Acao]) -> list[ResultadoEnvio]:
-        """Executa as `Acao` em ordem; devolve os resultados dos envios feitos.
+    def executar(self, acoes: Sequence[Acao]) -> None:
+        """Grava e aplica na hora e enfileira os envios, na ordem das `Acao`.
 
-        Os resultados de envio são tipados (Requisito 3.3) e ficam disponíveis
-        para quem precise reagir a timeouts (o Coordenador, por exemplo). O
-        Participante os ignora: seu ACK/VOTO é best-effort e o Coordenador
-        reenvia por retry se preciso.
+        Uma falha ao gravar interrompe a sequência antes dos envios que dependem
+        da entrada. O resultado de cada envio só aparece no evento `envia` do log
+        estruturado.
         """
-        resultados: list[ResultadoEnvio] = []
         for acao in acoes:
             if isinstance(acao, GravarLog):
                 self._gravar(acao)
             elif isinstance(acao, Aplicar):
                 self._aplicar(acao)
             elif isinstance(acao, Enviar):
-                resultados.append(self._enviar(acao))
-        return resultados
+                self._saida.enfileirar([acao])
 
     def _gravar(self, acao: GravarLog) -> None:
         """Grava a entrada no Log_Duravel; só retorna quando ela está durável."""
@@ -86,8 +85,8 @@ class ExecutorAcoes:
         if self._log is not None:
             self._log.evento("aplica", transacao=acao.transacao, decisao=acao.decisao)
 
-    def _enviar(self, acao: Enviar) -> ResultadoEnvio:
-        """Despacha a Mensagem ao destino pelo Transporte, com Deadline obrigatório."""
+    def _enviar(self, acao: Enviar) -> None:
+        """Envia a Mensagem ao destino pelo Transporte, com Deadline obrigatório."""
         destino = acao.mensagem.destino
         url = self._enderecos.get(destino)
         if url is None:
@@ -104,4 +103,3 @@ class ExecutorAcoes:
                 resultado=type(resultado).__name__,
                 ok=isinstance(resultado, EnvioOk),
             )
-        return resultado

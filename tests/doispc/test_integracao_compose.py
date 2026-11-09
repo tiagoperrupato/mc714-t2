@@ -32,6 +32,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.espera import esperar_ate
+
 RAIZ = Path(__file__).resolve().parents[2]
 COMPOSE = RAIZ / "compose.yaml"
 
@@ -201,6 +203,16 @@ def test_compose_commit_e_abort_ponta_a_ponta(tmp_path: Path) -> None:
             f"print(urllib.request.urlopen('http://{host}:8000/estado',timeout=5).read().decode())",
         )
 
+    def _esperar_decisao(arquivos: list[Path], host: str, esperada: str) -> None:
+        # A DECISAO sai da fila do Coordenador depois da resposta do /transacao.
+        ultimo: dict = {}
+
+        def decidiu() -> bool:
+            ultimo.update(_estado(arquivos, host))
+            return ultimo.get("decisao") == esperada
+
+        assert esperar_ate(decidiu, prazo=10.0, intervalo=0.2), f"{host}: {ultimo}"
+
     # ---- Cenário ABORT: Participante 3 vota NAO (padrão do compose) ----
     base = [COMPOSE, sem_portas]
     _compose(base, "down", "-v", "--remove-orphans", timeout=120)
@@ -210,8 +222,7 @@ def test_compose_commit_e_abort_ponta_a_ponta(tmp_path: Path) -> None:
         resultado = _exec_json(base, "coordenador", tx_script)
         assert resultado["decisao"] == "ABORT", resultado
         for host in ("participante-1", "participante-2", "participante-3"):
-            est = _estado(base, host)
-            assert est["decisao"] == "ABORT", f"{host}: {est}"
+            _esperar_decisao(base, host, "ABORT")
     finally:
         _compose(base, "down", "-v", "--remove-orphans", timeout=120)
 
@@ -224,7 +235,6 @@ def test_compose_commit_e_abort_ponta_a_ponta(tmp_path: Path) -> None:
         resultado = _exec_json(commit_base, "coordenador", tx_script)
         assert resultado["decisao"] == "COMMIT", resultado
         for host in ("participante-1", "participante-2", "participante-3"):
-            est = _estado(commit_base, host)
-            assert est["decisao"] == "COMMIT", f"{host}: {est}"
+            _esperar_decisao(commit_base, host, "COMMIT")
     finally:
         _compose(commit_base, "down", "-v", "--remove-orphans", timeout=120)

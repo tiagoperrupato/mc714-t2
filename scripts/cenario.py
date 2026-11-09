@@ -295,14 +295,31 @@ def _esperar_saude(base: str, timeout: float) -> bool:
     return False
 
 
+def _estados_participantes(*, esperar_decisao: bool, timeout: float = 10.0) -> dict[int, Any]:
+    """Lê o `/estado` de cada Participante, esperando até todos decidirem se pedido."""
+    limite = time.monotonic() + timeout
+    while True:
+        estados: dict[int, Any] = {}
+        for pid, porta in PORTAS_PART.items():
+            try:
+                estados[pid] = _http_json(f"http://127.0.0.1:{porta}/estado")
+            except (urllib.error.URLError, OSError):
+                estados[pid] = {}
+        decidiram = all(est.get("decisao") for est in estados.values())
+        if not esperar_decisao or decidiram or time.monotonic() >= limite:
+            return estados
+        time.sleep(0.05)
+
+
 def _cenario_2pc(modo_norm: str, semente: int) -> dict[str, Any]:
     """Conduz uma transação 2PC sobre o compose e devolve as métricas observadas.
 
     O voto dos Participantes e a supressão da DECISAO vêm do override montado por
     `_override_2pc`; este condutor apenas dispara a transação e observa a
-    Decisao e os estados dos Participantes. Em `crash-coord`, a resposta do
-    `/transacao` pode demorar o Deadline (o Coordenador decide e tenta difundir,
-    mas a DECISAO é suprimida), e os Participantes ficam em Estado_Em_Duvida.
+    Decisao e os estados dos Participantes. A DECISAO sai da fila do Coordenador
+    depois da resposta do `/transacao`, então o condutor espera cada Participante
+    decidir. Em `crash-coord` a DECISAO é suprimida, e os Participantes ficam em
+    Estado_Em_Duvida.
     """
     base_coord = f"http://127.0.0.1:{PORTA_COORD}"
     _esperar_saude(base_coord, 30.0)
@@ -312,12 +329,7 @@ def _cenario_2pc(modo_norm: str, semente: int) -> dict[str, Any]:
     except (urllib.error.URLError, OSError) as exc:  # pragma: no cover - rede do cenário
         resposta = {"erro": str(exc)}
     latencia = time.monotonic() - inicio
-    estados_part = {}
-    for pid, porta in PORTAS_PART.items():
-        try:
-            estados_part[pid] = _http_json(f"http://127.0.0.1:{porta}/estado")
-        except (urllib.error.URLError, OSError):
-            estados_part[pid] = {}
+    estados_part = _estados_participantes(esperar_decisao=modo_norm != "crash-coord")
 
     em_duvida = [
         pid

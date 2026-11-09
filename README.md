@@ -247,7 +247,8 @@ amarra a lógica pura à rede são `src/anel/no.py`, `src/doispc/coordenador.py`
 
 ```
 src/comum/         config, modelos, aleatoriedade, log, rede (Transporte com
-                   Deadline), falhas (crash/pause/delay/drop), toxiproxy
+                   Deadline), despacho (fila de saída fora do handler),
+                   falhas (crash/pause/delay/drop), toxiproxy
 src/anel/          maquina (pura), no (app FastAPI), __main__ (entrada do contêiner)
 src/doispc/        maquina (pura), log_duravel (write-ahead), coordenador,
                    participante, executor, __main__

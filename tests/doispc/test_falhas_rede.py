@@ -33,6 +33,7 @@ from src.doispc.coordenador import ServicoCoordenador, criar_app as criar_app_co
 from src.doispc.log_duravel import DECISAO_COMMIT, VOTO_SIM, LogDuravelArquivo
 from src.doispc.maquina import MSG_DECISAO
 from src.doispc.participante import ServicoParticipante, criar_app as criar_app_part
+from tests.espera import esperar_ate
 
 COORD_ID = 1
 PART_IDS = (11, 12, 13)
@@ -131,7 +132,8 @@ def test_crash_do_coordenador_deixa_participantes_em_duvida(tmp_path: Path) -> N
         # O Coordenador decidiu COMMIT (todos votaram SIM) e gravou a Decisao...
         assert resultado["decisao"] == DECISAO_COMMIT
         # ...mas a DECISAO foi suprimida: os Participantes ficaram sem conhecê-la.
-        assert cliente_crash.decisoes_suprimidas == len(PART_IDS)
+        # Ela sai da fila do Coordenador depois da resposta, então a contagem chega depois.
+        assert esperar_ate(lambda: cliente_crash.decisoes_suprimidas == len(PART_IDS))
 
         # Cada Participante votou SIM e não recebeu a Decisao: Estado_Em_Duvida.
         for pid in PART_IDS:

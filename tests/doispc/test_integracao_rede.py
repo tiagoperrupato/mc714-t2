@@ -43,6 +43,7 @@ from src.doispc.participante import (
     ServicoParticipante,
     criar_app as criar_app_part,
 )
+from tests.espera import esperar_ate
 
 COORD_ID = 1
 PART_IDS = (11, 12, 13)
@@ -151,12 +152,25 @@ class _Cenario2PC:
         """Relê o Log_Duravel em disco do Nó e devolve a Decisao persistida."""
         return self.logs[no_id].recuperar(transacao).decisao
 
+    def esperar_decisoes(self, transacao: str, participantes: tuple[int, ...] = PART_IDS) -> None:
+        """Espera a DECISAO, que sai da fila do Coordenador depois da resposta, chegar ao disco."""
+        assert esperar_ate(
+            lambda: all(self.decisao_recuperada(p, transacao) for p in participantes)
+        ), {p: self.decisao_recuperada(p, transacao) for p in participantes}
+
 
 def test_transacao_commita_em_todos(tmp_path: Path) -> None:
     # Todos votam SIM: COMMIT no Coordenador e em todos os Participantes (Req. 7.3).
     with _Cenario2PC(tmp_path) as cen:
+        inicio = time.monotonic()
         resultado = cen.servico_coord.iniciar("tx-commit")
+        decorrido = time.monotonic() - inicio
+        cen.esperar_decisoes("tx-commit")
+        # Todos os ACKs voltam bem antes do prazo de envio (2 s). Com o envio feito
+        # dentro do handler, cada DECISAO e cada ACK esperavam esse prazo inteiro.
+        assert esperar_ate(lambda: cen.servico_coord.estado.concluido, prazo=1.0)
 
+    assert decorrido < 1.0
     assert resultado["decisao"] == DECISAO_COMMIT
     # A Decisao foi gravada no Log_Duravel (em disco) de cada Nó — write-ahead.
     assert cen.decisao_recuperada(COORD_ID, "tx-commit") == DECISAO_COMMIT
@@ -168,6 +182,7 @@ def test_transacao_aborta_quando_um_vota_nao(tmp_path: Path) -> None:
     # Participante 13 vota NAO via flag: ABORT em todos (Req. 7.4).
     with _Cenario2PC(tmp_path, votos={13: VOTO_NAO}) as cen:
         resultado = cen.servico_coord.iniciar("tx-abort")
+        cen.esperar_decisoes("tx-abort")
 
     assert resultado["decisao"] == DECISAO_ABORT
     assert cen.decisao_recuperada(COORD_ID, "tx-abort") == DECISAO_ABORT
@@ -187,6 +202,7 @@ def test_timeout_de_votos_leva_a_abort(tmp_path: Path) -> None:
         inicio = time.monotonic()
         resultado = cen.servico_coord.iniciar("tx-timeout")
         decorrido = time.monotonic() - inicio
+        cen.esperar_decisoes("tx-timeout", participantes=(11, 12))
 
     assert resultado["decisao"] == DECISAO_ABORT
     assert cen.decisao_recuperada(COORD_ID, "tx-timeout") == DECISAO_ABORT

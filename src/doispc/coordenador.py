@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import threading
 import time
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 from src.comum.log import LogEstruturado
 from src.comum.modelos import Mensagem, No
@@ -32,6 +32,7 @@ from src.comum.rede import ClienteRede
 from src.doispc.executor import ExecutorAcoes
 from src.doispc.log_duravel import LogDuravel, LogDuravelArquivo
 from src.doispc.maquina import (
+    Acao,
     EstadoCoordenador,
     coordenador_decide_por_timeout,
     coordenador_recebe,
@@ -102,18 +103,13 @@ class ServicoCoordenador:
         participantes_ids = tuple(sorted(self._participantes))
         with self._trava:
             estado, acoes = iniciar_transacao(self._eu.id, transacao, participantes_ids)
-            self._estado = estado
             if self._log is not None:
                 self._log.evento(
                     "inicia_transacao",
                     transacao=transacao,
                     participantes=list(participantes_ids),
                 )
-        # Os PREPARE são despachados FORA da trava. O envio é síncrono e espera o
-        # ACK do Participante, que por sua vez envia o seu VOTO de volta ao
-        # Coordenador: segurar a trava aqui travaria esse VOTO (que também a
-        # pede) contra o próprio envio. A trava protege só a transição de estado.
-        self._executor.executar(acoes)
+            self._transitar(estado, acoes)
 
         decisao = self._esperar_decisao(transacao)
         return {
@@ -148,9 +144,7 @@ class ServicoCoordenador:
             if self._log is not None:
                 self._log.evento("timeout_votos", transacao=transacao)
             novo, acoes = coordenador_decide_por_timeout(estado, self._eu.id)
-            self._estado = novo
-        # Difunde a DECISAO de ABORT fora da trava, como nos demais caminhos.
-        self._executor.executar(acoes)
+            self._transitar(novo, acoes)
         return novo.decisao
 
     def receber(self, mensagem: Mensagem) -> Mapping[str, Any]:
@@ -172,11 +166,17 @@ class ServicoCoordenador:
             if estado is None:
                 return {"ack": False}
             novo, acoes = coordenador_recebe(estado, self._eu.id, mensagem)
-            self._estado = novo
-        # Despacha fora da trava (DECISAO aos Participantes): o ACK de volta de
-        # cada Participante reentra em `receber` e também pede a trava.
-        self._executor.executar(acoes)
+            self._transitar(novo, acoes)
         return {"ack": True}
+
+    def _transitar(self, novo: EstadoCoordenador, acoes: Sequence[Acao]) -> None:
+        """Grava e enfileira as `Acao` e só então publica o estado. Chamar com a trava.
+
+        `_esperar_decisao` lê o estado sem a trava, então o cliente só vê uma
+        Decisao que já está no Log_Duravel.
+        """
+        self._executor.executar(acoes)
+        self._estado = novo
 
     def recuperar(self, transacao: str) -> Optional[EstadoCoordenador]:
         """Reconstrói o estado a partir do Log_Duravel após reinício (Requisito 6.6)."""
