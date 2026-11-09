@@ -25,11 +25,12 @@ DIR_DOCS: Path = RAIZ / "docs"
 DIR_DADOS: Path = DIR_DOCS / "dados"
 DIR_FIGURAS: Path = DIR_DOCS / "figuras"
 
-# CSVs produzidos pela bateria (scripts/bateria.py), um por parâmetro variado.
+# CSVs produzidos pela bateria (scripts/bateria.py). Os do 2PC são um por transação e um por crash
+# do Coordenador.
 BATERIA_ANEL_NOS: Path = DIR_RESULTS / "bateria_anel_num_nos.csv"
 BATERIA_ANEL_FALHAS: Path = DIR_RESULTS / "bateria_anel_taxa_falhas.csv"
-BATERIA_2PC_PARTS: Path = DIR_RESULTS / "bateria_2pc_num_participantes.csv"
 BATERIA_2PC_LATENCIA: Path = DIR_RESULTS / "bateria_2pc_latencia_rede.csv"
+BATERIA_2PC_RECUPERACAO: Path = DIR_RESULTS / "bateria_2pc_recuperacao.csv"
 
 # Para casar um nível float (num_nos lido como 5.0, taxa 0.10) com o que o
 # usuário digita na CLI.
@@ -50,20 +51,34 @@ COLUNAS_ANEL: tuple[str, ...] = (
     "nos_vivos",
 )
 
-COLUNAS_2PC: tuple[str, ...] = (
+COLUNAS_2PC_LATENCIA: tuple[str, ...] = (
     "algoritmo",
     "parametro_variado",
     "semente",
     "num_participantes",
     "latencia_rede",
+    "aquecimento",
+    "transacao",
     "decisao",
-    "latencia_commit",
-    "vazao",
-    "tempo_recuperacao",
-    "atomico",
+    "latencia_commit_s",
+    "mensagens",
+)
+
+COLUNAS_2PC_RECUPERACAO: tuple[str, ...] = (
+    "algoritmo",
+    "parametro_variado",
+    "semente",
+    "latencia_rede",
+    "transacao",
+    "decisao",
+    "em_duvida",
+    "tempo_recuperacao_s",
+    "mensagens",
 )
 
 CHAVE_REPLICA: tuple[str, ...] = ("algoritmo", "parametro_variado", "semente")
+# O id de transação carrega a Semente da Réplica, então ele sozinho identifica a linha.
+CHAVE_TRANSACAO: tuple[str, ...] = ("transacao",)
 
 
 class DadosError(Exception):
@@ -135,9 +150,16 @@ def carregar_anel(caminho: Path) -> pd.DataFrame:
     return df
 
 
-def carregar_2pc(caminho: Path) -> pd.DataFrame:
-    """Carrega um CSV da bateria do 2PC, validando colunas e unicidade por Réplica."""
-    df = ler_csv(caminho, COLUNAS_2PC, "bateria do 2PC")
+def carregar_2pc_latencia(caminho: Path) -> pd.DataFrame:
+    """Carrega o CSV de latência do 2PC, validando colunas e unicidade por transação."""
+    df = ler_csv(caminho, COLUNAS_2PC_LATENCIA, "latência do 2PC")
+    rejeitar_duplicadas(df, CHAVE_TRANSACAO, caminho)
+    return df
+
+
+def carregar_2pc_recuperacao(caminho: Path) -> pd.DataFrame:
+    """Carrega o CSV de recuperação do 2PC, validando colunas e unicidade por Réplica."""
+    df = ler_csv(caminho, COLUNAS_2PC_RECUPERACAO, "recuperação do 2PC")
     rejeitar_duplicadas(df, CHAVE_REPLICA, caminho)
     return df
 

@@ -1,18 +1,17 @@
 """Planejamento e execução da bateria de Réplicas.
 
 Uma bateria executa várias Réplicas com Sementes independentes, variando UM
-parâmetro em pelo menos três níveis, e grava um CSV com uma linha por Réplica
-(Requisitos 10.1, 10.4). Cada linha carrega a Semente e o ambiente de execução
-(Requisitos 10.6, 13.6). A bateria inteira é validada ANTES de
+parâmetro em pelo menos três níveis, e grava um CSV com uma linha por Réplica, ou
+uma por transação quando o runner devolve várias (Requisitos 10.1, 10.4). Cada
+linha carrega a Semente e o ambiente de execução (Requisitos 10.6, 13.6). A bateria inteira é validada ANTES de
 sobrescrever qualquer arquivo de resultado (Requisito 10.5), e uma Réplica que
 falha é registrada sem abortar o restante (Requisito 10.7).
 
 A execução por Réplica é **plugável**: o planejador produz `ItemReplica`s com os
-parâmetros, e um `Runner` injetável os transforma em métricas. Em produção o
-runner dirige a Máquina_de_Estados pura em processo (`runner_anel`,
-`runner_doispc`), o que torna a bateria determinística e testável sem Docker; um
-runner fake pode ser injetado nos testes para checar o esquema do CSV e a
-reprodução por Semente sem rodar algoritmo nenhum.
+parâmetros, e um `Runner` injetável os transforma em métricas. O do Anel dirige a
+Máquina_de_Estados pura em processo (`runner_anel`), e o do 2PC conduz os nós reais
+no compose (`condutor_doispc`). Um runner fake pode ser injetado nos testes para
+checar o esquema do CSV sem rodar algoritmo nenhum.
 """
 
 from __future__ import annotations
@@ -49,10 +48,10 @@ class ItemReplica:
         return f"nivel={self.nivel} k={self.k} semente={self.semente}"
 
 
-# Um Runner recebe o `ItemReplica` e devolve o mapa plano de métricas da Réplica.
-# As chaves do mapa serão colunas do CSV. Levantar exceção sinaliza falha de
-# Réplica, que a bateria registra e segue (Requisito 10.7).
-Runner = Callable[[ItemReplica], Mapping[str, Any]]
+# Um Runner recebe o `ItemReplica` e devolve o mapa plano de métricas da Réplica,
+# ou uma lista deles, um por linha do CSV. As chaves viram colunas. Levantar
+# exceção sinaliza falha de Réplica, que a bateria registra e segue (Requisito 10.7).
+Runner = Callable[[ItemReplica], Mapping[str, Any] | Sequence[Mapping[str, Any]]]
 
 
 def planejar_bateria(
@@ -119,10 +118,11 @@ def executar_bateria(
     *,
     colunas_meta: Sequence[str] = ("algoritmo", "parametro_variado"),
     meta: Mapping[str, Any] | None = None,
+    ambiente_extra: Mapping[str, Any] | None = None,
     saida=sys.stdout,
     erro=sys.stderr,
 ) -> ResultadoBateria:
-    """Executa as Réplicas em ordem e grava um CSV com uma linha por Réplica.
+    """Executa as Réplicas em ordem e grava um CSV com as linhas que elas devolvem.
 
     A bateria é validada ANTES de tocar o arquivo
     de saída (aqui, validando que há itens e que o planejamento é consistente),
@@ -134,11 +134,13 @@ def executar_bateria(
     O CSV só é aberto para escrita DEPOIS de todas as Réplicas rodarem, para que
     uma falha no meio não deixe o arquivo pela metade nem sobrescreva um resultado
     bom com um parcial — a validação-antes-de-sobrescrever levada ao fim.
+    `ambiente_extra` são colunas `amb_*` que o host não sabe, como as versões do
+    Docker.
     """
     if not itens:
         raise ValueError("a bateria não tem Réplicas a executar")
 
-    ambiente = coletar_ambiente().como_colunas()
+    ambiente = coletar_ambiente().como_colunas() | dict(ambiente_extra or {})
     meta = dict(meta or {})
     total = len(itens)
     linhas: list[dict[str, Any]] = []
@@ -153,26 +155,28 @@ def executar_bateria(
             falhas.append((item, motivo))
             print(f"[erro] falha na réplica {item.descricao}: {motivo}", file=erro)
             continue
-        linha: dict[str, Any] = {}
-        for coluna in colunas_meta:
-            linha[coluna] = meta.get(coluna, "")
-        linha["indice"] = item.indice
-        linha["nivel"] = item.nivel
-        linha["k"] = item.k
-        linha["semente"] = item.semente
-        for chave, valor in item.parametros.items():
-            linha[chave] = valor
-        for chave, valor in metricas.items():
-            linha[chave] = valor
-        linha.update(ambiente)
-        linhas.append(linha)
+        for metricas_linha in [metricas] if isinstance(metricas, Mapping) else metricas:
+            linha: dict[str, Any] = {}
+            for coluna in colunas_meta:
+                linha[coluna] = meta.get(coluna, "")
+            linha["indice"] = item.indice
+            linha["nivel"] = item.nivel
+            linha["k"] = item.k
+            linha["semente"] = item.semente
+            for chave, valor in item.parametros.items():
+                linha[chave] = valor
+            for chave, valor in metricas_linha.items():
+                linha[chave] = valor
+            linha.update(ambiente)
+            linhas.append(linha)
 
     _gravar_csv(destino, linhas, erro=erro)
 
     for item, motivo in falhas:
         print(f"[erro] réplica falha: {item.descricao}: {motivo}", file=erro)
     print(
-        f"[bateria] total={total} sucessos={len(linhas)} falhas={len(falhas)} "
+        f"[bateria] total={total} sucessos={total - len(falhas)} falhas={len(falhas)} "
+        f"linhas={len(linhas)} "
         f"-> {destino}",
         file=saida,
     )

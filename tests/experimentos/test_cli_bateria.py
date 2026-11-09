@@ -1,10 +1,8 @@
-"""Testes da CLI `scripts/bateria.py` (tarefa 9).
+"""Testes da CLI `scripts/bateria.py` (tarefa 9), sem Docker.
 
-Exercitam o ponto de entrada de ponta a ponta, sem Docker (os runners rodam em
-processo): a demo do enunciado — `--algoritmo anel` e `--algoritmo 2pc` —
-realmente grava os CSVs esperados, com uma linha por Réplica e o esquema de
-colunas por algoritmo. Também cobre a validação de argumentos e a escolha do
-parâmetro variado.
+O Anel roda em processo de ponta a ponta. No 2PC o condutor é trocado por um
+fake, e o teste confere a ligação da CLI: os dois CSVs, as Sementes e o código
+de saída sem Docker. Também cobre a validação de argumentos.
 """
 
 from __future__ import annotations
@@ -14,6 +12,8 @@ import importlib.util
 from pathlib import Path
 
 import pytest
+
+from src.experimentos import condutor_doispc
 
 _RAIZ = Path(__file__).resolve().parents[2]
 
@@ -56,27 +56,48 @@ def test_demo_anel_grava_csv_com_colunas_esperadas(tmp_path: Path) -> None:
     assert all(l["algoritmo"] == "anel" for l in linhas)
 
 
-def test_demo_2pc_grava_csv_com_colunas_esperadas(tmp_path: Path) -> None:
+def test_2pc_liga_o_condutor_e_grava_os_dois_csvs(tmp_path: Path, monkeypatch) -> None:
     cli = _carregar_cli()
-    saida = tmp_path / "doispc.csv"
-    codigo = cli.main(["--algoritmo", "2pc", "--replicas", "2", "--saida", str(saida)])
-    assert codigo == 0
-    linhas = _ler(saida)
-    assert len(linhas) == 6
-    colunas = set(linhas[0].keys())
-    esperadas = {
-        "algoritmo",
-        "parametro_variado",
-        "semente",
-        "num_participantes",
-        "latencia_rede",
-        "latencia_commit",
-        "vazao",
-        "tempo_recuperacao",
-        "amb_so",
-    }
-    assert esperadas <= colunas
-    assert all(l["algoritmo"] == "2pc" for l in linhas)
+    monkeypatch.setattr(condutor_doispc, "preparar", lambda: {"amb_docker_versao": "0.0"})
+    monkeypatch.setattr(
+        condutor_doispc,
+        "executar_replica_latencia",
+        lambda item, *, transacoes, aquecimento, dir_logs: [
+            {"ordem": o, "aquecimento": int(o < aquecimento)} for o in range(aquecimento + transacoes)
+        ],
+    )
+    monkeypatch.setattr(
+        condutor_doispc, "executar_replica_recuperacao", lambda item, *, dir_logs: {"em_duvida": 3}
+    )
+    argv = ["--algoritmo", "2pc", "--replicas", "2", "--transacoes", "3", "--aquecimento", "1"]
+    assert cli.main([*argv, "--results", str(tmp_path)]) == 0
+
+    latencia = _ler(tmp_path / "bateria_2pc_latencia_rede.csv")
+    recuperacao = _ler(tmp_path / "bateria_2pc_recuperacao.csv")
+    niveis = len(cli.NIVEIS_2PC_LATENCIA)
+    assert len(latencia) == niveis * 2 * 4
+    assert len(recuperacao) == niveis * 2
+    assert {l["latencia_rede"] for l in latencia} == {str(n) for n in cli.NIVEIS_2PC_LATENCIA}
+    # Os ids de transação levam a Semente, então as duas baterias não podem repeti-la.
+    assert not {l["semente"] for l in latencia} & {l["semente"] for l in recuperacao}
+    assert all(l["amb_docker_versao"] == "0.0" for l in latencia + recuperacao)
+
+
+def test_2pc_sem_docker_sai_com_codigo_2_sem_gravar(tmp_path: Path, monkeypatch) -> None:
+    cli = _carregar_cli()
+
+    def sem_docker() -> dict[str, str]:
+        raise RuntimeError("Docker indisponível")
+
+    monkeypatch.setattr(condutor_doispc, "preparar", sem_docker)
+    assert cli.main(["--algoritmo", "2pc", "--results", str(tmp_path)]) == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_saida_e_recusada_no_2pc() -> None:
+    cli = _carregar_cli()
+    with pytest.raises(SystemExit):
+        cli.main(["--algoritmo", "2pc", "--saida", "x.csv"])
 
 
 def test_variar_taxa_falhas_no_anel(tmp_path: Path) -> None:
@@ -93,9 +114,9 @@ def test_variar_taxa_falhas_no_anel(tmp_path: Path) -> None:
 
 def test_variar_incompativel_e_recusado() -> None:
     cli = _carregar_cli()
-    # num_participantes não se aplica ao anel.
+    # latencia_rede não se aplica ao anel.
     with pytest.raises(SystemExit):
-        cli.main(["--algoritmo", "anel", "--variar", "num_participantes"])
+        cli.main(["--algoritmo", "anel", "--variar", "latencia_rede"])
 
 
 def test_replicas_invalidas_recusadas() -> None:

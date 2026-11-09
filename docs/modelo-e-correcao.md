@@ -36,17 +36,21 @@ medida assim:
 - **Bateria do Anel** (`src/experimentos/runner_anel.py`): Tempo_de_Convergencia
   em passos lógicos de entrega e Mensagens contadas pelo runner em processo,
   ambos reproduzíveis dígito a dígito pela Semente.
-- **Bateria do 2PC** (`src/experimentos/runner_doispc.py`): Latencia_de_Commit,
-  vazão e Tempo_de_Recuperacao em tempo lógico, a soma de latências sorteadas
-  pela Semente ao longo do caminho crítico. Elas medem esse modelo de rede, e não
-  os Nós reais.
+- **Bateria do 2PC** (`src/experimentos/condutor_doispc.py`): mede os Nós reais
+  no compose, com o Toxiproxy entre o Coordenador e os Participantes, e o
+  condutor mede com `time.monotonic`. A latência de commit vai do
+  `POST /transacao` à resposta, que o Coordenador dá quando a Decisao já está no
+  Log_Duravel. As mensagens de uma transação são os eventos `envia` dela nos logs
+  de todos os Nós. O tempo de recuperação vai do `start` do Coordenador derrubado
+  até todos os Participantes reportarem a Decisao. Esses tempos são de relógio e
+  variam entre execuções, e a Semente só identifica a Réplica.
 - **Cenários** (`scripts/cenario.py`): o condutor mede com `time.monotonic`, no
   próprio processo. A latência de commit vai do `POST /transacao` à resposta do
   Coordenador, que sai quando ele decide. O tempo de convergência do Anel vai do
   pedido de eleição até todos os vivos reportarem o Líder em `/estado`, e o de
   recuperação do 2PC vai do `start` do Coordenador até todos os Participantes
-  reportarem a Decisao. O condutor consulta `/estado` a cada 50 ms, que é a
-  resolução desses dois tempos.
+  reportarem a Decisao. O condutor consulta `/estado` a cada 10 ms, que é a
+  resolução desses dois tempos e do tempo de recuperação da bateria.
 
 **Falhas (modelo comum).** As falhas entram por duas camadas, ambas dirigidas
 por uma **Semente** registrada no log, o que torna cada Cenário repetível

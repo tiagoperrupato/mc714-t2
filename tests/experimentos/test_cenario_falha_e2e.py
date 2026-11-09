@@ -32,6 +32,7 @@ import pytest
 
 from scripts import cenario, demo, verificar
 from src.analise import invariantes as inv
+from src.experimentos import conteineres
 
 _RAIZ = Path(__file__).resolve().parents[2]
 COMPOSE = _RAIZ / "compose.yaml"
@@ -80,7 +81,7 @@ def test_normalizar_anel_valido_e_invalido() -> None:
 
 def test_modo_2pc_invalido_retorna_codigo_1(tmp_path: Path, monkeypatch) -> None:
     # Validação antes de qualquer efeito: nem chega a checar Docker.
-    monkeypatch.setattr(cenario, "_docker_disponivel", lambda: True)
+    monkeypatch.setattr(cenario, "docker_disponivel", lambda: True)
     codigo = cenario.executar_cenario(
         "2pc", "inexistente", tmp_path, saida=io.StringIO(), erro=io.StringIO()
     )
@@ -88,7 +89,7 @@ def test_modo_2pc_invalido_retorna_codigo_1(tmp_path: Path, monkeypatch) -> None
 
 
 def test_semente_negativa_retorna_codigo_1(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(cenario, "_docker_disponivel", lambda: True)
+    monkeypatch.setattr(cenario, "docker_disponivel", lambda: True)
     codigo = cenario.executar_cenario(
         "anel", "normal", tmp_path, semente=-1, saida=io.StringIO(), erro=io.StringIO()
     )
@@ -101,21 +102,21 @@ def test_semente_negativa_retorna_codigo_1(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_override_2pc_commit_vota_sim() -> None:
-    txt = cenario._override_2pc("commit", 7)
+    txt = cenario.override_2pc("commit", 7)
     assert 'DOISPC_VOTO: "SIM"' in txt
     assert 'DOISPC_CAIR_APOS_DECIDIR: "false"' in txt
     assert txt.count('SEMENTE: "7"') == 4  # coord + 3 participantes
 
 
 def test_override_2pc_abort_participante3_vota_nao() -> None:
-    txt = cenario._override_2pc("abort", 0)
+    txt = cenario.override_2pc("abort", 0)
     # Apenas o Participante 3 vota NAO.
     assert 'DOISPC_VOTO: "NAO"' in txt
     assert txt.count('DOISPC_VOTO: "SIM"') == 2
 
 
 def test_override_2pc_crash_coord_derruba_o_coordenador() -> None:
-    txt = cenario._override_2pc("crash-coord", 3)
+    txt = cenario.override_2pc("crash-coord", 3)
     assert 'DOISPC_CAIR_APOS_DECIDIR: "true"' in txt
     # Todos votam SIM no cenário de crash (para ficarem em dúvida).
     assert txt.count('DOISPC_VOTO: "SIM"') == 3
@@ -203,12 +204,12 @@ def test_atomicidade_nao_reprova_quando_so_o_coordenador_decidiu(tmp_path: Path)
 def test_coleta_do_2pc_copia_cada_volume_uma_vez(tmp_path: Path, monkeypatch) -> None:
     copias: list[tuple[str, str, Path]] = []
     monkeypatch.setattr(
-        cenario,
-        "_copiar_de_container",
+        conteineres,
+        "copiar_de_container",
         lambda servico, origem, destino, _arquivos: copias.append((servico, origem, destino)),
     )
-    cenario._coletar_logs_estruturados("2pc", cenario.SERVICOS_2PC, tmp_path, [])
-    assert copias == [(s, "/dados/.", tmp_path / s) for s in cenario.SERVICOS_2PC]
+    conteineres.coletar_logs("2pc", conteineres.SERVICOS_2PC, tmp_path, [])
+    assert copias == [(s, "/dados/.", tmp_path / s) for s in conteineres.SERVICOS_2PC]
 
 
 @pytest.mark.parametrize(("decisao", "codigo"), [("COMMIT", 0), ("ABORT", 1)])
@@ -217,11 +218,11 @@ def test_cenario_sai_1_quando_o_desfecho_difere_do_esperado(
 ) -> None:
     # Um `2pc commit` que termina em ABORT passa nos invariantes de safety, e só
     # a conferência do desfecho o pega. O compose e a condução são substituídos.
-    monkeypatch.setattr(cenario, "_docker_disponivel", lambda: True)
+    monkeypatch.setattr(cenario, "docker_disponivel", lambda: True)
     monkeypatch.setattr(
-        cenario, "_compose", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", "")
+        cenario, "compose", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", "")
     )
-    monkeypatch.setattr(cenario, "_coletar_logs_estruturados", lambda *a: None)
+    monkeypatch.setattr(cenario, "coletar_logs", lambda *a: None)
     monkeypatch.setattr(cenario, "_coletar_stdout", lambda *a: None)
     monkeypatch.setattr(
         cenario,
@@ -241,7 +242,7 @@ def test_cenario_sai_1_quando_o_desfecho_difere_do_esperado(
 
 
 def test_cenario_sem_docker_retorna_codigo_2(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(cenario, "_docker_disponivel", lambda: False)
+    monkeypatch.setattr(cenario, "docker_disponivel", lambda: False)
     codigo = cenario.executar_cenario(
         "2pc", "crash-coord", tmp_path, saida=io.StringIO(), erro=io.StringIO()
     )
@@ -249,7 +250,7 @@ def test_cenario_sem_docker_retorna_codigo_2(tmp_path: Path, monkeypatch) -> Non
 
 
 def test_demo_sem_docker_retorna_codigo_2(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(cenario, "_docker_disponivel", lambda: False)
+    monkeypatch.setattr(cenario, "docker_disponivel", lambda: False)
     codigo = demo.executar_demo(tmp_path, saida=io.StringIO(), erro=io.StringIO())
     assert codigo == 2
 

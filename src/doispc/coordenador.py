@@ -99,6 +99,8 @@ class ServicoCoordenador:
         self._reenvios: dict[str, float] = {}
         self._ultima: Optional[str] = None
         self._trava = threading.Lock()
+        # Acorda quem espera em `_esperar_decisao` assim que uma Decisao é publicada.
+        self._decidiu = threading.Condition(self._trava)
         enderecos = {p.id: p.base_url for p in self._participantes.values()}
         self._executor = ExecutorAcoes(
             no_id=coordenador.id,
@@ -119,10 +121,7 @@ class ServicoCoordenador:
         """Inicia uma transação: grava a entrada em WAIT, difunde PREPARE e espera a Decisao.
 
         Retorna a Decisao final (COMMIT/ABORT). Se o Deadline de coleta de Votos
-        estoura antes de todos votarem, decide ABORT (Requisito 7.5). A espera é
-        por polling do estado, que é atualizado pelos VOTO que chegam em
-        `/mensagem`; o `Lock` evita corrida entre a decisão por Voto e a decisão
-        por timeout.
+        estoura antes de todos votarem, decide ABORT (Requisito 7.5).
 
         Um id já usado não abre rodada nova, que poderia decidir diferente da
         primeira. Ele devolve a Decisao, ou espera a rodada em curso. Depois de
@@ -152,26 +151,24 @@ class ServicoCoordenador:
     def _esperar_decisao(self, transacao: str) -> Optional[str]:
         """Aguarda a Decisao até o Deadline de Voto; ao estourar, decide ABORT.
 
-        Os VOTO chegam de forma assíncrona em `/mensagem` e podem já ter levado
-        a Máquina_de_Estados a decidir. Aqui apenas observamos: se a Decisao
-        aparece dentro do prazo, retornamos; senão, forçamos o ABORT por timeout
-        (Requisito 7.5). A granularidade do polling é pequena o bastante para
-        não atrasar perceptivelmente a resposta.
+        Os VOTO chegam em `/mensagem`, e `_transitar` acorda esta espera quando
+        publica a Decisao. A resposta sai sem atraso de sondagem, e é dela que
+        depende a latência de commit medida pela bateria.
         """
         limite = self._relogio() + self._deadline_voto
-        while self._relogio() < limite:
-            estado = self._estados.get(transacao)
-            if estado is not None and estado.decidido:
-                return estado.decisao
-            self._dormir(0.01)
+        with self._decidiu:
+            while True:
+                estado = self._estados.get(transacao)
+                if estado is None:
+                    return None
+                if estado.decidido:
+                    return estado.decisao
+                restante = limite - self._relogio()
+                if restante <= 0:
+                    break
+                self._decidiu.wait(restante)
 
-        # Deadline de coleta de Votos excedido: ABORT por timeout (Requisito 7.5).
-        with self._trava:
-            estado = self._estados.get(transacao)
-            if estado is None:
-                return None
-            if estado.decidido:
-                return estado.decisao
+            # Deadline de coleta de Votos excedido: ABORT por timeout (Requisito 7.5).
             if self._log is not None:
                 self._log.evento("timeout_votos", transacao=transacao)
             novo, acoes = coordenador_decide_por_timeout(estado, self._eu.id)
@@ -206,7 +203,7 @@ class ServicoCoordenador:
     ) -> None:
         """Grava e enfileira as `Acao` e só então publica o estado. Chamar com a trava.
 
-        `_esperar_decisao` lê o estado sem a trava, então o cliente só vê uma
+        Como o estado só é publicado depois do `GravarLog`, o cliente só vê uma
         Decisao que já está no Log_Duravel. Uma transação decidida entra na
         retransmissão e sai dela quando todos mandam o ACK.
         """
@@ -216,6 +213,8 @@ class ServicoCoordenador:
             self._reenvios.pop(transacao, None)
         elif novo.decidido:
             self._reenvios.setdefault(transacao, self._relogio() + self._intervalo_reenvio)
+        if novo.decidido:
+            self._decidiu.notify_all()
 
     def recuperar(self) -> None:
         """Relê o Log_Duravel na partida, antes de servir (Requisito 6.6).

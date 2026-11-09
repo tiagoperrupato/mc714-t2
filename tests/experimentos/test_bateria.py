@@ -30,7 +30,6 @@ from src.experimentos.bateria import (
     planejar_bateria,
 )
 from src.experimentos.runner_anel import executar_replica_anel
-from src.experimentos.runner_doispc import executar_replica_doispc
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +144,27 @@ def test_replica_que_falha_e_registrada_e_bateria_prossegue(tmp_path: Path) -> N
     assert resultado.codigo_saida == 1
 
 
+def test_runner_com_varias_linhas_grava_uma_por_elemento(tmp_path: Path) -> None:
+    # O condutor do 2PC devolve uma linha por transação, todas com a identificação da Réplica.
+    itens = planejar_bateria(
+        parametro="latencia_rede", niveis=(0, 10, 25), replicas=2, semente_base=5
+    )
+    destino = tmp_path / "bateria.csv"
+    executar_bateria(
+        itens,
+        lambda item: [{"ordem": o, "metrica": item.semente + o} for o in range(3)],
+        destino,
+        ambiente_extra={"amb_docker_versao": "0.0"},
+        saida=io.StringIO(),
+        erro=io.StringIO(),
+    )
+    linhas = _ler_csv(destino)
+    assert len(linhas) == len(itens) * 3
+    assert [l["ordem"] for l in linhas[:3]] == ["0", "1", "2"]
+    assert {l["semente"] for l in linhas[:3]} == {"5"}
+    assert all(l["amb_docker_versao"] == "0.0" and l["amb_so"] for l in linhas)
+
+
 def test_bateria_vazia_e_recusada(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         executar_bateria([], _runner_fake, tmp_path / "x.csv", saida=io.StringIO(), erro=io.StringIO())
@@ -164,21 +184,6 @@ def _runner_anel(item: ItemReplica) -> Mapping[str, Any]:
     return {"tempo_convergencia": r.tempo_convergencia, "mensagens": r.mensagens}
 
 
-def _runner_2pc(item: ItemReplica) -> Mapping[str, Any]:
-    r = executar_replica_doispc(
-        num_participantes=int(item.parametros["num_participantes"]),
-        latencia_rede=float(item.parametros["latencia_rede"]),
-        semente=item.semente,
-        simular_recuperacao=True,
-    )
-    return {
-        "latencia_commit": r.latencia_commit,
-        "vazao": r.vazao,
-        "tempo_recuperacao": r.tempo_recuperacao,
-        "decisao": r.decisao,
-    }
-
-
 def test_bateria_anel_reproduz_o_mesmo_conjunto_com_semente_fixa(tmp_path: Path) -> None:
     def rodar(destino: Path) -> list[dict[str, str]]:
         itens = planejar_bateria(
@@ -195,26 +200,6 @@ def test_bateria_anel_reproduz_o_mesmo_conjunto_com_semente_fixa(tmp_path: Path)
     b = rodar(tmp_path / "b.csv")
     # Reprodução dígito a dígito das métricas por Réplica (Req 10.4).
     chaves = ("semente", "nivel", "k", "tempo_convergencia", "mensagens")
-    assert [tuple(l[c] for c in chaves) for l in a] == [
-        tuple(l[c] for c in chaves) for l in b
-    ]
-
-
-def test_bateria_2pc_reproduz_o_mesmo_conjunto_com_semente_fixa(tmp_path: Path) -> None:
-    def rodar(destino: Path) -> list[dict[str, str]]:
-        itens = planejar_bateria(
-            parametro="latencia_rede",
-            niveis=(1.0, 5.0, 10.0),
-            replicas=3,
-            semente_base=777,
-            fixos={"num_participantes": 3},
-        )
-        executar_bateria(itens, _runner_2pc, destino, saida=io.StringIO(), erro=io.StringIO())
-        return _ler_csv(destino)
-
-    a = rodar(tmp_path / "a.csv")
-    b = rodar(tmp_path / "b.csv")
-    chaves = ("semente", "nivel", "latencia_commit", "vazao", "tempo_recuperacao", "decisao")
     assert [tuple(l[c] for c in chaves) for l in a] == [
         tuple(l[c] for c in chaves) for l in b
     ]

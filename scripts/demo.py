@@ -63,7 +63,7 @@ def executar_demo(
     reprova (avisos não reprovam), 1 em falha de
     execução ou reprovação, e 2 quando o Docker está indisponível.
     """
-    if not cenario._docker_disponivel():
+    if not cenario.docker_disponivel():
         print(
             "[demo] Docker (daemon + compose v2) indisponível; a demo exige "
             "contêineres. As provas equivalentes sem Docker estão em "

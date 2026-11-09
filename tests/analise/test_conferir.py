@@ -3,7 +3,8 @@
 Sintetizam CSVs de bateria pequenos num diretório temporário (sem Docker, sem
 reexecutar Réplica), geram as tabelas da análise e verificam que:
 
-- a tabela consolidada do Anel e a do 2PC batem com valores calculáveis à mão;
+- a tabela consolidada do Anel e a do 2PC batem com valores calculáveis à mão, e
+  a do 2PC descarta o aquecimento e os ABORT;
 - `conferir` PASSA quando a tabela colada no doc está em dia;
 - `conferir` REPROVA (código != 0) quando a tabela do doc fica defasada.
 """
@@ -74,30 +75,49 @@ def _csv_anel(caminho: Path) -> None:
     _escrever_csv(caminho, colunas, linhas)
 
 
-def _csv_2pc(caminho: Path) -> None:
-    """2PC com dois níveis de latência; latências de commit de média conhecida."""
+_COLUNAS_2PC_LATENCIA = [
+    "algoritmo", "parametro_variado", "semente", "num_participantes", "latencia_rede",
+    "ordem", "aquecimento", "transacao", "decisao", "latencia_commit_s", "mensagens",
+]
+
+
+def _linhas_2pc_latencia() -> list[dict]:
+    """Duas Réplicas por nível, cada uma com uma transação de aquecimento e duas medidas.
+
+    Nível 10: Réplica 1 mede 20 e 40 ms, Réplica 2 mede 60 e 80 ms, então a média das
+    médias é 50 ms. O aquecimento de 500 ms e o ABORT do nível 25 ficam de fora.
+    """
+    medidas = {(10, 1): [0.5, 0.02, 0.04], (10, 2): [0.5, 0.06, 0.08],
+               (25, 3): [0.5, 0.1, 0.2], (25, 4): [0.5, 0.3, 0.4]}
+    linhas = []
+    for (latencia, semente), valores in medidas.items():
+        for ordem, valor in enumerate(valores):
+            linhas.append(
+                {"algoritmo": "2pc", "parametro_variado": "latencia_rede", "semente": semente,
+                 "num_participantes": 3, "latencia_rede": latencia, "ordem": ordem,
+                 "aquecimento": int(ordem == 0), "transacao": f"lat-{semente}-{ordem:03d}",
+                 "decisao": "COMMIT", "latencia_commit_s": valor, "mensagens": 12}
+            )
+    linhas[-1]["decisao"] = "ABORT"
+    return linhas
+
+
+def _csv_2pc_latencia(caminho: Path) -> None:
+    _escrever_csv(caminho, _COLUNAS_2PC_LATENCIA, _linhas_2pc_latencia())
+
+
+def _csv_2pc_recuperacao(caminho: Path) -> None:
+    """Duas Réplicas por nível, com tempos de recuperação de média conhecida."""
     colunas = [
-        "algoritmo", "parametro_variado", "semente", "num_participantes",
-        "latencia_rede", "decisao", "latencia_commit", "vazao",
-        "tempo_recuperacao", "atomico",
+        "algoritmo", "parametro_variado", "semente", "latencia_rede", "transacao",
+        "decisao", "em_duvida", "tempo_recuperacao_s", "mensagens",
     ]
+    tempos = {(10, 5): 1.0, (10, 6): 2.0, (25, 7): 1.5, (25, 8): 2.5}
     linhas = [
-        {"algoritmo": "2pc", "parametro_variado": "latencia_rede", "semente": 1,
-         "num_participantes": 3, "latencia_rede": 1.0, "decisao": "COMMIT",
-         "latencia_commit": 2.0, "vazao": 0.5, "tempo_recuperacao": 3.0,
-         "atomico": 1},
-        {"algoritmo": "2pc", "parametro_variado": "latencia_rede", "semente": 2,
-         "num_participantes": 3, "latencia_rede": 1.0, "decisao": "COMMIT",
-         "latencia_commit": 4.0, "vazao": 0.25, "tempo_recuperacao": 3.0,
-         "atomico": 1},
-        {"algoritmo": "2pc", "parametro_variado": "latencia_rede", "semente": 3,
-         "num_participantes": 3, "latencia_rede": 5.0, "decisao": "COMMIT",
-         "latencia_commit": 10.0, "vazao": 0.1, "tempo_recuperacao": 3.0,
-         "atomico": 1},
-        {"algoritmo": "2pc", "parametro_variado": "latencia_rede", "semente": 4,
-         "num_participantes": 3, "latencia_rede": 5.0, "decisao": "COMMIT",
-         "latencia_commit": 20.0, "vazao": 0.05, "tempo_recuperacao": 3.0,
-         "atomico": 1},
+        {"algoritmo": "2pc", "parametro_variado": "latencia_rede", "semente": semente,
+         "latencia_rede": latencia, "transacao": f"rec-{semente}", "decisao": "COMMIT",
+         "em_duvida": 3, "tempo_recuperacao_s": tempo, "mensagens": 16}
+        for (latencia, semente), tempo in tempos.items()
     ]
     _escrever_csv(caminho, colunas, linhas)
 
@@ -125,40 +145,35 @@ def test_consolidar_anel_medias_conhecidas() -> None:
     assert por_nos[3]["frac_convergiu"] == pytest.approx(1.0)
 
 
-def test_consolidar_2pc_percentis_conhecidos() -> None:
+def test_consolidar_2pc_descarta_aquecimento_e_abort() -> None:
     import pandas as pd
 
-    tabela = doispc_exp.consolidar_latencia(
-        pd.DataFrame(
-            [
-                {"latencia_rede": 1.0, "latencia_commit": 2.0},
-                {"latencia_rede": 1.0, "latencia_commit": 4.0},
-                {"latencia_rede": 5.0, "latencia_commit": 10.0},
-                {"latencia_rede": 5.0, "latencia_commit": 20.0},
-            ]
-        )
-    )
-    por_lat = {float(r["latencia_rede"]): r for _, r in tabela.iterrows()}
-    assert por_lat[1.0]["media"] == pytest.approx(3.0)
-    assert por_lat[1.0]["p50"] == pytest.approx(3.0)  # mediana de [2,4]
-    assert por_lat[5.0]["media"] == pytest.approx(15.0)
+    tabela = doispc_exp.consolidar_latencia(pd.DataFrame(_linhas_2pc_latencia()))
+    por_lat = {int(r["latencia_rede"]): r for _, r in tabela.iterrows()}
+    assert por_lat[10]["media_ms"] == pytest.approx(50.0)
+    assert por_lat[10]["p50_ms"] == pytest.approx(50.0)  # mediana de [20, 40, 60, 80]
+    assert (por_lat[10]["n_replicas"], por_lat[10]["n_transacoes"]) == (2, 4)
+    # O ABORT de 400 ms sai, e a Réplica 4 fica só com 300 ms.
+    assert por_lat[25]["n_transacoes"] == 3
+    assert por_lat[25]["media_ms"] == pytest.approx((150.0 + 300.0) / 2)
 
 
 def _preparar(tmp_path: Path) -> tuple:
     """CSVs sintéticos e diretórios de saída isolados para um teste de CLI."""
     anel_csv = tmp_path / "anel.csv"
-    doispc_csv = tmp_path / "2pc.csv"
+    latencia_csv = tmp_path / "2pc_latencia.csv"
+    recuperacao_csv = tmp_path / "2pc_recuperacao.csv"
     _csv_anel(anel_csv)
-    _csv_2pc(doispc_csv)
-    dir_dados = tmp_path / "dados"
-    dir_figs = tmp_path / "figs"
-    return anel_csv, doispc_csv, dir_dados, dir_figs
+    _csv_2pc_latencia(latencia_csv)
+    _csv_2pc_recuperacao(recuperacao_csv)
+    return anel_csv, latencia_csv, recuperacao_csv, tmp_path / "dados", tmp_path / "figs"
 
 
-def _args_comuns(anel_csv, doispc_csv, dir_dados, dir_figs) -> list[str]:
+def _args_comuns(anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs) -> list[str]:
     return [
         "--anel-nos", str(anel_csv),
-        "--doispc-latencia", str(doispc_csv),
+        "--doispc-latencia", str(latencia_csv),
+        "--doispc-recuperacao", str(recuperacao_csv),
         "--dir-dados", str(dir_dados),
         "--dir-figuras", str(dir_figs),
     ]
@@ -166,8 +181,8 @@ def _args_comuns(anel_csv, doispc_csv, dir_dados, dir_figs) -> list[str]:
 
 def test_subcomandos_escrevem_tabelas_e_figuras(tmp_path: Path) -> None:
     cli = _carregar_cli()
-    anel_csv, doispc_csv, dir_dados, dir_figs = _preparar(tmp_path)
-    comuns = _args_comuns(anel_csv, doispc_csv, dir_dados, dir_figs)
+    comuns = _args_comuns(*_preparar(tmp_path))
+    dir_dados, dir_figs = tmp_path / "dados", tmp_path / "figs"
 
     assert cli.main(["anel", *comuns]) == 0
     assert cli.main(["2pc-latencia", *comuns]) == 0
@@ -185,8 +200,8 @@ def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
     tmp_path: Path, monkeypatch
 ) -> None:
     cli = _carregar_cli()
-    anel_csv, doispc_csv, dir_dados, dir_figs = _preparar(tmp_path)
-    comuns = _args_comuns(anel_csv, doispc_csv, dir_dados, dir_figs)
+    anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs = _preparar(tmp_path)
+    comuns = _args_comuns(anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs)
 
     # Aponta os caminhos dos documentos para o tmp (eles são constantes de módulo).
     doc_anel = tmp_path / "resultados-anel.md"
@@ -195,21 +210,20 @@ def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
     monkeypatch.setattr(cli, "DOC_2PC", doc_2pc)
 
     df_anel = dados.carregar_anel(anel_csv)
-    df_2pc = dados.carregar_2pc(doispc_csv)
 
     # Documento FRESCO: cola exatamente as tabelas regeneradas.
     bloco_anel = anel_exp.como_markdown(
         anel_exp.consolidar(df_anel), cli.COMANDOS["anel"], [dados.relativo(anel_csv)]
     )
     bloco_lat = doispc_exp.latencia_como_markdown(
-        doispc_exp.consolidar_latencia(df_2pc),
+        doispc_exp.consolidar_latencia(dados.carregar_2pc_latencia(latencia_csv)),
         cli.COMANDOS["2pc-latencia"],
-        [dados.relativo(doispc_csv)],
+        [dados.relativo(latencia_csv)],
     )
     bloco_rec = doispc_exp.recuperacao_como_markdown(
-        doispc_exp.consolidar_recuperacao(df_2pc),
+        doispc_exp.consolidar_recuperacao(dados.carregar_2pc_recuperacao(recuperacao_csv)),
         cli.COMANDOS["2pc-recuperacao"],
-        [dados.relativo(doispc_csv)],
+        [dados.relativo(recuperacao_csv)],
     )
     doc_anel.write_text(f"# Anel\n\n{bloco_anel}\n", encoding="utf-8")
     doc_2pc.write_text(f"# 2PC\n\n{bloco_lat}\n\n{bloco_rec}\n", encoding="utf-8")

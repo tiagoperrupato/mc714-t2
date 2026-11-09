@@ -33,8 +33,9 @@ de modelo e correção em [`docs/`](docs/).
 
 - **Python 3.11 ou superior** para as CLIs de orquestração, análise e verificação.
 - **Docker com Compose v2** para subir os Nós em contêiner. A análise, os
-  invariantes e a bateria em processo rodam **sem Docker**; só os cenários sobre
-  o compose (`scripts/cenario.py`, `scripts/demo.py`, os cenários de rede) o exigem.
+  invariantes e a bateria do Anel rodam **sem Docker**. A bateria do 2PC e os
+  cenários sobre o compose (`scripts/cenario.py`, `scripts/demo.py`, os cenários
+  de rede) o exigem.
 - As dependências fixadas em `requirements.txt`:
 
 ```
@@ -74,34 +75,37 @@ As CLIs se dividem em três grupos: **experimentar** (gerar dados), **analisar**
 ### 1. Bateria de experimentos (`scripts/bateria.py`)
 
 Executa Réplicas com Sementes independentes variando **um** parâmetro em pelo
-menos três níveis, gravando um CSV em `results/` com uma linha por Réplica. A
-execução roda **em processo**, dirigindo a Máquina_de_Estados pura de cada
-algoritmo — sem Docker —, de modo a ser determinística por Semente.
+menos três níveis e grava CSVs em `results/`. A do Anel roda **em processo**,
+dirigindo a Máquina_de_Estados pura, e é determinística por Semente. A do 2PC
+mede os Nós reais: cada Réplica sobe o compose com o Toxiproxy entre o
+Coordenador e os Participantes, aplica a latência do nível e derruba tudo no fim.
 
 ```bash
 python scripts/bateria.py --algoritmo anel                         # varia num_nos (3, 5, 7)
 python scripts/bateria.py --algoritmo anel --variar taxa_falhas    # varia (0.0, 0.1, 0.2)
-python scripts/bateria.py --algoritmo 2pc --variar latencia_rede   # varia (1.0, 5.0, 10.0)
-python scripts/bateria.py --algoritmo 2pc                          # varia num_participantes (3, 5, 7)
+python scripts/bateria.py --algoritmo 2pc                          # varia latencia_rede (0, 10, 25, 50 ms), cerca de 10 min
 ```
 
 Para o Anel, as métricas são Tempo_de_Convergencia (em passos lógicos de entrega
-de Mensagem) e número de Mensagens. Para o 2PC, são Latencia_de_Commit, vazão e
-Tempo_de_Recuperacao. A bateria valida a configuração inteira antes de
+de Mensagem) e número de Mensagens. Para o 2PC, são a latência de commit vista
+pelo cliente, as mensagens por transação e o tempo de recuperação depois de um
+crash do Coordenador. A bateria valida a configuração inteira antes de
 sobrescrever resultados, carimba a Semente e o ambiente em cada linha, e uma
 Réplica que falha é registrada sem interromper o restante.
 
 | Opção | Padrão | Descrição |
 |:---|:---|:---|
 | `--algoritmo` | — (obrigatória) | `anel` ou `2pc` |
-| `--variar` | `num_nos` / `num_participantes` | parâmetro variado: `num_nos`, `taxa_falhas` (anel); `num_participantes`, `latencia_rede` (2pc) |
+| `--variar` | `num_nos` / `latencia_rede` | parâmetro variado: `num_nos` ou `taxa_falhas` no anel, `latencia_rede` no 2pc |
 | `--replicas` | 5 | Réplicas por nível |
 | `--semente-base` | 42 | Semente base das Réplicas |
+| `--transacoes` | 40 | 2pc: transações medidas por Réplica |
+| `--aquecimento` | 5 | 2pc: transações de aquecimento por Réplica, gravadas e marcadas |
 | `--results` | `results/` | diretório de saída |
-| `--saida` | `results/bateria_<algoritmo>_<variar>.csv` | caminho do CSV |
+| `--saida` | `results/bateria_anel_<variar>.csv` | anel: caminho do CSV |
 
-Os dois CSVs que a análise consome por padrão são
-`results/bateria_anel_num_nos.csv` e `results/bateria_2pc_latencia_rede.csv`.
+A análise consome por padrão `results/bateria_anel_num_nos.csv`,
+`results/bateria_2pc_latencia_rede.csv` e `results/bateria_2pc_recuperacao.csv`.
 
 ### 2. Análise (`scripts/analisar.py`)
 
@@ -115,8 +119,8 @@ python scripts/analisar.py tudo
 | Subcomando | O que produz |
 |:-----------|:-------------|
 | `anel` | convergência do Anel × número de Nós (tabela + figura) |
-| `2pc-latencia` | Latencia_de_Commit do 2PC × latência de rede, com p50/p95/p99 |
-| `2pc-recuperacao` | Tempo_de_Recuperacao sob falha × latência de rede |
+| `2pc-latencia` | latência de commit do 2PC × latência de rede, com p50/p95/p99 e mensagens por transação |
+| `2pc-recuperacao` | tempo de recuperação após o crash do Coordenador × latência de rede |
 | `conferir` | confere se as tabelas de `docs/` batem com os dados atuais |
 | `tudo` | executa todos os anteriores, na ordem |
 
@@ -144,8 +148,8 @@ tolerância de cada um e a razão dela, está em
 
 ### 4. Cenários e demos sobre o compose
 
-Enquanto a bateria mede tendência em processo, estes scripts sobem um cenário
-**real** sobre o Docker Compose, conduzem o algoritmo pelos endpoints de
+Enquanto a bateria mede tendência com muitas Réplicas, estes scripts sobem um
+cenário **real** sobre o Docker Compose, conduzem o algoritmo pelos endpoints de
 controle, coletam os logs dos Nós para `results/` e rodam os invariantes sobre
 eles. Cada cenário confere o desfecho contra o esperado e sai 1 quando ele
 difere ou quando um invariante reprova. Todos derrubam o compose ao final
@@ -258,8 +262,10 @@ src/comum/         config, modelos, aleatoriedade, log, rede (Transporte com
 src/anel/          maquina (pura), no (app FastAPI), __main__ (entrada do contêiner)
 src/doispc/        maquina (pura), log_duravel (write-ahead), coordenador,
                    participante, executor, __main__
-src/experimentos/  bateria (planeja e executa Réplicas), runner_anel,
-                   runner_doispc, ambiente (carimbo de hardware/SO/versões)
+src/experimentos/  bateria (planeja e executa Réplicas), runner_anel (em
+                   processo), condutor_doispc (Nós reais no compose),
+                   conteineres (compose e sondagem HTTP), ambiente (carimbo de
+                   hardware/SO/versões)
 src/analise/       dados, estatistica, formato, graficos, anel_exp, doispc_exp,
                    invariantes
 scripts/           bateria, analisar, verificar, cenario, demo, rede e as demos
@@ -282,10 +288,11 @@ Gravados em `results/`, criado automaticamente e ignorado pelo Git. Há dois tip
 
 ### CSVs da bateria
 
-Uma linha por Réplica. Além das colunas de métrica, cada linha carrega colunas de
-ambiente com prefixo `amb_` (SO, versão, arquitetura, processador, número de CPUs,
-versão de Python e das dependências) — o carimbo de reprodutibilidade descrito
-abaixo.
+Uma linha por Réplica no Anel e uma por transação na latência do 2PC. Além das
+colunas de métrica, cada linha carrega colunas de ambiente com prefixo `amb_` (SO,
+versão, arquitetura, processador, número de CPUs, versão de Python e das
+dependências), o carimbo de reprodutibilidade descrito abaixo. As do 2PC trazem
+também as versões do Docker e do Compose e o Python da imagem.
 
 `bateria_anel_num_nos.csv` (e `bateria_anel_taxa_falhas.csv`):
 
@@ -297,16 +304,31 @@ abaixo.
 | `mensagens` | total de Mensagens entregues |
 | `convergiu`, `lider`, `nos_vivos` | resultado da eleição |
 
-`bateria_2pc_latencia_rede.csv` (e `bateria_2pc_num_participantes.csv`):
+`bateria_2pc_latencia_rede.csv`, uma linha por transação:
 
 | Coluna | Significado |
 |:-------|:------------|
 | `algoritmo`, `parametro_variado`, `semente` | identificam a Réplica |
-| `num_participantes`, `latencia_rede` | parâmetros da Réplica |
+| `num_participantes`, `latencia_rede` | Participantes e atraso de ida em ms, aplicado em cada sentido |
+| `ordem`, `aquecimento`, `transacao` | posição na Réplica, 1 nas de aquecimento, e o id |
 | `decisao` | COMMIT ou ABORT |
-| `latencia_commit`, `vazao` | latência da transação e vazão lógica |
-| `tempo_recuperacao` | custo de reler o Log_Duravel após reinício |
-| `atomico` | 1 se nenhum Participante divergiu da Decisao |
+| `latencia_commit_s` | do `POST /transacao` até a resposta, com a Decisao já no Log_Duravel |
+| `mensagens` | eventos `envia` da transação nos logs de todos os Nós |
+| `duracao_replica_s` | duração das transações da Réplica, sem subir e derrubar a pilha |
+
+`bateria_2pc_recuperacao.csv`, uma linha por crash do Coordenador:
+
+| Coluna | Significado |
+|:-------|:------------|
+| `algoritmo`, `parametro_variado`, `semente` | identificam a Réplica |
+| `num_participantes`, `latencia_rede`, `transacao` | como acima |
+| `em_duvida` | Participantes em dúvida logo depois do crash |
+| `decisao` | Decisao do Coordenador depois de reler o Log_Duravel |
+| `tempo_recuperacao_s` | do `docker compose start` até todos os Participantes decidirem |
+| `mensagens`, `duracao_replica_s` | como acima, com o crash e o reinício |
+
+Os logs dos Nós de cada Réplica do 2PC ficam em `bateria_2pc_logs/`, e o
+`scripts/verificar.py` os confere junto com os dos cenários.
 
 ### Logs dos cenários
 
@@ -332,8 +354,8 @@ figuras sem artefatos órfãos** e deixa o compose limpo. Como `results/` está 
 ```bash
 rm -rf results/                                    # (1) estado limpo
 docker compose build                               # (2) imagem única dos Nós
-python scripts/bateria.py --algoritmo anel         # (3) bateria do Anel (num_nos)
-python scripts/bateria.py --algoritmo 2pc --variar latencia_rede   #     bateria do 2PC
+python scripts/bateria.py --algoritmo anel         # (3) bateria do Anel (num_nos), em processo
+python scripts/bateria.py --algoritmo 2pc          #     bateria do 2PC nos Nós reais, cerca de 10 min
 python scripts/analisar.py tudo                    # (4) tabelas e figuras de docs/
 python scripts/analisar.py conferir                # (5) docs batem com os dados -> exit 0
 python scripts/cenario.py anel falha               # (6) cenário real + logs coletados
@@ -342,10 +364,13 @@ python scripts/verificar.py                        # (7) invariantes sobre resul
 docker compose down -v --remove-orphans            # (8) teardown limpo, sem órfãos
 ```
 
-Os passos (3) a (5) e (7) rodam **sem Docker**; só (2), (6) e (8) usam o compose.
-Com os parâmetros padrão (cinco Réplicas por nível), o passo (5) sai com código 0:
-as tabelas de `docs/` foram geradas por esse mesmo comando e nada é digitado à
-mão. A bateria é determinística por Semente — rodar de novo produz os mesmos CSVs.
+A bateria do Anel, a análise e a verificação rodam **sem Docker**. A bateria do
+2PC, os cenários e o teardown usam o compose. As tabelas de `docs/` são geradas
+pelo passo (4) e nada é digitado à mão. A bateria do Anel é determinística por
+Semente, e rodar de novo produz o mesmo CSV. A do 2PC mede tempo de parede, que
+varia entre execuções, então uma bateria nova muda os números e o passo (5)
+aponta as tabelas do 2PC como defasadas até a saída do passo (4) ser colada de
+novo.
 
 ## Documentos de correção
 
@@ -382,9 +407,10 @@ isolados — stacks de compose em paralelo podem conflitar no `--wait` e nas por
 Contêineres em uma única máquina são **Nós lógicos, não domínios de falha
 independentes**: compartilham kernel, relógio e recursos, então um crash
 simulado não é um crash físico, e latências medidas em segundos de relógio não
-são portáveis entre máquinas. Por isso as métricas de tempo da bateria são
-**lógicas** (passos de entrega, latência derivada da Semente), reproduzíveis
-dígito a dígito, e cada linha carimba o ambiente. A discussão completa dessa
+são portáveis entre máquinas. A bateria do Anel mede tempo em **passos lógicos**
+de entrega, reproduzíveis dígito a dígito. A do 2PC mede **segundos de relógio**
+nos Nós reais, que só se comparam entre níveis de uma mesma máquina, e cada linha
+carimba o ambiente. A discussão completa dessa
 hipótese e do que ela implica para a correção está em
 [`docs/modelo-e-correcao.md`](docs/modelo-e-correcao.md).
 

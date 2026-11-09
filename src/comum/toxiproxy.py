@@ -205,14 +205,14 @@ class ClienteToxiproxy:
         """Injeta `ms` de latência (com `jitter_ms` opcional) na rota do proxy.
 
         Latência acima do Deadline do `ClienteRede` faz a chamada estourar e
-        devolver `EnvioTimeout` (Requisito 9.3). O nome do toxic é fixo
-        (`latency`) para ser idempotente entre aplicações do mesmo Cenário.
+        devolver `EnvioTimeout` (Requisito 9.3). O nome do toxic leva a direção,
+        para que os dois sentidos de um proxy tenham latência ao mesmo tempo.
         """
         return self.adicionar_toxic(
             proxy,
             tipo="latency",
             atributos={"latency": int(ms), "jitter": int(jitter_ms)},
-            nome="latency",
+            nome=f"latency_{direcao}",
             direcao=direcao,
         )
 

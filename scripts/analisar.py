@@ -9,8 +9,8 @@ quando uma tabela de `docs/` fica defasada em relação aos dados atuais
 Subcomandos:
 
     anel              convergência do Anel × número de Nós (tabela + figura)
-    2pc-latencia      Latencia_de_Commit do 2PC × latência de rede (p50/p95/p99)
-    2pc-recuperacao   Tempo_de_Recuperacao sob falha × latência de rede
+    2pc-latencia      latência de commit do 2PC × latência de rede (p50/p95/p99)
+    2pc-recuperacao   tempo de recuperação após o crash do Coordenador × latência de rede
     conferir          confere se as tabelas de docs/ batem com os dados atuais
     tudo              executa todos os subcomandos acima
 
@@ -148,8 +148,15 @@ def _opcoes_comuns() -> argparse.ArgumentParser:
         "--doispc-latencia",
         type=Path,
         default=dados.BATERIA_2PC_LATENCIA,
-        help=f"CSV da bateria do 2PC por latência de rede "
+        help=f"CSV de latência do 2PC, uma linha por transação "
         f"(padrão: {dados.relativo(dados.BATERIA_2PC_LATENCIA)})",
+    )
+    comum.add_argument(
+        "--doispc-recuperacao",
+        type=Path,
+        default=dados.BATERIA_2PC_RECUPERACAO,
+        help=f"CSV de recuperação do 2PC, uma linha por crash do Coordenador "
+        f"(padrão: {dados.relativo(dados.BATERIA_2PC_RECUPERACAO)})",
     )
     comum.add_argument(
         "--dir-dados",
@@ -179,12 +186,12 @@ def _construir_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "2pc-latencia",
         parents=[comum],
-        help="Latencia_de_Commit do 2PC × latência de rede (p50/p95/p99)",
+        help="latência de commit do 2PC × latência de rede (p50/p95/p99)",
     )
     sub.add_parser(
         "2pc-recuperacao",
         parents=[comum],
-        help="Tempo_de_Recuperacao do 2PC sob falha × latência de rede",
+        help="tempo de recuperação do 2PC após o crash do Coordenador × latência de rede",
     )
     sub.add_parser(
         "conferir",
@@ -195,15 +202,17 @@ def _construir_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _carregar(args) -> tuple:
-    """Carrega os dois CSVs que a análise consome, em dataframes."""
-    df_anel = dados.carregar_anel(args.anel_nos)
-    df_2pc = dados.carregar_2pc(args.doispc_latencia)
-    return df_anel, df_2pc
+def _carregar(args) -> dict:
+    """Carrega os CSVs que a análise consome, em dataframes indexados pelo subcomando."""
+    return {
+        "anel": dados.carregar_anel(args.anel_nos),
+        "2pc-latencia": dados.carregar_2pc_latencia(args.doispc_latencia),
+        "2pc-recuperacao": dados.carregar_2pc_recuperacao(args.doispc_recuperacao),
+    }
 
 
-def _executar_anel(df_anel, _df_2pc, args) -> int:
-    tabela = anel_exp.consolidar(df_anel)
+def _executar_anel(dfs, args) -> int:
+    tabela = anel_exp.consolidar(dfs["anel"])
     if tabela.empty:
         print(
             "erro: nenhuma configuração do Anel com réplicas convergidas para "
@@ -219,13 +228,12 @@ def _executar_anel(df_anel, _df_2pc, args) -> int:
     return 0
 
 
-def _executar_2pc_latencia(_df_anel, df_2pc, args) -> int:
-    tabela = doispc_exp.consolidar_latencia(df_2pc)
+def _executar_2pc_latencia(dfs, args) -> int:
+    tabela = doispc_exp.consolidar_latencia(dfs["2pc-latencia"])
     if tabela.empty:
         print(
-            "erro: nenhuma configuração do 2PC para consolidar a latência de "
-            "commit. Rode a bateria: "
-            "python scripts/bateria.py --algoritmo 2pc --variar latencia_rede",
+            "erro: nenhuma transação do 2PC com COMMIT fora do aquecimento para "
+            "consolidar. Rode a bateria: python scripts/bateria.py --algoritmo 2pc",
             file=sys.stderr,
         )
         return 1
@@ -241,19 +249,18 @@ def _executar_2pc_latencia(_df_anel, df_2pc, args) -> int:
     return 0
 
 
-def _executar_2pc_recuperacao(_df_anel, df_2pc, args) -> int:
-    tabela = doispc_exp.consolidar_recuperacao(df_2pc)
+def _executar_2pc_recuperacao(dfs, args) -> int:
+    tabela = doispc_exp.consolidar_recuperacao(dfs["2pc-recuperacao"])
     if tabela.empty:
         print(
-            "erro: nenhuma configuração do 2PC para consolidar o tempo de "
-            "recuperação. Rode a bateria: "
-            "python scripts/bateria.py --algoritmo 2pc --variar latencia_rede",
+            "erro: nenhuma recuperação do 2PC terminada em COMMIT para consolidar. "
+            "Rode a bateria: python scripts/bateria.py --algoritmo 2pc",
             file=sys.stderr,
         )
         return 1
     print(
         doispc_exp.recuperacao_como_markdown(
-            tabela, COMANDOS["2pc-recuperacao"], _fontes(args.doispc_latencia)
+            tabela, COMANDOS["2pc-recuperacao"], _fontes(args.doispc_recuperacao)
         )
     )
     _gravar_csv(
@@ -265,14 +272,14 @@ def _executar_2pc_recuperacao(_df_anel, df_2pc, args) -> int:
     return 0
 
 
-def _blocos_conferiveis(df_anel, df_2pc, args) -> list[Bloco]:
+def _blocos_conferiveis(dfs, args) -> list[Bloco]:
     """Os blocos esperados em cada documento. Toda tabela nova de `docs/` entra aqui."""
     return [
         Bloco(
             documento=DOC_ANEL,
             rotulo="convergência do Anel",
             texto=anel_exp.como_markdown(
-                anel_exp.consolidar(df_anel), COMANDOS["anel"], _fontes(args.anel_nos)
+                anel_exp.consolidar(dfs["anel"]), COMANDOS["anel"], _fontes(args.anel_nos)
             ),
             comando=COMANDOS["anel"],
         ),
@@ -280,7 +287,7 @@ def _blocos_conferiveis(df_anel, df_2pc, args) -> list[Bloco]:
             documento=DOC_2PC,
             rotulo="latência de commit",
             texto=doispc_exp.latencia_como_markdown(
-                doispc_exp.consolidar_latencia(df_2pc),
+                doispc_exp.consolidar_latencia(dfs["2pc-latencia"]),
                 COMANDOS["2pc-latencia"],
                 _fontes(args.doispc_latencia),
             ),
@@ -290,17 +297,17 @@ def _blocos_conferiveis(df_anel, df_2pc, args) -> list[Bloco]:
             documento=DOC_2PC,
             rotulo="tempo de recuperação",
             texto=doispc_exp.recuperacao_como_markdown(
-                doispc_exp.consolidar_recuperacao(df_2pc),
+                doispc_exp.consolidar_recuperacao(dfs["2pc-recuperacao"]),
                 COMANDOS["2pc-recuperacao"],
-                _fontes(args.doispc_latencia),
+                _fontes(args.doispc_recuperacao),
             ),
             comando=COMANDOS["2pc-recuperacao"],
         ),
     ]
 
 
-def _executar_conferir(df_anel, df_2pc, args) -> int:
-    return 0 if relatar([conferir_bloco(b) for b in _blocos_conferiveis(df_anel, df_2pc, args)]) else 1
+def _executar_conferir(dfs, args) -> int:
+    return 0 if relatar([conferir_bloco(b) for b in _blocos_conferiveis(dfs, args)]) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -308,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     args = _construir_parser().parse_args(argv)
 
     try:
-        df_anel, df_2pc = _carregar(args)
+        dfs = _carregar(args)
     except DadosError as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 1
@@ -321,12 +328,12 @@ def main(argv: list[str] | None = None) -> int:
     }
     if args.comando == "tudo":
         for nome, acao in acoes.items():
-            codigo = acao(df_anel, df_2pc, args)
+            codigo = acao(dfs, args)
             if codigo != 0:
                 print(f"erro: subcomando '{nome}' falhou.", file=sys.stderr)
                 return codigo
         return 0
-    return acoes[args.comando](df_anel, df_2pc, args)
+    return acoes[args.comando](dfs, args)
 
 
 if __name__ == "__main__":

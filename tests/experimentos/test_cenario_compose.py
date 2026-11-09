@@ -55,7 +55,7 @@ def test_cenario_sem_docker_retorna_codigo_2(tmp_path: Path, monkeypatch) -> Non
     rode em qualquer ambiente e cubra o caminho de degradação explicitamente.
     """
     cli = _carregar_cli()
-    monkeypatch.setattr(cli, "_docker_disponivel", lambda: False)
+    monkeypatch.setattr(cli, "docker_disponivel", lambda: False)
     import io
 
     codigo = cli.executar_cenario(
