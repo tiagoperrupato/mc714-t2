@@ -1,0 +1,347 @@
+%% Relatório do Trabalho 2 — MC714 Sistemas Distribuídos (2S/2026)
+%% Eleição de Líder em Anel e Two-Phase Commit
+%% Classe IEEEtran (coluna dupla). Compilar com: pdflatex relatorio.tex (rodar 2x)
+%%
+%% Os trechos marcados com % TODO precisam ser escritos ou revisados.
+%% Os números citados vêm dos documentos de docs/ e
+%% dos CSVs versionados em results/; confira-os com:
+%%   python scripts/analisar.py conferir
+\documentclass[conference,10pt]{IEEEtran}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{siunitx}
+\sisetup{output-decimal-marker={,}}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+% Caminho das figuras versionadas em docs/figuras
+\graphicspath{{../figuras/}}
+
+% Colunas numéricas estreitas para as tabelas largas
+\newcolumntype{R}{>{\raggedleft\arraybackslash}p{0.9cm}}
+
+\begin{document}
+
+\title{Eleição de Líder em Anel e Two-Phase Commit:\\
+Implementação, Modelo de Correção e Avaliação sob Falhas}
+
+\author{
+\IEEEauthorblockN{Pietro Fernandes Magaldi, Tiago Perrupato Antunes}
+\IEEEauthorblockA{Instituto de Computação, Universidade Estadual de Campinas (UNICAMP)\\
+MC714 Sistemas Distribuídos, 2\textsuperscript{o} Semestre de 2026\\
+\texttt{\{236842, 194058\}@unicamp.br}}
+}
+
+\maketitle
+
+\begin{abstract}
+% TODO: revisar o abstract. Rascunho a partir dos resultados versionados.
+Implementamos dois algoritmos distribuídos complementares como Nós independentes
+que se comunicam por HTTP/JSON sobre Docker Compose: a Eleição de Líder em Anel e
+o Two-Phase Commit (2PC) com crash-recovery do Coordenador. Declaramos o modelo
+de cada algoritmo (parcialmente síncrono, canais não confiáveis com Deadline
+obrigatório, falhas crash-stop, crash-recovery e partição) e verificamos seis
+invariantes de \emph{safety} e \emph{liveness} sobre os logs dos Nós reais. A
+Eleição em Anel converge em $2n-1$ mensagens por rodada; a bateria mede
+\num{5,00}, \num{9,20} e \num{13,40} passos lógicos para $n=3,5,7$, dentro do
+previsto com perda de \num{0,05}. O 2PC custa $4N=12$ mensagens por transação com
+três Participantes, e a latência de commit cresce linearmente com a latência de
+rede, de \SI{8,5}{\milli\second} (\SI{0}{\milli\second} de rede) a
+\SI{344,6}{\milli\second} (\SI{50}{\milli\second}), acompanhando os $2N$ atrasos
+de ida do caminho crítico. Os cenários de falha (crash do Líder no Anel, crash do
+Coordenador no 2PC) preservam a atomicidade e a durabilidade, e o Coordenador se
+recupera do Log Durável em menos de \SI{1}{\second} nesta máquina.
+\end{abstract}
+
+\section{Introdução}
+Este trabalho implementa e avalia experimentalmente dois algoritmos clássicos de
+sistemas distribuídos escolhidos de temas complementares do enunciado: a
+\textbf{Eleição de Líder em Anel} (tema de eleição) e o \textbf{Two-Phase Commit}
+(tema de compromisso atômico). O objetivo é construir soluções corretas, declarar
+as hipóteses sob as quais operam e investigar seu comportamento sob variações de
+topologia, carga e falhas.
+
+Cada Nó lógico executa como um contêiner independente e se comunica exclusivamente
+pela rede. A comunicação é HTTP/JSON ponto a ponto, com um Deadline obrigatório em
+toda chamada: não há caminho de código que envie uma Mensagem sem timeout. As
+falhas entram por duas camadas — aplicação (crash, pause, delay, drop) e rede
+(latência, perda e partição via Toxiproxy) — ambas dirigidas por uma Semente
+registrada, o que torna cada cenário repetível.
+
+\section{Arquitetura e implementação}
+\label{sec:arq}
+A implementação segue uma fronteira estrita entre camadas. Um núcleo comum oferece
+configuração validada, modelos imutáveis, streams de aleatoriedade por Semente, log
+estruturado em JSON e o Transporte HTTP com Deadline obrigatório. Cada algoritmo é
+construído da \textbf{Máquina de Estados pura} para fora: a lógica testável em
+memória, depois o app FastAPI, depois o contêiner. A Máquina de Estados pura nunca
+importa FastAPI nem o cliente HTTP, o que mantém a lógica de decisão separada da
+rede e permite testá-la de forma determinística.
+
+Todos os serviços compartilham a mesma imagem; o algoritmo de cada contêiner é
+escolhido pelo \texttt{command} do serviço, e a topologia é inteiramente definida
+por variáveis de ambiente. O Anel usa cinco Nós (\texttt{8001}--\texttt{8005}) na
+ordem $1\!\to\!2\!\to\!3\!\to\!4\!\to\!5\!\to\!1$; o 2PC usa um Coordenador
+(\texttt{8000}) e três Participantes (\texttt{8011}--\texttt{8013}), cada um com um
+volume nomeado próprio para seu Log Durável. Um serviço Toxiproxy fica entre os Nós
+e injeta latência, perda e partição de rede de forma scriptada.
+
+% TODO: citar as tecnologias (FastAPI, uvicorn, httpx) e justificar que nenhuma
+% biblioteca implementa o algoritmo escolhido (item I3 do enunciado).
+
+\section{Modelo do sistema e correção}
+\label{sec:modelo}
+
+\subsection{Modelo comum}
+\textbf{Temporal (M1).} Ambos os algoritmos são \textbf{parcialmente síncronos}:
+os atrasos de mensagem e de processamento não têm limite garantido, mas quase
+sempre cabem no Deadline, e é com essa hipótese que o Deadline detecta um Nó que
+não responde.
+
+\textbf{Canais (M2).} HTTP/JSON ponto a ponto, não confiáveis: uma Mensagem pode
+ser perdida, atrasada ou, sob partição, não entregue; um retry pode duplicá-la; e
+não há ordenação garantida entre Mensagens distintas. Toda chamada carrega um
+Deadline obrigatório, e as falhas de transporte viram resultados tipados, nunca
+exceções silenciosas.
+
+\textbf{Relógios (M4).} Nenhum algoritmo depende de relógio físico. A correção
+repousa na ordem causal de cada Nó e nos Deadlines.
+
+\textbf{Falhas (M3).} Crash-stop e crash-recovery de Nós, e partição, injetadas
+por aplicação (\texttt{/falha/*}) e por rede (Toxiproxy), reproduzíveis por
+Semente. A detecção é por timeout e é \emph{fail-noisy}: um Nó lento pode ser
+suspeito por engano, e a suspeita se corrige quando os atrasos voltam a caber no
+Deadline.
+
+\textbf{Limitação do ambiente (A6).} Os contêineres rodam numa única máquina:
+são Nós lógicos, não domínios de falha independentes. Por isso os tempos absolutos
+só se comparam entre configurações no mesmo ambiente, e cada linha de resultado
+carimba o ambiente. As propriedades de correção, porém, são sobre a ordem lógica
+dos eventos, que a emulação preserva.
+
+\subsection{Eleição em Anel}
+Eleição em anel unidirecional com lista acumulada de ids: a Mensagem de Eleição
+acumula os ids que visita, e o Nó que a recebe com o próprio id na lista fecha a
+volta e elege o maior. Cada eleição é uma rodada com id único; um Nó que já conhece
+o resultado ignora uma eleição atrasada da mesma rodada. Um Nó tenta entregar ao
+Sucessor até três vezes dentro do Deadline e só então salta para o próximo Nó vivo.
+O Anel é \textbf{sem estado durável}: um Nó que reinicia volta sem memória e
+participa da próxima eleição.
+
+As propriedades de \emph{safety}/\emph{liveness} e os invariantes que as testam
+estão na Tabela~\ref{tab:prop-anel}.
+
+\begin{table}[t]
+\caption{Propriedades do Anel e invariantes que as verificam.}
+\label{tab:prop-anel}
+\centering
+\footnotesize
+\begin{tabular}{@{}p{3.6cm}p{1.2cm}p{2.3cm}@{}}
+\toprule
+Propriedade & Tipo & Invariante \\
+\midrule
+No máximo um Líder por rodada & safety & \texttt{inv\_01\_lider\_unico} \\
+Vivos convergem ao mesmo Líder & live./safety & \texttt{inv\_02\_convergencia} \\
+Líder é o maior id vivo & correctness & \texttt{inv\_03\_maior\_id} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Two-Phase Commit}
+2PC \textbf{bloqueante}, com crash-recovery do Coordenador e retransmissão da
+DECISÃO até o ACK; sem \emph{presumed abort} nem terminação cooperativa, de modo
+que o bloqueio dura enquanto o Coordenador está fora. A \textbf{ordem write-ahead}
+sustenta a durabilidade: Voto e Decisão vão ao Log Durável antes de serem
+respondidos ou aplicados, e o Coordenador grava a entrada em WAIT antes do PREPARE.
+Na partida, ele relê o log, aborta o que estava em WAIT e difunde de novo o que já
+estava decidido. As propriedades e invariantes estão na Tabela~\ref{tab:prop-2pc}.
+
+\begin{table}[t]
+\caption{Propriedades do 2PC e invariantes que as verificam.}
+\label{tab:prop-2pc}
+\centering
+\footnotesize
+\begin{tabular}{@{}p{3.6cm}p{1.2cm}p{2.3cm}@{}}
+\toprule
+Propriedade & Tipo & Invariante \\
+\midrule
+Atomicidade (sem COMMIT vs.\ ABORT) & safety & \texttt{inv\_04\_atomicidade} \\
+Durabilidade (não reverte) & safety & \texttt{inv\_05\_durabilidade} \\
+Validade (COMMIT só com todos SIM) & safety & \texttt{inv\_06\_validade} \\
+Terminação (todos decidem) & liveness & cenários \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% TODO: discutir, em uma frase, por que o Deadline obrigatório e o write-ahead não
+% são detalhe de estilo (quebram liveness e durabilidade se afrouxados).
+
+\section{Metodologia experimental}
+\label{sec:metodo}
+A correção e o desempenho são avaliados separadamente. A correção é verificada
+pelos seis invariantes sobre os logs dos Nós reais, mais os cenários de terminação,
+com \texttt{python scripts/verificar.py}. O desempenho sai de duas baterias.
+
+A \textbf{bateria do Anel} roda em processo sobre a Máquina de Estados pura e é
+determinística por Semente. Varia o número de Nós em três níveis ($n=3,5,7$), com
+cinco Réplicas por nível (Sementes \numrange{42}{56}) e perda de \num{0,05} por
+tentativa de entrega. A métrica é o Tempo de Convergência em \textbf{passos lógicos}
+de entrega, reproduzível dígito a dígito.
+
+A \textbf{bateria do 2PC} mede os Nós reais no compose, com o Toxiproxy entre o
+Coordenador e cada Participante. Varia a latência de rede em quatro níveis
+(\num{0}, \num{10}, \num{25}, \SI{50}{\milli\second} de ida), com cinco Réplicas por
+nível e 45 transações por Réplica (5 de aquecimento, descartadas). Mede a latência
+de commit vista pelo cliente (com percentis p50/p95/p99), as mensagens por transação
+e o tempo de recuperação após o crash do Coordenador. Os tempos são de relógio e só
+se comparam entre níveis da mesma máquina.
+
+\section{Resultados e discussão}
+\label{sec:resultados}
+
+\subsection{Convergência do Anel}
+A Tabela~\ref{tab:anel-conv} e a Figura~\ref{fig:anel} mostram o Tempo de
+Convergência por número de Nós. Uma rodada com um só iniciador custa $2n-1$
+entregas até o último Nó conhecer o Líder; com perda $p$, cada entrega custa em
+média $1/(1-p)$ tentativas, de modo que o esperado é $(2n-1)/(1-p)$. Os valores
+medidos (\num{5,00}, \num{9,20}, \num{13,40}) ficam dentro do previsto, crescendo
+linearmente com $n$.
+
+\begin{table}[t]
+\caption{Convergência do Anel $\times$ número de Nós, com perda \num{0,05}.
+Fonte: \texttt{analisar.py anel-complexidade}.}
+\label{tab:anel-conv}
+\centering
+\footnotesize
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+$n$ & Mensagens & IC 95\% ($\pm$) & $2n-1$ & $(2n-1)/(1-p)$ \\
+\midrule
+3 & \num{5,00}  & \num{0,00} & 5  & \num{5,26}  \\
+5 & \num{9,20}  & \num{0,56} & 9  & \num{9,47}  \\
+7 & \num{13,40} & \num{0,68} & 13 & \num{13,68} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{anel_convergencia.pdf}
+\caption{Convergência da Eleição em Anel $\times$ número de Nós.
+Fonte: \texttt{analisar.py anel}.}
+\label{fig:anel}
+\end{figure}
+
+% TODO: comentar o cenário de falha (anel falha): elege 5, mata o 5, reelege 4.
+
+\subsection{Latência e complexidade do 2PC}
+A Tabela~\ref{tab:2pc-lat} e a Figura~\ref{fig:2pc-lat} trazem a latência de commit
+por latência de rede. As mensagens por transação ficam em \num{12,00} ($=4N$ com
+$N=3$) em todos os níveis, sem nenhuma retransmissão. A latência cresce em linha com
+os $2N=6$ atrasos de ida do caminho crítico, ficando pouco acima deles (fator
+\numrange{1,12}{1,25}) pelo \texttt{fsync} do Voto, o repasse do Toxiproxy e o
+despacho pela fila de saída de cada Nó.
+
+\begin{table}[t]
+\caption{Latência de commit do 2PC $\times$ latência de rede.
+Fonte: \texttt{analisar.py 2pc-latencia}.}
+\label{tab:2pc-lat}
+\centering
+\footnotesize
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+Rede (ms) & Média (ms) & p50 & p95 & p99 \\
+\midrule
+0  & \num{8,5}   & \num{7,1}   & \num{13,0}  & \num{29,3}  \\
+10 & \num{83,3}  & \num{83,7}  & \num{90,9}  & \num{105,3} \\
+25 & \num{189,8} & \num{189,1} & \num{210,4} & \num{245,1} \\
+50 & \num{344,6} & \num{345,0} & \num{363,7} & \num{371,7} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{doispc_latencia.pdf}
+\caption{Latência de commit do 2PC $\times$ latência de rede, com barras de erro
+de 95\%. Fonte: \texttt{analisar.py 2pc-latencia}.}
+\label{fig:2pc-lat}
+\end{figure}
+
+\subsection{Recuperação do Coordenador}
+No crash do Coordenador, o processo morre logo após gravar a Decisão e antes de
+difundi-la, e os três Participantes ficam em dúvida. O contêiner é reiniciado, relê
+o Log Durável e difunde a Decisão. A Tabela~\ref{tab:2pc-rec} e a
+Figura~\ref{fig:2pc-rec} mostram o tempo de recuperação, abaixo de \SI{1}{\second}
+na média em todos os níveis. A maior parte do tempo vem da partida do contêiner e
+do interpretador; o trecho da partida do processo até o último Participante decidir
+é curto.
+
+\begin{table}[t]
+\caption{Tempo de recuperação do 2PC $\times$ latência de rede.
+Fonte: \texttt{analisar.py 2pc-recuperacao}.}
+\label{tab:2pc-rec}
+\centering
+\footnotesize
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+Rede (ms) & Média (s) & IC 95\% ($\pm$) & Mín.\ (s) & Máx.\ (s) \\
+\midrule
+0  & \num{0,553} & \num{0,030} & \num{0,533} & \num{0,592} \\
+10 & \num{0,787} & \num{0,349} & \num{0,590} & \num{1,262} \\
+25 & \num{0,866} & \num{0,477} & \num{0,671} & \num{1,552} \\
+50 & \num{0,817} & \num{0,048} & \num{0,789} & \num{0,884} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{doispc_recuperacao.pdf}
+\caption{Tempo de recuperação do 2PC após o crash do Coordenador $\times$ latência
+de rede. Fonte: \texttt{analisar.py 2pc-recuperacao}.}
+\label{fig:2pc-rec}
+\end{figure}
+
+\subsection{Correção sob falha}
+Em todos os cenários coletados, \texttt{verificar.py} sai com código 0: as
+propriedades de \emph{safety} valem e o desfecho observado é o esperado. No
+\texttt{anel falha}, o Anel elege o Nó 5, o contêiner do 5 cai, e a reeleição
+converge para o maior vivo (4), com os invariantes 01--03 passando. No
+\texttt{2pc crash-coord}, os três Participantes ficam em dúvida enquanto o
+Coordenador está fora (aviso esperado, não defeito) e todos decidem COMMIT após o
+reinício, com a Decisão recuperada do log batendo com a gravada (invariante 05).
+
+\section{Limitações}
+\label{sec:limitacoes}
+Os contêineres compartilham kernel, relógio e recursos de uma única máquina, então
+um crash simulado não é uma falha física e as latências em segundos de relógio não
+são portáveis entre máquinas. A bateria do Anel contorna isso medindo passos
+lógicos, reproduzíveis dígito a dígito; a do 2PC mede segundos de relógio e só os
+compara entre níveis da mesma máquina, carimbando o ambiente em cada linha. O 2PC
+implementado é bloqueante: sem protocolo de terminação cooperativo, um Participante
+em dúvida só decide quando o Coordenador volta.
+
+\section{Conclusão}
+\label{sec:conclusao}
+Os dois algoritmos foram implementados como Nós reais sobre Docker Compose, com o
+modelo de correção declarado e verificado por seis invariantes sobre os logs. A
+Eleição em Anel converge no número de mensagens previsto pela análise, e o 2PC
+preserva atomicidade, durabilidade e validade mesmo com o crash do Coordenador,
+recuperando-se do Log Durável em menos de um segundo nesta máquina. A avaliação
+confirma o comportamento esperado de cada algoritmo e expõe o custo do 2PC
+bloqueante como uma escolha de projeto, não um defeito.
+
+
+\begin{thebibliography}{1}
+\bibitem{vansteen}
+M. van Steen and A. S. Tanenbaum, \emph{Distributed Systems}, 4th ed.,
+distributed-systems.net, 2023.
+\end{thebibliography}
+
+\end{document}

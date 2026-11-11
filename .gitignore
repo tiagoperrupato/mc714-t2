@@ -19,3 +19,12 @@ venv/
 # do PDF.
 docs/Trabalho2-MC714_2s2026.md
 docs/Trabalho2-MC714_2s2026.pdf
+
+# Artefatos de build do LaTeX. O .tex, a classe e o .pdf entram no git; o resto e gerado.
+docs/relatorio/*.aux
+docs/relatorio/*.log
+docs/relatorio/*.out
+docs/relatorio/*.toc
+docs/relatorio/*.bbl
+docs/relatorio/*.blg
+docs/relatorio/*.synctex.gz
