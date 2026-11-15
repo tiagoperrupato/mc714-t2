@@ -19,35 +19,12 @@ O que se garante aqui:
 
 from __future__ import annotations
 
-import csv
-import importlib.util
 import json
-import sys
 from pathlib import Path
 
+from scripts import analisar, bateria, verificar
 from src.experimentos import condutor_doispc
-
-_RAIZ = Path(__file__).resolve().parents[2]
-
-
-def _carregar_script(nome: str):
-    """Carrega um script de `scripts/` como módulo isolado (não é pacote importável).
-
-    O registro em `sys.modules` vem antes da execução porque o `dataclasses` resolve
-    as anotações por string do script por `sys.modules[cls.__module__]`.
-    """
-    caminho = _RAIZ / "scripts" / nome
-    spec = importlib.util.spec_from_file_location(f"{nome[:-3]}_cli", caminho)
-    modulo = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules[spec.name] = modulo
-    spec.loader.exec_module(modulo)
-    return modulo
-
-
-def _ler_csv(caminho: Path) -> list[dict[str, str]]:
-    with caminho.open(encoding="utf-8", newline="") as fluxo:
-        return list(csv.DictReader(fluxo))
+from tests.apoio import ler_csv
 
 
 def _log_anel_convergido(destino: Path) -> None:
@@ -106,9 +83,6 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
     poucas Réplicas para ser rápido.
     """
     _fakes_do_condutor(monkeypatch)
-    bateria = _carregar_script("bateria.py")
-    analisar = _carregar_script("analisar.py")
-    verificar = _carregar_script("verificar.py")
 
     results = tmp_path / "results"
     dir_dados = tmp_path / "docs" / "dados"
@@ -128,16 +102,16 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
     assert bateria.main(["--algoritmo", "anel", "--replicas", "2", "--results", str(results)]) == 0
     assert csv_anel.read_bytes() == conteudo_anel_1
 
-    linhas_anel = _ler_csv(csv_anel)
+    linhas_anel = ler_csv(csv_anel)
     assert len(linhas_anel) == 6  # 3 níveis padrão x 2 Réplicas
     assert {"num_nos", "tempo_convergencia", "mensagens", "amb_so"} <= set(linhas_anel[0])
     niveis_2pc = len(bateria.NIVEIS_2PC_LATENCIA)
-    linhas_latencia = _ler_csv(csv_latencia)
+    linhas_latencia = ler_csv(csv_latencia)
     assert len(linhas_latencia) == niveis_2pc * 2 * 4  # 2 Réplicas x (1 aquecimento + 3)
     assert {"latencia_rede", "aquecimento", "latencia_commit_s", "mensagens", "amb_so"} <= set(
         linhas_latencia[0]
     )
-    linhas_recuperacao = _ler_csv(csv_recuperacao)
+    linhas_recuperacao = ler_csv(csv_recuperacao)
     assert len(linhas_recuperacao) == niveis_2pc * 2
     assert {"tempo_recuperacao_s", "em_duvida", "amb_so"} <= set(linhas_recuperacao[0])
 

@@ -20,18 +20,12 @@ from pathlib import Path
 import pytest
 
 from src.analise import invariantes as inv
+from tests.apoio import escrever_jsonl
 
 
 # --------------------------------------------------------------------------- #
 # Helpers para montar logs sintéticos no formato real dos produtores.
 # --------------------------------------------------------------------------- #
-
-
-def _escrever_jsonl(caminho: Path, registros: list[dict]) -> None:
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    with caminho.open("w", encoding="utf-8") as fluxo:
-        for r in registros:
-            fluxo.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
 def _ev(no: int, tipo: str, ts: float = 0.0, **campos) -> dict:
@@ -338,11 +332,11 @@ def test_relatar_devolve_true_com_apenas_avisos() -> None:
 
 
 def test_carregar_distingue_eventos_de_duraveis(tmp_path: Path) -> None:
-    _escrever_jsonl(
+    escrever_jsonl(
         tmp_path / "no-anel-1.log",
         [_recebeu_lider(1, rodada="r1", lider=5), _ev(1, "iniciou_eleicao", no_id=1)],
     )
-    _escrever_jsonl(
+    escrever_jsonl(
         tmp_path / "participante-11.log",
         [_entrada_duravel("tx1", "voto", "SIM", 11),
          _entrada_duravel("tx1", "decisao", "COMMIT", 11)],
@@ -355,7 +349,7 @@ def test_carregar_distingue_eventos_de_duraveis(tmp_path: Path) -> None:
 
 def test_carregar_duraveis_ignora_o_evento_grava_log(tmp_path: Path) -> None:
     # O evento repete transacao, fase, valor e no, mas é do Log_Estruturado.
-    _escrever_jsonl(
+    escrever_jsonl(
         tmp_path / "doispc-participante-11.jsonl",
         [_ev(11, "grava_log", transacao="tx1", fase="voto", valor="SIM")],
     )
@@ -390,12 +384,12 @@ def test_carregar_caminho_inexistente_nao_quebra(tmp_path: Path) -> None:
 def test_verificar_sai_zero_em_logs_corretos(tmp_path: Path) -> None:
     from scripts import verificar
 
-    _escrever_jsonl(
+    escrever_jsonl(
         tmp_path / "anel.log",
         [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)],
     )
-    _escrever_jsonl(tmp_path / "2pc.jsonl", [_inicia_transacao("tx1", [11, 12, 13])])
-    _escrever_jsonl(
+    escrever_jsonl(tmp_path / "2pc.jsonl", [_inicia_transacao("tx1", [11, 12, 13])])
+    escrever_jsonl(
         tmp_path / "2pc.log",
         [_entrada_duravel("tx1", "voto", "SIM", p) for p in (11, 12, 13)]
         + [_entrada_duravel("tx1", "decisao", "COMMIT", no) for no in (1, 11, 12, 13)],
@@ -408,7 +402,7 @@ def test_verificar_sai_zero_em_logs_corretos(tmp_path: Path) -> None:
 def test_verificar_sai_um_em_violacao_de_safety(tmp_path: Path) -> None:
     from scripts import verificar
 
-    _escrever_jsonl(
+    escrever_jsonl(
         tmp_path / "2pc.log",
         [
             _entrada_duravel("tx1", "decisao", "COMMIT", 11),
@@ -424,11 +418,11 @@ def test_verificar_sai_um_em_commit_com_voto_nao(tmp_path: Path) -> None:
     from scripts import verificar
 
     # Todos decidem COMMIT, então a atomicidade passa. Só a validade reprova.
-    _escrever_jsonl(
+    escrever_jsonl(
         tmp_path / "coordenador.log", [_entrada_duravel("tx1", "decisao", "COMMIT", 1)]
     )
     for pid, voto in ((11, "SIM"), (12, "SIM"), (13, "NAO")):
-        _escrever_jsonl(
+        escrever_jsonl(
             tmp_path / f"participante-{pid}.log",
             [
                 _entrada_duravel("tx1", "voto", voto, pid),
@@ -446,7 +440,7 @@ def test_verificar_sai_zero_com_apenas_aviso_de_duvida(tmp_path: Path) -> None:
     from scripts import verificar
 
     # Crash do Coordenador: Participantes votaram SIM e ficaram sem Decisao.
-    _escrever_jsonl(
+    escrever_jsonl(
         tmp_path / "2pc.log",
         [
             _entrada_duravel("tx1", "voto", "SIM", 11),

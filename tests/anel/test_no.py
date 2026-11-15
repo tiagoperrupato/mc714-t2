@@ -16,14 +16,11 @@ Dois níveis, nenhum exigindo Docker:
 
 from __future__ import annotations
 
-import socket
-import threading
 import time
-from contextlib import closing
 
 import pytest
 
-from src.anel.maquina import EstadoAnel, TIPO_ELEICAO, TIPO_LIDER
+from src.anel.maquina import EstadoAnel, TIPO_ELEICAO
 from src.anel.no import TENTATIVAS_ANTES_DO_SALTO, NoAnel, criar_app
 from src.comum.modelos import Mensagem
 from src.comum.rede import (
@@ -31,6 +28,7 @@ from src.comum.rede import (
     EnvioOk,
     EnvioTimeout,
 )
+from tests.apoio import ServidorLocal, porta_livre
 
 ANEL5 = (1, 2, 3, 4, 5)
 
@@ -210,43 +208,12 @@ def test_deadline_invalido_recusado_na_construcao() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _porta_livre() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class _ServidorLocal:
-    """Sobe um app FastAPI num uvicorn em thread e espera ficar pronto."""
-
-    def __init__(self, app, porta: int) -> None:
-        import uvicorn
-
-        self.porta = porta
-        config = uvicorn.Config(app, host="127.0.0.1", port=porta, log_level="warning")
-        self._servidor = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._servidor.run, daemon=True)
-
-    def __enter__(self) -> "_ServidorLocal":
-        self._thread.start()
-        limite = time.monotonic() + 10.0
-        while time.monotonic() < limite:
-            if self._servidor.started:
-                return self
-            time.sleep(0.02)
-        raise RuntimeError("servidor local não ficou pronto a tempo")
-
-    def __exit__(self, *_exc: object) -> None:
-        self._servidor.should_exit = True
-        self._thread.join(timeout=10.0)
-
-
 def test_integracao_local_eleicao_converge_para_maior_id() -> None:
     import httpx
 
     from src.comum.rede import ClienteRede
 
-    portas = {i: _porta_livre() for i in ANEL5}
+    portas = {i: porta_livre() for i in ANEL5}
     urls = {i: f"http://127.0.0.1:{portas[i]}" for i in ANEL5}
 
     clientes = [ClienteRede(retries=1) for _ in ANEL5]
@@ -254,7 +221,7 @@ def test_integracao_local_eleicao_converge_para_maior_id() -> None:
         i: NoAnel(EstadoAnel(no_id=i, anel=ANEL5), urls=urls, cliente=clientes[idx], deadline=2.0)
         for idx, i in enumerate(ANEL5)
     }
-    servidores = [_ServidorLocal(criar_app(nos[i]), portas[i]) for i in ANEL5]
+    servidores = [ServidorLocal(criar_app(nos[i]), portas[i]) for i in ANEL5]
 
     from contextlib import ExitStack
 

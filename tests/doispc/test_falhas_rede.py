@@ -11,14 +11,9 @@ processo derrubado de verdade.
 
 from __future__ import annotations
 
-import socket
-import threading
-import time
-from contextlib import closing
 from pathlib import Path
 
 import pytest
-import uvicorn
 
 from src.comum.falhas import ClienteComFalhas, ControladorFalhas
 from src.comum.modelos import Mensagem, No
@@ -33,37 +28,10 @@ from src.doispc.log_duravel import (
 )
 from src.doispc.maquina import MSG_DECISAO, GravarLog, iniciar_transacao
 from src.doispc.participante import ServicoParticipante, criar_app as criar_app_part
-from tests.espera import esperar_ate
+from tests.apoio import ServidorLocal, esperar_ate, porta_livre
 
 COORD_ID = 1
 PART_IDS = (11, 12, 13)
-
-
-def _porta_livre() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class _ServidorLocal:
-    def __init__(self, app, porta: int) -> None:
-        self.porta = porta
-        config = uvicorn.Config(app, host="127.0.0.1", port=porta, log_level="warning")
-        self._servidor = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._servidor.run, daemon=True)
-
-    def __enter__(self) -> "_ServidorLocal":
-        self._thread.start()
-        limite = time.monotonic() + 10.0
-        while time.monotonic() < limite:
-            if self._servidor.started:
-                return self
-            time.sleep(0.02)
-        raise RuntimeError("servidor local não ficou pronto a tempo")
-
-    def __exit__(self, *_exc: object) -> None:
-        self._servidor.should_exit = True
-        self._thread.join(timeout=10.0)
 
 
 class _ClienteSuprimeDecisao:
@@ -91,7 +59,7 @@ class _Participantes:
     """Três Participantes que votam SIM, cada um com Log_Duravel em `tmp_path` e servidor local."""
 
     def __init__(self, tmp_path: Path) -> None:
-        portas = {no_id: _porta_livre() for no_id in (COORD_ID, *PART_IDS)}
+        portas = {no_id: porta_livre() for no_id in (COORD_ID, *PART_IDS)}
         self.coord_no = No(COORD_ID, "127.0.0.1", portas[COORD_ID])
         self.part_nos = {pid: No(pid, "127.0.0.1", portas[pid]) for pid in PART_IDS}
         self.servicos = {
@@ -106,7 +74,7 @@ class _Participantes:
             for pid in PART_IDS
         }
         self._servidores = [
-            _ServidorLocal(criar_app_part(self.servicos[pid]), portas[pid]) for pid in PART_IDS
+            ServidorLocal(criar_app_part(self.servicos[pid]), portas[pid]) for pid in PART_IDS
         ]
 
     def __enter__(self) -> "_Participantes":
@@ -161,14 +129,14 @@ def test_coordenador_reiniciado_depois_de_decidir_entrega_a_decisao(
             deadline_voto=2.0,
             deadline_decisao=1.0,
         )
-        with _ServidorLocal(criar_app_coord(primeira_vida), parts.coord_no.porta):
+        with ServidorLocal(criar_app_coord(primeira_vida), parts.coord_no.porta):
             assert primeira_vida.iniciar("tx-crash")["decisao"] == DECISAO_COMMIT
             assert esperar_ate(lambda: cliente_crash.decisoes_suprimidas >= len(PART_IDS))
         # Com o Coordenador fora, os três votaram SIM e não conhecem a Decisao.
         assert parts.em_duvida()
 
         app = _coordenador_do_ambiente(tmp_path, parts, monkeypatch)
-        with _ServidorLocal(app, parts.coord_no.porta):
+        with ServidorLocal(app, parts.coord_no.porta):
             parts.esperar_decisao(DECISAO_COMMIT)
 
 
@@ -188,7 +156,7 @@ def test_coordenador_reiniciado_em_wait_aborta(
         assert parts.em_duvida()
 
         app = _coordenador_do_ambiente(tmp_path, parts, monkeypatch)
-        with _ServidorLocal(app, parts.coord_no.porta):
+        with ServidorLocal(app, parts.coord_no.porta):
             parts.esperar_decisao(DECISAO_ABORT)
 
     assert log_coord.recuperar("tx-wait").decisao == DECISAO_ABORT
@@ -199,7 +167,7 @@ def test_crash_total_do_coordenador_via_controlador_bloqueia_decisao(tmp_path: P
     # saem. A coleta estoura o Deadline e decide ABORT, e nenhum Participante tem
     # estado. Prova que o controlador suprime o despacho de saída de um Nó em crash.
     with _Participantes(tmp_path) as parts:
-        controlador = ControladorFalhas(2026, dormir=time.sleep)
+        controlador = ControladorFalhas(2026)
         coordenador = ServicoCoordenador(
             parts.coord_no,
             parts.part_nos,
@@ -209,7 +177,7 @@ def test_crash_total_do_coordenador_via_controlador_bloqueia_decisao(tmp_path: P
             deadline_decisao=0.4,
         )
         app = criar_app_coord(coordenador, controlador=controlador)
-        with _ServidorLocal(app, parts.coord_no.porta):
+        with ServidorLocal(app, parts.coord_no.porta):
             controlador.injetar_crash()
             coordenador.iniciar("tx-crash-total")
 

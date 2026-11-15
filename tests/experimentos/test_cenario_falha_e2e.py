@@ -14,17 +14,15 @@ Dois níveis, como no resto do projeto:
 - **Com Docker** (marcados `slow`): sobem cada cenário de falha de ponta a ponta
   sobre o compose, coletam os logs reais e conferem que `verificar.py` passa.
   No `crash-coord`, o processo do Coordenador morre depois de decidir, os
-  Participantes ficam em dúvida, e o contêiner reiniciado os tira dela. Seguem o
-  padrão de `tests/anel/test_compose.py`: PULAM de forma limpa sem Docker. Como
-  subir vários stacks em paralelo pode estourar o `--wait`, estes testes devem
-  rodar um de cada vez.
+  Participantes ficam em dúvida, e o contêiner reiniciado os tira dela. Eles
+  PULAM de forma limpa sem Docker. Como subir vários stacks em paralelo pode
+  estourar o `--wait`, estes testes devem rodar um de cada vez.
 """
 
 from __future__ import annotations
 
 import io
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -33,29 +31,7 @@ import pytest
 from scripts import cenario, demo, verificar
 from src.analise import invariantes as inv
 from src.experimentos import conteineres
-
-_RAIZ = Path(__file__).resolve().parents[2]
-COMPOSE = _RAIZ / "compose.yaml"
-
-
-# --------------------------------------------------------------------------- #
-# Disponibilidade de Docker (mesmo probe dos demais testes de compose).
-# --------------------------------------------------------------------------- #
-
-
-def _docker_disponivel() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        r = subprocess.run(
-            ["docker", "info"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=15,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return r.returncode == 0
+from tests.apoio import escrever_jsonl
 
 
 # --------------------------------------------------------------------------- #
@@ -134,13 +110,6 @@ def test_override_anel_fixa_semente_nos_cinco_nos() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _escrever_jsonl(caminho: Path, registros: list[dict]) -> None:
-    caminho.parent.mkdir(parents=True, exist_ok=True)
-    with caminho.open("w", encoding="utf-8") as fluxo:
-        for r in registros:
-            fluxo.write(json.dumps(r, ensure_ascii=False) + "\n")
-
-
 def _registro(base: Path, algoritmo: str, rotulo: str) -> dict:
     return json.loads(
         (base / f"cenario_{algoritmo}_{rotulo}.json").read_text(encoding="utf-8")
@@ -156,13 +125,13 @@ def test_participante_em_duvida_vira_aviso_nao_reprova(tmp_path: Path) -> None:
     """
     logs = tmp_path / "cenario_2pc_crash-coord_logs"
     # Log_Duravel do Coordenador: decidiu COMMIT.
-    _escrever_jsonl(
+    escrever_jsonl(
         logs / "coordenador" / "dados" / "coordenador.log",
         [{"transacao": "tx1", "fase": "decisao", "valor": "COMMIT", "no": 1}],
     )
     # Logs_Duraveis dos Participantes: votaram SIM, sem Decisao (em dúvida).
     for pid in (11, 12, 13):
-        _escrever_jsonl(
+        escrever_jsonl(
             logs / f"participante-{pid - 10}" / "dados" / f"participante-{pid}.log",
             [{"transacao": "tx1", "fase": "voto", "valor": "SIM", "no": pid}],
         )
@@ -175,7 +144,7 @@ def test_participante_em_duvida_vira_aviso_nao_reprova(tmp_path: Path) -> None:
     assert "Estado_Em_Duvida" in texto
 
 
-def test_atomicidade_nao_reprova_quando_so_o_coordenador_decidiu(tmp_path: Path) -> None:
+def test_atomicidade_nao_reprova_quando_so_o_coordenador_decidiu() -> None:
     """A atomicidade não reprova com o Coordenador fora depois de decidir: só ele tem Decisao.
 
     Os Participantes ficam sem nenhuma Decisao durável. Logo não há COMMIT e ABORT
@@ -265,7 +234,7 @@ def test_demo_cenarios_de_falha_sao_os_dois_exigidos() -> None:
 # --------------------------------------------------------------------------- #
 
 pularsem_docker = pytest.mark.skipif(
-    not _docker_disponivel(),
+    not conteineres.docker_disponivel(),
     reason="Docker (daemon + compose v2) indisponível; cenário por contêiner pulado",
 )
 

@@ -26,15 +26,10 @@ vale se a gravação ocorreu antes da aplicação/resposta.
 from __future__ import annotations
 
 import json
-import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
 from pathlib import Path
-
-import pytest
-import uvicorn
 
 from src.comum.falhas import ControladorFalhas
 from src.comum.modelos import Mensagem, No
@@ -55,39 +50,10 @@ from src.doispc.participante import (
     ServicoParticipante,
     criar_app as criar_app_part,
 )
-from tests.espera import esperar_ate
+from tests.apoio import ServidorLocal, esperar_ate, porta_livre
 
 COORD_ID = 1
 PART_IDS = (11, 12, 13)
-
-
-def _porta_livre() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class _ServidorLocal:
-    """Sobe um app FastAPI num uvicorn em thread e espera ficar pronto."""
-
-    def __init__(self, app, porta: int) -> None:
-        self.porta = porta
-        config = uvicorn.Config(app, host="127.0.0.1", port=porta, log_level="warning")
-        self._servidor = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._servidor.run, daemon=True)
-
-    def __enter__(self) -> "_ServidorLocal":
-        self._thread.start()
-        limite = time.monotonic() + 10.0
-        while time.monotonic() < limite:
-            if self._servidor.started:
-                return self
-            time.sleep(0.02)
-        raise RuntimeError("servidor local não ficou pronto a tempo")
-
-    def __exit__(self, *_exc: object) -> None:
-        self._servidor.should_exit = True
-        self._thread.join(timeout=10.0)
 
 
 class _ClienteComRoteiro:
@@ -152,13 +118,13 @@ class _Cenario2PC:
         self._deadline_voto = deadline_voto
         self._deadline_decisao = deadline_decisao
 
-        self._portas = {no_id: _porta_livre() for no_id in (COORD_ID, *PART_IDS)}
+        self._portas = {no_id: porta_livre() for no_id in (COORD_ID, *PART_IDS)}
         self.coord_no = No(COORD_ID, "127.0.0.1", self._portas[COORD_ID])
         self.part_nos = {
             pid: No(pid, "127.0.0.1", self._portas[pid]) for pid in PART_IDS
         }
         self.logs: dict[int, LogDuravelArquivo] = {}
-        self._servidores: list[_ServidorLocal] = []
+        self._servidores: list[ServidorLocal] = []
 
     def __enter__(self) -> "_Cenario2PC":
         # Participantes primeiro, para estarem escutando quando o PREPARE chegar.
@@ -194,7 +160,7 @@ class _Cenario2PC:
         return self
 
     def _abrir(self, app, porta: int) -> None:
-        servidor = _ServidorLocal(app, porta)
+        servidor = ServidorLocal(app, porta)
         servidor.__enter__()
         self._servidores.append(servidor)
 

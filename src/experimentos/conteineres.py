@@ -20,6 +20,9 @@ RAIZ = Path(__file__).resolve().parents[2]
 COMPOSE = RAIZ / "compose.yaml"
 COMPOSE_TOXIPROXY = RAIZ / "compose.toxiproxy.yaml"
 
+SERVICOS_ANEL = [f"no-anel-{i}" for i in range(1, 6)]
+PORTAS_ANEL = {i: 8000 + i for i in range(1, 6)}  # 8001..8005
+
 SERVICOS_2PC = ["participante-1", "participante-2", "participante-3", "coordenador"]
 PORTA_COORD = 8000
 PORTAS_PART = {11: 8011, 12: 8012, 13: 8013}
@@ -109,6 +112,34 @@ def esperar_saude(base: str, timeout: float) -> bool:
             pass
         time.sleep(SONDAGEM_S)
     return False
+
+
+def esperar_lider(bases: dict[int, str], ids, esperado: int, timeout: float) -> dict[int, Any]:
+    """Espera os Nós `ids` reportarem `esperado` como Líder e devolve o que cada um reporta."""
+    limite = time.monotonic() + timeout
+    lideres: dict[int, Any] = {}
+    while time.monotonic() < limite:
+        try:
+            lideres = {i: http_json(f"{bases[i]}/estado")["lider"] for i in ids}
+        except (urllib.error.URLError, OSError):
+            time.sleep(SONDAGEM_S)
+            continue
+        if all(v == esperado for v in lideres.values()):
+            break
+        time.sleep(SONDAGEM_S)
+    return lideres
+
+
+def eleger(bases: dict[int, str], ids: list[int], esperado: int) -> tuple[dict[int, Any], float]:
+    """Dispara uma eleição no Nó 1 e espera os `ids` reportarem `esperado`.
+
+    Devolve o Líder que cada um reporta e o tempo até todos reportarem `esperado`,
+    ou até o prazo de 30 s.
+    """
+    inicio = time.monotonic()
+    http_json(f"{bases[1]}/iniciar-eleicao", metodo="POST")
+    lideres = esperar_lider(bases, ids, esperado, 30.0)
+    return lideres, time.monotonic() - inicio
 
 
 def estados_participantes(*, esperar_decisao: bool, timeout: float = 10.0) -> dict[int, Any]:

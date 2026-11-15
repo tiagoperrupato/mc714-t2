@@ -21,68 +21,40 @@ Quando o Docker não está disponível, os testes PULAM de forma limpa.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
-import time
-import urllib.request
-from pathlib import Path
 
 import pytest
 
-RAIZ = Path(__file__).resolve().parents[2]
-COMPOSE = RAIZ / "compose.yaml"
-OVERRIDE = RAIZ / "compose.toxiproxy.yaml"
-SERVICOS_ANEL = [f"no-anel-{i}" for i in range(1, 6)]
-PORTAS = {i: 8000 + i for i in range(1, 6)}
+from src.comum.toxiproxy import ClienteToxiproxy, proxies_anel
+from src.experimentos.conteineres import (
+    COMPOSE,
+    COMPOSE_TOXIPROXY,
+    PORTAS_ANEL,
+    RAIZ,
+    SERVICOS_ANEL,
+    compose,
+    docker_disponivel,
+    eleger,
+)
+from tests.apoio import compose_cli_disponivel
 
-
-def _tem_compose_cli() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        r = subprocess.run(["docker", "compose", "version"], capture_output=True, timeout=15)
-        return r.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def _daemon_acessivel() -> bool:
-    if not _tem_compose_cli():
-        return False
-    try:
-        r = subprocess.run(["docker", "info"], capture_output=True, timeout=20)
-        return r.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
+ARQUIVOS = [COMPOSE, COMPOSE_TOXIPROXY]
 
 pularsem_cli = pytest.mark.skipif(
-    not _tem_compose_cli(),
+    not compose_cli_disponivel(),
     reason="Docker Compose CLI indisponível; teste de compose pulado graciosamente",
 )
 pularsem_daemon = pytest.mark.skipif(
-    not _daemon_acessivel(),
+    not docker_disponivel(),
     reason="daemon do Docker inacessível; integração Toxiproxy pulada",
 )
-
-
-def _compose(*args: str, timeout: int = 600) -> subprocess.CompletedProcess:
-    cmd = ["docker", "compose", "-f", str(COMPOSE), "-f", str(OVERRIDE), *args]
-    return subprocess.run(cmd, cwd=str(RAIZ), capture_output=True, text=True, timeout=timeout)
-
-
-def _http(url: str, metodo: str = "GET", timeout: float = 5.0) -> dict:
-    req = urllib.request.Request(url, method=metodo)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - host local controlado
-        corpo = resp.read().decode("utf-8")
-    return json.loads(corpo) if corpo else {}
 
 
 @pularsem_cli
 def test_compose_config_com_toxiproxy_valido() -> None:
     """`docker compose config` resolve com o override e roteia pelos proxies."""
     r = subprocess.run(
-        ["docker", "compose", "-f", str(COMPOSE), "-f", str(OVERRIDE), "config", "--format", "json"],
+        ["docker", "compose", "-f", str(COMPOSE), "-f", str(COMPOSE_TOXIPROXY), "config", "--format", "json"],
         capture_output=True,
         text=True,
         timeout=60,
@@ -116,49 +88,32 @@ def test_compose_config_com_toxiproxy_valido() -> None:
     assert env_p1["COORD_HOST"] == "toxiproxy" and env_p1["COORD_PORTA"] == "17000"
 
 
-def _esperar_lideres(alvo_ids, valor, timeout: float) -> dict:
-    base = {i: f"http://127.0.0.1:{PORTAS[i]}" for i in range(1, 6)}
-    limite = time.monotonic() + timeout
-    lideres: dict = {}
-    while time.monotonic() < limite:
-        lideres = {i: _http(f"{base[i]}/estado")["lider"] for i in alvo_ids}
-        if all(v == valor for v in lideres.values()):
-            break
-        time.sleep(0.5)
-    return lideres
-
-
 @pularsem_daemon
 @pytest.mark.slow
 def test_particao_do_lider_dispara_reeleicao() -> None:
     """Partição do Líder do Anel via Toxiproxy leva à reeleição."""
-    from src.comum.toxiproxy import ClienteToxiproxy, proxies_anel
+    bases = {i: f"http://127.0.0.1:{porta}" for i, porta in PORTAS_ANEL.items()}
 
-    base = {i: f"http://127.0.0.1:{PORTAS[i]}" for i in range(1, 6)}
-
-    _compose("down", "-v", "--remove-orphans", timeout=180)
-    up = _compose("up", "-d", "--build", "--wait", "toxiproxy", *SERVICOS_ANEL)
+    compose("down", "-v", "--remove-orphans", arquivos=ARQUIVOS, timeout=180)
+    up = compose("up", "-d", "--build", "--wait", "toxiproxy", *SERVICOS_ANEL, arquivos=ARQUIVOS)
     if up.returncode != 0:
-        _compose("down", "-v", "--remove-orphans", timeout=180)
+        compose("down", "-v", "--remove-orphans", arquivos=ARQUIVOS, timeout=180)
         pytest.fail(f"falha ao subir o Anel+Toxiproxy:\n{up.stdout}\n{up.stderr}")
 
     try:
         tox = ClienteToxiproxy()
         tox.esperar_pronto(deadline=30.0)
-        tox.semear(proxies_anel((1, 2, 3, 4, 5)))
+        tox.semear(proxies_anel(tuple(PORTAS_ANEL)))
 
         # 1ª eleição com rede saudável converge para 5.
-        _http(f"{base[1]}/iniciar-eleicao", metodo="POST")
-        lideres = _esperar_lideres(range(1, 6), 5, 30.0)
+        lideres, _ = eleger(bases, list(PORTAS_ANEL), 5)
         assert set(lideres.values()) == {5}, f"não convergiu para 5: {lideres}"
 
         # Partição do Líder: desabilita o proxy do Nó 5.
         tox.definir_habilitado("anel-5", False)
 
         # Nova eleição: os Nós vivos (1..4) reelegem o maior id vivo, 4.
-        _http(f"{base[1]}/iniciar-eleicao", metodo="POST")
-        vivos = [1, 2, 3, 4]
-        lideres = _esperar_lideres(vivos, 4, 40.0)
+        lideres, _ = eleger(bases, [1, 2, 3, 4], 4)
         assert set(lideres.values()) == {4}, f"reeleição não convergiu para 4: {lideres}"
     finally:
-        _compose("down", "-v", "--remove-orphans", timeout=180)
+        compose("down", "-v", "--remove-orphans", arquivos=ARQUIVOS, timeout=180)

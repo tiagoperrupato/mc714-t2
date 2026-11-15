@@ -7,37 +7,19 @@ de saída sem Docker. Também cobre a validação de argumentos.
 
 from __future__ import annotations
 
-import csv
-import importlib.util
 from pathlib import Path
 
 import pytest
 
+from scripts import bateria as cli
 from src.experimentos import condutor_doispc
-
-_RAIZ = Path(__file__).resolve().parents[2]
-
-
-def _carregar_cli():
-    """Carrega `scripts/bateria.py` como módulo (não é um pacote importável)."""
-    caminho = _RAIZ / "scripts" / "bateria.py"
-    spec = importlib.util.spec_from_file_location("bateria_cli", caminho)
-    modulo = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(modulo)
-    return modulo
-
-
-def _ler(caminho: Path) -> list[dict[str, str]]:
-    with caminho.open(encoding="utf-8", newline="") as fluxo:
-        return list(csv.DictReader(fluxo))
+from tests.apoio import ler_csv
 
 
 def test_demo_anel_grava_csv_com_colunas_esperadas(tmp_path: Path) -> None:
-    cli = _carregar_cli()
     codigo = cli.main(["--algoritmo", "anel", "--replicas", "2", "--results", str(tmp_path)])
     assert codigo == 0
-    linhas = _ler(tmp_path / "bateria_anel_num_nos.csv")
+    linhas = ler_csv(tmp_path / "bateria_anel_num_nos.csv")
     # 3 níveis padrão x 2 réplicas = 6 linhas, uma por Réplica.
     assert len(linhas) == 6
     colunas = set(linhas[0].keys())
@@ -56,7 +38,6 @@ def test_demo_anel_grava_csv_com_colunas_esperadas(tmp_path: Path) -> None:
 
 
 def test_2pc_liga_o_condutor_e_grava_os_dois_csvs(tmp_path: Path, monkeypatch) -> None:
-    cli = _carregar_cli()
     monkeypatch.setattr(condutor_doispc, "preparar", lambda: {"amb_docker_versao": "0.0"})
     monkeypatch.setattr(
         condutor_doispc,
@@ -71,8 +52,8 @@ def test_2pc_liga_o_condutor_e_grava_os_dois_csvs(tmp_path: Path, monkeypatch) -
     argv = ["--algoritmo", "2pc", "--replicas", "2", "--transacoes", "3", "--aquecimento", "1"]
     assert cli.main([*argv, "--results", str(tmp_path)]) == 0
 
-    latencia = _ler(tmp_path / "bateria_2pc_latencia_rede.csv")
-    recuperacao = _ler(tmp_path / "bateria_2pc_recuperacao.csv")
+    latencia = ler_csv(tmp_path / "bateria_2pc_latencia_rede.csv")
+    recuperacao = ler_csv(tmp_path / "bateria_2pc_recuperacao.csv")
     niveis = len(cli.NIVEIS_2PC_LATENCIA)
     assert len(latencia) == niveis * 2 * 4
     assert len(recuperacao) == niveis * 2
@@ -83,7 +64,6 @@ def test_2pc_liga_o_condutor_e_grava_os_dois_csvs(tmp_path: Path, monkeypatch) -
 
 
 def test_2pc_sem_docker_sai_com_codigo_2_sem_gravar(tmp_path: Path, monkeypatch) -> None:
-    cli = _carregar_cli()
 
     def sem_docker() -> dict[str, str]:
         raise RuntimeError("Docker indisponível")
@@ -94,6 +74,5 @@ def test_2pc_sem_docker_sai_com_codigo_2_sem_gravar(tmp_path: Path, monkeypatch)
 
 
 def test_replicas_invalidas_recusadas() -> None:
-    cli = _carregar_cli()
     with pytest.raises(SystemExit):
         cli.main(["--algoritmo", "anel", "--replicas", "0"])

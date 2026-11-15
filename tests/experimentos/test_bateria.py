@@ -16,7 +16,6 @@ As propriedades verificadas, ligadas aos requisitos:
 
 from __future__ import annotations
 
-import csv
 import io
 from pathlib import Path
 from typing import Any, Mapping
@@ -29,6 +28,7 @@ from src.experimentos.bateria import (
     executar_bateria,
     planejar_bateria,
 )
+from tests.apoio import ler_csv
 
 
 # ---------------------------------------------------------------------------
@@ -77,11 +77,6 @@ def _runner_fake(item: ItemReplica) -> Mapping[str, Any]:
     return {"metrica": item.semente * 2}
 
 
-def _ler_csv(caminho: Path) -> list[dict[str, str]]:
-    with caminho.open(encoding="utf-8", newline="") as fluxo:
-        return list(csv.DictReader(fluxo))
-
-
 def test_csv_tem_colunas_esperadas_e_uma_linha_por_replica(tmp_path: Path) -> None:
     itens = planejar_bateria(
         parametro="num_nos", niveis=(3, 5, 7), replicas=2, semente_base=42
@@ -96,7 +91,7 @@ def test_csv_tem_colunas_esperadas_e_uma_linha_por_replica(tmp_path: Path) -> No
         erro=io.StringIO(),
     )
     assert codigo == 0
-    linhas = _ler_csv(destino)
+    linhas = ler_csv(destino)
     # Uma linha por Réplica.
     assert len(linhas) == len(itens) == 6
     colunas = set(linhas[0].keys())
@@ -113,7 +108,7 @@ def test_cada_linha_registra_semente_e_ambiente(tmp_path: Path) -> None:
     )
     destino = tmp_path / "bateria.csv"
     executar_bateria(itens, _runner_fake, destino, saida=io.StringIO(), erro=io.StringIO())
-    linhas = _ler_csv(destino)
+    linhas = ler_csv(destino)
     for linha in linhas:
         assert linha["semente"] != ""
         assert linha["amb_so"] != ""  # ambiente presente em TODA linha
@@ -137,7 +132,7 @@ def test_replica_que_falha_e_registrada_e_bateria_prossegue(tmp_path: Path) -> N
     )
     # Prosseguiu: 3 planejadas, a falha registrada em stderr, 2 linhas gravadas.
     assert "falha proposital" in erro.getvalue()
-    linhas = _ler_csv(destino)
+    linhas = ler_csv(destino)
     assert len(linhas) == 2
     # Código de saída sinaliza a falha, sem abortar a bateria.
     assert codigo == 1
@@ -157,7 +152,7 @@ def test_runner_com_varias_linhas_grava_uma_por_elemento(tmp_path: Path) -> None
         saida=io.StringIO(),
         erro=io.StringIO(),
     )
-    linhas = _ler_csv(destino)
+    linhas = ler_csv(destino)
     assert len(linhas) == len(itens) * 3
     assert [l["ordem"] for l in linhas[:3]] == ["0", "1", "2"]
     assert {l["semente"] for l in linhas[:3]} == {"5"}
@@ -184,7 +179,7 @@ def test_bateria_anel_reproduz_o_mesmo_conjunto_com_semente_fixa(tmp_path: Path)
             fixos={"taxa_falhas": 0.1},
         )
         executar_bateria(itens, _runner_anel, destino, saida=io.StringIO(), erro=io.StringIO())
-        return _ler_csv(destino)
+        return ler_csv(destino)
 
     a = rodar(tmp_path / "a.csv")
     b = rodar(tmp_path / "b.csv")

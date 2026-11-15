@@ -7,9 +7,8 @@ Log_Duravel vive em memória ou em arquivo. Este módulo define essa fronteira.
 e reconstruir o estado persistido relendo as entradas. Duas implementações o
 satisfazem:
 
-- `LogDuravelMemoria`: guarda as entradas numa lista. Serve aos testes e às
-  demonstrações em memória, exercitando a mesma ordem write-ahead sem tocar o
-  disco.
+- `LogDuravelMemoria`: guarda as entradas numa lista. Serve aos testes,
+  exercitando a mesma ordem write-ahead sem tocar o disco.
 - `LogDuravelArquivo`: anexa uma linha JSON por entrada e faz `flush`/`fsync`
   antes de retornar, de modo que a entrada sobreviva a um crash do processo. A
   recuperação relê o arquivo inteiro e devolve o mesmo estado de antes do
@@ -159,9 +158,8 @@ def _ordem_transacoes(entradas: Iterable[EntradaLog]) -> tuple[str, ...]:
 class LogDuravelMemoria:
     """Log_Duravel em memória: mesma semântica write-ahead, sem tocar o disco.
 
-    Útil para testes e para as demonstrações em memória. As entradas
-    ficam numa lista, na ordem de registro; `recuperar` as reduz como a
-    implementação em arquivo faria após reler o arquivo.
+    Útil para testes. As entradas ficam numa lista, na ordem de registro, e
+    `recuperar` as reduz como a implementação em arquivo faria após reler o arquivo.
     """
 
     def __init__(self) -> None:
@@ -178,11 +176,6 @@ class LogDuravelMemoria:
     def transacoes(self) -> tuple[str, ...]:
         """Transações registradas, na ordem de primeiro aparecimento."""
         return _ordem_transacoes(self._entradas)
-
-    @property
-    def entradas(self) -> tuple[EntradaLog, ...]:
-        """View somente leitura das entradas, para inspeção em testes e demos."""
-        return tuple(self._entradas)
 
 
 class LogDuravelArquivo:

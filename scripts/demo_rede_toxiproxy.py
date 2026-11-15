@@ -24,81 +24,46 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import json
-import shutil
-import subprocess
-import time
-import urllib.request
-from pathlib import Path
 
-RAIZ = Path(__file__).resolve().parents[1]
-COMPOSE = RAIZ / "compose.yaml"
-OVERRIDE = RAIZ / "compose.toxiproxy.yaml"
-SERVICOS_ANEL = [f"no-anel-{i}" for i in range(1, 6)]
-PORTAS = {i: 8000 + i for i in range(1, 6)}
+from src.comum.toxiproxy import ClienteToxiproxy, proxies_anel
+from src.experimentos.conteineres import (
+    COMPOSE,
+    COMPOSE_TOXIPROXY,
+    PORTAS_ANEL,
+    SERVICOS_ANEL,
+    compose,
+    docker_disponivel,
+    eleger,
+    http_json,
+)
 
-
-def _docker_ok() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        r = subprocess.run(["docker", "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
-        return r.returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def _compose(*args: str, timeout: int = 600) -> subprocess.CompletedProcess:
-    cmd = ["docker", "compose", "-f", str(COMPOSE), "-f", str(OVERRIDE), *args]
-    return subprocess.run(cmd, cwd=str(RAIZ), capture_output=True, text=True, timeout=timeout)
-
-
-def _http(url: str, metodo: str = "GET", timeout: float = 5.0) -> dict:
-    req = urllib.request.Request(url, method=metodo)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - host local
-        corpo = resp.read().decode("utf-8")
-    return json.loads(corpo) if corpo else {}
-
-
-def _esperar_lideres(alvo_ids, valor, timeout: float) -> dict[int, int | None]:
-    base = {i: f"http://127.0.0.1:{PORTAS[i]}" for i in range(1, 6)}
-    limite = time.monotonic() + timeout
-    lideres: dict[int, int | None] = {}
-    while time.monotonic() < limite:
-        lideres = {i: _http(f"{base[i]}/estado")["lider"] for i in alvo_ids}
-        if all(v == valor for v in lideres.values()):
-            break
-        time.sleep(0.5)
-    return lideres
+ARQUIVOS = [COMPOSE, COMPOSE_TOXIPROXY]
 
 
 def _demo(args: argparse.Namespace) -> int:
-    if not _docker_ok():
+    if not docker_disponivel():
         print("Docker indisponível: nada a demonstrar (o teste de integração pula do mesmo modo).")
         return 0
 
-    from src.comum.toxiproxy import ClienteToxiproxy, proxies_anel
-
-    base = {i: f"http://127.0.0.1:{PORTAS[i]}" for i in range(1, 6)}
+    bases = {i: f"http://127.0.0.1:{porta}" for i, porta in PORTAS_ANEL.items()}
 
     print("== Subindo o compose do Anel com roteamento pelo Toxiproxy ==")
-    _compose("down", "-v", "--remove-orphans", timeout=180)
-    up = _compose("up", "-d", "--build", "--wait", "toxiproxy", *SERVICOS_ANEL)
+    compose("down", "-v", "--remove-orphans", arquivos=ARQUIVOS, timeout=180)
+    up = compose("up", "-d", "--build", "--wait", "toxiproxy", *SERVICOS_ANEL, arquivos=ARQUIVOS)
     if up.returncode != 0:
-        _compose("down", "-v", "--remove-orphans", timeout=180)
+        compose("down", "-v", "--remove-orphans", arquivos=ARQUIVOS, timeout=180)
         print(f"falha ao subir: {up.stderr}")
         return 1
 
     try:
         tox = ClienteToxiproxy()
         tox.esperar_pronto()
-        tox.semear(proxies_anel((1, 2, 3, 4, 5)))
+        tox.semear(proxies_anel(tuple(PORTAS_ANEL)))
         print("  proxies semeados: anel-1..anel-5\n")
 
         print("== 1ª eleição (rede saudável) ==")
-        _http(f"{base[1]}/iniciar-eleicao", metodo="POST")
-        lideres = _esperar_lideres(range(1, 6), 5, 30.0)
-        for i in range(1, 6):
+        lideres, _ = eleger(bases, list(PORTAS_ANEL), 5)
+        for i in PORTAS_ANEL:
             print(f"  no-anel-{i}: lider = {lideres.get(i)}")
         if set(lideres.values()) != {5}:
             print("  (aviso) não convergiu para 5; seguindo mesmo assim")
@@ -107,24 +72,23 @@ def _demo(args: argparse.Namespace) -> int:
 
         print(f"== Latência de {args.latencia_ms} ms na rota do Nó 3 ==")
         tox.latencia("anel-3", args.latencia_ms)
-        print(f"  toxic de latência aplicado; latência > Deadline faz o cliente estourar o timeout.\n")
+        print("  toxic de latência aplicado; latência > Deadline faz o cliente estourar o timeout.\n")
         tox.limpar_toxics("anel-3")
 
         print("== Partição do Líder (Nó 5) e reeleição ==")
         tox.definir_habilitado("anel-5", False)
         print("  proxy anel-5 DESABILITADO: o Nó 5 ficou isolado da rede.")
-        _http(f"{base[1]}/iniciar-eleicao", metodo="POST")
         vivos = [1, 2, 3, 4]
-        lideres = _esperar_lideres(vivos, 4, 30.0)
+        lideres, _ = eleger(bases, vivos, 4)
         for i in vivos:
-            est = _http(f"{base[i]}/estado")
+            est = http_json(f"{bases[i]}/estado")
             print(f"  no-anel-{i}: lider = {est['lider']}, mortos = {est.get('mortos')}")
         ok = set(lideres.values()) == {4}
         print("\nReeleição " + ("OK: Nós vivos elegeram o maior id vivo (4)." if ok else "não convergiu para 4."))
         return 0 if ok else 1
     finally:
         if not args.manter:
-            _compose("down", "-v", "--remove-orphans", timeout=180)
+            compose("down", "-v", "--remove-orphans", arquivos=ARQUIVOS, timeout=180)
         else:
             print("\n(--manter) compose deixado no ar; derrube com:")
             print("  docker compose -f compose.yaml -f compose.toxiproxy.yaml down -v --remove-orphans")

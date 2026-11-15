@@ -17,38 +17,14 @@ publicadas; por isso este smoke roda UM cenário pequeno por vez.
 
 from __future__ import annotations
 
-import importlib.util
-import shutil
+import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
-_RAIZ = Path(__file__).resolve().parents[2]
-
-
-def _docker_disponivel() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    try:
-        r = subprocess.run(
-            ["docker", "info"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=15,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return r.returncode == 0
-
-
-def _carregar_cenario():
-    caminho = _RAIZ / "scripts" / "cenario.py"
-    spec = importlib.util.spec_from_file_location("cenario_cli_smoke", caminho)
-    modulo = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(modulo)
-    return modulo
+from scripts import cenario
+from src.experimentos.conteineres import docker_disponivel
 
 
 def _containers_do_projeto() -> list[str]:
@@ -81,7 +57,7 @@ def _volumes_do_projeto() -> list[str]:
 
 @pytest.mark.slow
 @pytest.mark.skipif(
-    not _docker_disponivel(),
+    not docker_disponivel(),
     reason="Docker (daemon + compose v2) indisponível; smoke de compose pulado",
 )
 def test_build_up_cenario_down_sem_orfaos(tmp_path: Path) -> None:
@@ -92,10 +68,14 @@ def test_build_up_cenario_down_sem_orfaos(tmp_path: Path) -> None:
     sequência que o README documenta. Depois dele, nenhum contêiner nem volume do
     projeto deve sobrar.
     """
-    cli = _carregar_cenario()
-    codigo = cli.executar_cenario("anel", "normal", tmp_path)
+    codigo = cenario.executar_cenario("anel", "normal", tmp_path)
     assert codigo == 0, "o cenário mínimo do Anel sobre o compose deveria passar"
 
     # Teardown limpo: nenhum contêiner nem volume nomeado do T2 remanescente.
     assert _containers_do_projeto() == [], "contêineres órfãos após down -v --remove-orphans"
     assert _volumes_do_projeto() == [], "volumes órfãos após down -v --remove-orphans"
+
+    registro = json.loads((tmp_path / "cenario_anel_normal.json").read_text(encoding="utf-8"))
+    assert registro["desfecho"]["ok"] is True
+    assert registro["lideres_iniciais"] == {str(i): 5 for i in range(1, 6)}
+    assert "ambiente" in registro

@@ -14,14 +14,10 @@ Dois níveis de teste:
 
 from __future__ import annotations
 
-import socket
-import threading
 import time
-from contextlib import closing
 
 import httpx
 import pytest
-import uvicorn
 
 from src.comum.modelos import Mensagem
 from src.comum.rede import (
@@ -34,44 +30,12 @@ from src.comum.rede import (
     EnvioTimeout,
     criar_app_recebedor,
 )
+from tests.apoio import ServidorLocal, porta_livre
 
 
 # ---------------------------------------------------------------------------
 # Infraestrutura de teste: servidor uvicorn local em thread, porta efêmera
 # ---------------------------------------------------------------------------
-
-
-def _porta_livre() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class _ServidorLocal:
-    """Sobe um app FastAPI num uvicorn em thread e espera ficar pronto."""
-
-    def __init__(self, app) -> None:
-        self.porta = _porta_livre()
-        config = uvicorn.Config(app, host="127.0.0.1", port=self.porta, log_level="warning")
-        self._servidor = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._servidor.run, daemon=True)
-
-    @property
-    def base_url(self) -> str:
-        return f"http://127.0.0.1:{self.porta}"
-
-    def __enter__(self) -> "_ServidorLocal":
-        self._thread.start()
-        limite = time.monotonic() + 10.0
-        while time.monotonic() < limite:
-            if self._servidor.started:
-                return self
-            time.sleep(0.02)
-        raise RuntimeError("servidor local não ficou pronto a tempo")
-
-    def __exit__(self, *_exc: object) -> None:
-        self._servidor.should_exit = True
-        self._thread.join(timeout=10.0)
 
 
 def _app_eco(recebidas: list[Mensagem]):
@@ -102,7 +66,7 @@ def _app_lento(atraso: float):
 def test_integracao_envio_bem_sucedido_entre_dois_apps() -> None:
     recebidas_a: list[Mensagem] = []
     recebidas_b: list[Mensagem] = []
-    with _ServidorLocal(_app_eco(recebidas_a)) as app_a, _ServidorLocal(
+    with ServidorLocal(_app_eco(recebidas_a)) as app_a, ServidorLocal(
         _app_eco(recebidas_b)
     ) as app_b, ClienteRede(retries=2) as cliente:
         msg = Mensagem(tipo="eleicao", origem=1, destino=2, corpo={"ids": [1]})
@@ -128,7 +92,7 @@ def test_integracao_envio_bem_sucedido_entre_dois_apps() -> None:
 def test_integracao_timeout_quando_destino_dorme_alem_do_deadline() -> None:
     # O destino dorme bem além do Deadline; o cliente deve estourar e retornar
     # EnvioTimeout tipado, nunca uma exceção.
-    with _ServidorLocal(_app_lento(atraso=2.0)) as app_lento, ClienteRede(retries=2) as cliente:
+    with ServidorLocal(_app_lento(atraso=2.0)) as app_lento, ClienteRede(retries=2) as cliente:
         inicio = time.monotonic()
         resultado = cliente.enviar(app_lento.base_url, Mensagem("prepare", 1, 2), deadline=0.3)
         decorrido = time.monotonic() - inicio
@@ -141,7 +105,7 @@ def test_integracao_timeout_quando_destino_dorme_alem_do_deadline() -> None:
 
 def test_integracao_erro_quando_destino_esta_fora() -> None:
     # Porta livre onde ninguém escuta: conexão recusada, erro tipado.
-    porta = _porta_livre()
+    porta = porta_livre()
     with ClienteRede(retries=1) as cliente:
         resultado = cliente.enviar(
             f"http://127.0.0.1:{porta}", Mensagem("prepare", 1, 2), deadline=1.0
@@ -153,7 +117,7 @@ def test_integracao_erro_quando_destino_esta_fora() -> None:
 
 def test_integracao_caminho_do_endpoint_e_o_combinado() -> None:
     recebidas: list[Mensagem] = []
-    with _ServidorLocal(_app_eco(recebidas)) as app, httpx.Client() as http:
+    with ServidorLocal(_app_eco(recebidas)) as app, httpx.Client() as http:
         # Confirma que o helper expõe exatamente CAMINHO_MENSAGEM.
         r = http.post(
             app.base_url + CAMINHO_MENSAGEM,

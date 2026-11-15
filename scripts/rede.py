@@ -51,9 +51,10 @@ from src.comum.toxiproxy import (
     proxies_2pc,
     proxies_anel,
 )
+from src.experimentos.conteineres import PORTAS_ANEL, PORTAS_PART
 
-ANEL_IDS = (1, 2, 3, 4, 5)
-PART_IDS = (11, 12, 13)
+ANEL_IDS = tuple(PORTAS_ANEL)
+PART_IDS = tuple(PORTAS_PART)
 
 
 def _cliente(args: argparse.Namespace) -> ClienteToxiproxy:

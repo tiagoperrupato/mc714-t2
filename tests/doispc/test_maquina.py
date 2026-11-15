@@ -24,8 +24,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-import pytest
-
 from src.comum.modelos import Mensagem
 from src.doispc.log_duravel import (
     DECISAO_ABORT,
@@ -37,7 +35,6 @@ from src.doispc.log_duravel import (
     VOTO_NAO,
     VOTO_SIM,
     EntradaLog,
-    EstadoPersistido,
     LogDuravel,
     LogDuravelMemoria,
 )

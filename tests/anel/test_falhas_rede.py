@@ -13,10 +13,7 @@ Os invariantes de `scripts/verificar.py` rodam sobre os logs que os Nós deixara
 
 from __future__ import annotations
 
-import socket
-import threading
-import time
-from contextlib import ExitStack, closing
+from contextlib import ExitStack
 from pathlib import Path
 
 import httpx
@@ -27,48 +24,19 @@ from src.anel.no import NoAnel, criar_app
 from src.comum.falhas import ClienteComFalhas, ControladorFalhas
 from src.comum.log import abrir_log
 from src.comum.rede import ClienteRede
-from tests.espera import esperar_ate
+from tests.apoio import ServidorLocal, esperar_ate, porta_livre
 
 ANEL5 = (1, 2, 3, 4, 5)
-
-
-def _porta_livre() -> int:
-    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-class _ServidorLocal:
-    def __init__(self, app, porta: int) -> None:
-        import uvicorn
-
-        self.porta = porta
-        config = uvicorn.Config(app, host="127.0.0.1", port=porta, log_level="warning")
-        self._servidor = uvicorn.Server(config)
-        self._thread = threading.Thread(target=self._servidor.run, daemon=True)
-
-    def __enter__(self) -> "_ServidorLocal":
-        self._thread.start()
-        limite = time.monotonic() + 10.0
-        while time.monotonic() < limite:
-            if self._servidor.started:
-                return self
-            time.sleep(0.02)
-        raise RuntimeError("servidor local não ficou pronto a tempo")
-
-    def __exit__(self, *_exc: object) -> None:
-        self._servidor.should_exit = True
-        self._thread.join(timeout=10.0)
 
 
 class _Anel:
     """Os cinco Nós com controlador de falhas e log em `tmp_path`, servidos localmente."""
 
     def __init__(self, tmp_path: Path) -> None:
-        portas = {i: _porta_livre() for i in ANEL5}
+        portas = {i: porta_livre() for i in ANEL5}
         self.urls = {i: f"http://127.0.0.1:{portas[i]}" for i in ANEL5}
         self._clientes = {i: ClienteRede(retries=1) for i in ANEL5}
-        self.controladores = {i: ControladorFalhas(1000 + i, dormir=time.sleep) for i in ANEL5}
+        self.controladores = {i: ControladorFalhas(1000 + i) for i in ANEL5}
         self.nos = {
             i: NoAnel(
                 EstadoAnel(no_id=i, anel=ANEL5),
@@ -81,7 +49,7 @@ class _Anel:
         }
         self._pilha = ExitStack()
         self._servidores = [
-            _ServidorLocal(criar_app(self.nos[i], controlador=self.controladores[i]), portas[i])
+            ServidorLocal(criar_app(self.nos[i], controlador=self.controladores[i]), portas[i])
             for i in ANEL5
         ]
 

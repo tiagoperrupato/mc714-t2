@@ -12,32 +12,12 @@ reexecutar Réplica), geram as tabelas da análise e verificam que:
 from __future__ import annotations
 
 import csv
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
 
+from scripts import analisar as cli
 from src.analise import anel_exp, dados, doispc_exp
-
-_RAIZ = Path(__file__).resolve().parents[2]
-
-
-def _carregar_cli():
-    """Carrega `scripts/analisar.py` como módulo (não é um pacote importável).
-
-    Registra o módulo em `sys.modules` antes de executá-lo: o `analisar.py`
-    define dataclasses com anotações por string (`from __future__ import
-    annotations`), e o `dataclasses` resolve essas anotações via
-    `sys.modules[cls.__module__]`, que precisa existir.
-    """
-    caminho = _RAIZ / "scripts" / "analisar.py"
-    spec = importlib.util.spec_from_file_location("analisar_cli", caminho)
-    modulo = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    sys.modules["analisar_cli"] = modulo
-    spec.loader.exec_module(modulo)
-    return modulo
 
 
 def _escrever_csv(caminho: Path, colunas: list[str], linhas: list[dict]) -> None:
@@ -222,7 +202,6 @@ def _args_comuns(anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs) -
 
 
 def test_subcomandos_escrevem_tabelas_e_figuras(tmp_path: Path) -> None:
-    cli = _carregar_cli()
     comuns = _args_comuns(*_preparar(tmp_path))
     dir_dados, dir_figs = tmp_path / "dados", tmp_path / "figs"
 
@@ -245,7 +224,6 @@ def test_subcomandos_escrevem_tabelas_e_figuras(tmp_path: Path) -> None:
 def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
     tmp_path: Path, monkeypatch
 ) -> None:
-    cli = _carregar_cli()
     anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs = _preparar(tmp_path)
     comuns = _args_comuns(anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs)
 
@@ -297,7 +275,6 @@ def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
 
 
 def test_dados_ausente_reprova_com_mensagem(tmp_path: Path) -> None:
-    cli = _carregar_cli()
     codigo = cli.main(
         [
             "anel",

@@ -145,7 +145,7 @@ algoritmo. A ausência de logs também não reprova. A lista de invariantes, com
 tolerância de cada um e a razão dela, está em
 [`docs/invariantes.md`](docs/invariantes.md).
 
-### 4. Cenários e demos sobre o compose
+### 4. Cenários sobre o compose
 
 Enquanto a bateria mede tendência com muitas Réplicas, estes scripts sobem um
 cenário **real** sobre o Docker Compose, conduzem o algoritmo pelos endpoints de
@@ -165,14 +165,9 @@ python scripts/cenario.py 2pc crash-coord    # Coordenador cai após decidir -> 
 python scripts/demo.py                        # encadeia anel/falha + 2pc/crash-coord e verifica
 ```
 
-As demos do núcleo e das falhas rodam **sem Docker**, com apps FastAPI locais em
-portas efêmeras — úteis para ver o algoritmo sem subir o compose:
+A demo de rede sobe o Anel com o Toxiproxy no caminho:
 
 ```bash
-python -m scripts.demo_rede               # dois Nós trocando Mensagens; timeout no Deadline
-python -m scripts.demo_anel               # eleição sobre o compose (supõe os Nós no ar)
-python -m scripts.demo_falhas_anel        # crash do Líder e reeleição (apps locais)
-python -m scripts.demo_falhas_2pc         # crash do Coordenador, bloqueio e recuperação
 python -m scripts.demo_rede_toxiproxy     # latência e partição via Toxiproxy (compose)
 ```
 
@@ -267,7 +262,7 @@ src/experimentos/  bateria (planeja e executa Réplicas), runner_anel (em
                    hardware/SO/versões)
 src/analise/       dados, estatistica, formato, graficos, anel_exp, doispc_exp,
                    invariantes
-scripts/           bateria, analisar, verificar, cenario, demo, rede e as demos
+scripts/           bateria, analisar, verificar, cenario, demo, rede e demo_rede_toxiproxy
 docs/              modelo e correção, invariantes, resultados, com dados/ e figuras/
 results/           dados brutos (CSVs e JSON, no git), logs e Logs_Duraveis (fora dele)
 ```
@@ -333,7 +328,7 @@ Os logs dos Nós de cada Réplica do 2PC ficam em `bateria_2pc_logs/`, e o
 
 ### Logs dos cenários
 
-Os cenários e demos sobre o compose coletam, por Nó, o Log_Estruturado (JSONL) e,
+Os cenários sobre o compose coletam, por Nó, o Log_Estruturado (JSONL) e,
 no 2PC, o Log_Duravel, em subdiretórios como `cenario_anel_falha_logs/` e
 `cenario_2pc_crash-coord_logs/`, mais um `.json` com o registro do cenário (que
 inclui o relatório da verificação) e um `.txt` por Nó com o stdout do contêiner.

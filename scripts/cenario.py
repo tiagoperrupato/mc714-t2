@@ -72,13 +72,15 @@ from src.experimentos.ambiente import coletar_ambiente  # noqa: E402
 from src.experimentos.conteineres import (  # noqa: E402
     BASE_COORD,
     COMPOSE,
+    PORTAS_ANEL,
     PORTAS_PART,
     SERVICOS_2PC,
-    SONDAGEM_S,
+    SERVICOS_ANEL,
     coletar_logs,
     compose,
     decisoes,
     docker_disponivel,
+    eleger,
     esperar_conclusao,
     esperar_saude,
     estados_participantes,
@@ -88,9 +90,6 @@ from src.experimentos.conteineres import (  # noqa: E402
 )
 
 RESULTS_PADRAO = _RAIZ / "results"
-
-SERVICOS_ANEL = [f"no-anel-{i}" for i in range(1, 6)]
-PORTAS_ANEL = {i: 8000 + i for i in range(1, 6)}  # 8001..8005
 
 # Semente padrão dos cenários (casa com SEMENTE do compose). Registrada no
 # resultado e sobreponível por --semente para reproduzir uma execução.
@@ -129,33 +128,6 @@ def _override_anel(semente: int) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _esperar_lider(bases: dict[int, str], ids, alvo, timeout: float) -> dict[int, Any]:
-    limite = time.monotonic() + timeout
-    lideres: dict[int, Any] = {}
-    while time.monotonic() < limite:
-        try:
-            lideres = {i: http_json(f"{bases[i]}/estado")["lider"] for i in ids}
-        except (urllib.error.URLError, OSError):
-            time.sleep(SONDAGEM_S)
-            continue
-        if all(v == alvo for v in lideres.values()):
-            break
-        time.sleep(SONDAGEM_S)
-    return lideres
-
-
-def _eleger(bases: dict[int, str], vivos: list[int], alvo: int) -> tuple[dict[int, Any], float]:
-    """Dispara uma eleição no Nó 1 e espera os `vivos` reportarem `alvo`.
-
-    Devolve o Líder que cada vivo reporta e o tempo até todos reportarem `alvo`,
-    ou até o prazo de 30 s.
-    """
-    inicio = time.monotonic()
-    http_json(f"{bases[1]}/iniciar-eleicao", metodo="POST")
-    lideres = _esperar_lider(bases, vivos, alvo, 30.0)
-    return lideres, time.monotonic() - inicio
-
-
 def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, Any]:
     """Conduz um cenário do Anel sobre o compose e devolve as métricas observadas.
 
@@ -170,7 +142,7 @@ def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, An
     """
     bases = {i: f"http://127.0.0.1:{porta}" for i, porta in PORTAS_ANEL.items()}
     todos = list(PORTAS_ANEL)
-    lideres, tempo = _eleger(bases, todos, 5)
+    lideres, tempo = eleger(bases, todos, 5)
     registro: dict[str, Any] = {
         "cenario": f"anel_{modo}",
         "algoritmo": "anel",
@@ -184,7 +156,7 @@ def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, An
     if modo == "falha":
         compose("kill", "no-anel-5", arquivos=arquivos, timeout=60)
         vivos = [i for i in todos if i != 5]
-        lideres, tempo = _eleger(bases, vivos, 4)
+        lideres, tempo = eleger(bases, vivos, 4)
         registro.update(
             {
                 "falha_injetada": "docker compose kill no-anel-5, depois da primeira eleição",
