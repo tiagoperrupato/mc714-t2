@@ -1,22 +1,10 @@
-# Orquestração do Trabalho 2 — Docker Compose v2.
-#
-# Este arquivo é dividido em seções independentes, uma por algoritmo, para que a
-# frente do Anel e a frente do 2PC evoluam sem colisão:
-#
-#   - Seção ELEIÇÃO EM ANEL (tarefa 4): serviços `no-anel-1` .. `no-anel-5` na
-#     rede dedicada `rede-anel`. É a seção definida aqui.
-#   - Seção TWO-PHASE COMMIT (tarefa 6): o Coordenador e os Participantes, com
-#     sua própria rede e volumes de Log_Duravel, acrescentados de forma
-#     independente abaixo, sem alterar nem depender dos serviços do Anel.
-#
-# Todos os serviços compartilham a MESMA imagem (ver Dockerfile): o algoritmo de
-# cada contêiner é escolhido pelo `command`. A topologia do Anel (quem é o
-# Sucessor de quem) vem por variável de ambiente — nunca embutida no código
-# (Requisito 5.2). Os cinco Nós sobem numa rede dedicada e, após disparar uma
-# eleição em qualquer um, todos convergem para o maior id (Requisitos 5.3, 5.4).
+# Orquestração do T2 no Docker Compose v2. Os cinco Nós do Anel ficam na rede `rede-anel`, o
+# Coordenador e os três Participantes do 2PC na `rede-2pc`, e o Toxiproxy nas duas. Todos os Nós
+# usam a mesma imagem (ver Dockerfile), e o `command` de cada serviço escolhe o algoritmo. A
+# topologia vem só de variáveis de ambiente.
 
 # Âncoras YAML com a configuração comum aos Nós do Anel. A base define imagem,
-# comando e rede; o bloco de ambiente define o ANEL e o mapa de URLS, idênticos
+# comando e rede. O bloco de ambiente define o ANEL e o mapa de URLS, idênticos
 # para todos os Nós. Cada serviço acrescenta apenas o seu NO_ID.
 x-no-anel-env: &no-anel-env
   ANEL: "1,2,3,4,5"
@@ -43,11 +31,8 @@ x-no-anel-base: &no-anel-base
   restart: "no"
 
 services:
-  # ----------------------------------------------------------------------
-  # SEÇÃO: ELEIÇÃO EM ANEL (tarefa 4)
-  # Cinco Nós formando o anel 1 -> 2 -> 3 -> 4 -> 5 -> 1. A porta de cada Nó é
-  # publicada em 8001..8005, para que `curl`/testes a alcancem da máquina host.
-  # ----------------------------------------------------------------------
+  # Eleição em Anel: cinco Nós no anel 1 -> 2 -> 3 -> 4 -> 5 -> 1, publicados em 8001..8005
+  # para que os scripts e os testes os alcancem do host.
   no-anel-1:
     <<: *no-anel-base
     container_name: no-anel-1
@@ -93,17 +78,10 @@ services:
     ports:
       - "8005:8000"
 
-  # ----------------------------------------------------------------------
-  # SEÇÃO: TWO-PHASE COMMIT (tarefa 6)
-  # Um Coordenador e três Participantes na rede dedicada `rede-2pc`. Todos usam a
-  # MESMA imagem do Anel (o papel é escolhido por `DOISPC_PAPEL`), de modo que o
-  # build permaneça único e compartilhado (Dockerfile comum). Cada Participante
-  # monta um volume nomeado próprio em /dados para o seu Log_Duravel
-  # (Requisito 7.2), o que preserva a Decisao através de reinícios do contêiner
-  # (Requisito 6.6). Os Deadlines de Voto e de Decisao são configuráveis por
-  # variável de ambiente (Requisito 7.5, 7.6). O Participante 3 vota NAO por
-  # padrão da flag para demonstrar o ABORT atômico (Requisito 7.4); troque
-  # DOISPC_VOTO para SIM para o cenário de COMMIT em todos.
+  # Two-Phase Commit: um Coordenador e três Participantes, com o mesmo `command`, e
+  # `DOISPC_PAPEL` escolhe o papel. Cada Nó monta um volume nomeado próprio em /dados para o seu
+  # Log_Duravel, que sobrevive ao reinício do contêiner. O Participante 3 vota NAO, para mostrar o
+  # ABORT atômico, e os cenários trocam o voto por override.
   coordenador:
     build:
       context: .
@@ -118,8 +96,7 @@ services:
       COORD_PORTA: "8000"
       # Mapa id@host:porta dos Participantes (ids 11, 12, 13).
       DOISPC_PARTICIPANTES: "11@participante-1:8000,12@participante-2:8000,13@participante-3:8000"
-      # Deadlines configuráveis (Requisito 7.6). O de Voto limita a coleta e,
-      # ao estourar, o Coordenador decide ABORT (Requisito 7.5).
+      # O prazo de Voto limita a coleta. Ao estourar, o Coordenador decide ABORT.
       DOISPC_DEADLINE_VOTO: "3.0"
       DOISPC_DEADLINE_DECISAO: "2.0"
       DOISPC_LOG_DURAVEL: "/dados/coordenador.log"
@@ -226,8 +203,7 @@ services:
       COORD_ID: "1"
       COORD_HOST: "coordenador"
       COORD_PORTA: "8000"
-      # Vota NAO por padrão: demonstra o ABORT atômico (Requisito 7.4). Para o
-      # cenário de COMMIT em todos, suba com DOISPC_VOTO=SIM neste serviço.
+      # Vota NAO para mostrar o ABORT atômico. compose.commit.yaml o troca por SIM.
       DOISPC_VOTO: "NAO"
       DOISPC_DEADLINE: "2.0"
       DOISPC_LOG_DURAVEL: "/dados/participante-13.log"
@@ -247,20 +223,10 @@ services:
       - "8013:8000"
     restart: "no"
 
-  # ----------------------------------------------------------------------
-  # SEÇÃO: FALHAS DE REDE — TOXIPROXY (tarefa 8)
-  # Um único serviço Toxiproxy ligado às DUAS redes (rede-anel e rede-2pc) atua
-  # como proxy TCP entre os Nós: cada Nó, quando reconfigurado para falar pelos
-  # proxies, aponta para uma porta de escuta do Toxiproxy, que repassa ao peer
-  # real. Sobre esses proxies aplicam-se toxics (latência, perda) e, derrubando
-  # o proxy, modela-se partição de rede (Requisito 9.1).
-  #
-  # Por padrão o serviço apenas FICA DE PÉ e expõe o HTTP API em 8474; os Nós do
-  # Anel e do 2PC continuam falando DIRETO entre si (o Toxiproxy não intercepta
-  # nada enquanto nenhum proxy é semeado e nenhum env é reescrito). Para rotear
-  # o tráfego pelos proxies, suba com o override `compose.toxiproxy.yaml`, que
-  # reescreve URLS/DOISPC_PARTICIPANTES/COORD_HOST dos Nós. Essa separação
-  # preserva os serviços e testes das tarefas 4 e 6 intactos.
+  # Toxiproxy: proxy TCP nas duas redes. Com o override compose.toxiproxy.yaml, cada Nó alcança o
+  # destino pela escuta do Toxiproxy que corresponde a ele, onde scripts/rede.py aplica latência ou
+  # desativa o proxy de um Nó, o que corta as Mensagens para ele (partição de entrada). Sem o
+  # override, o Toxiproxy só fica no ar e os Nós falam direto entre si.
   #
   # A imagem é pinada numa versão específica (sem :latest) para reprodutibilidade.
   toxiproxy:
@@ -290,20 +256,17 @@ services:
     restart: "no"
 
 networks:
-  # Rede dedicada do Anel. A seção do 2PC (tarefa 6) deve declarar a sua própria
-  # rede aqui, sem remover esta nem ligar os Nós do Anel a ela.
+  # Redes separadas: um Nó do Anel não alcança um Nó do 2PC.
   rede-anel:
     name: mc714-t2-rede-anel
     driver: bridge
-  # Rede dedicada do 2PC (tarefa 6), independente da rede do Anel.
   rede-2pc:
     name: mc714-t2-rede-2pc
     driver: bridge
 
 volumes:
-  # Um volume nomeado por Participante para o seu Log_Duravel (Requisito 7.2),
-  # mais um para o Coordenador. Volumes nomeados sobrevivem a `down` sem `-v`,
-  # o que sustenta a demonstração de recuperação após reinício (Requisito 6.6).
+  # Um volume nomeado por Nó do 2PC para o Log_Duravel. Ele sobrevive ao crash e ao start do
+  # contêiner, o que sustenta a recuperação do cenário crash-coord, e só some com down -v.
   log-coordenador:
     name: mc714-t2-log-coordenador
   log-participante-1:

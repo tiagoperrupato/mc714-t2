@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# A Semente é um inteiro não negativo; o teto é o do intervalo de 32 bits sem
-# sinal, folgado para qualquer bateria e estável entre plataformas.
+# A Semente é um inteiro não negativo com teto no maior inteiro de 32 bits com
+# sinal, estável entre plataformas.
 SEMENTE_MIN = 0
 SEMENTE_MAX = 2_147_483_647
 
@@ -26,7 +26,7 @@ DEADLINE_MAX = 300.0
 RETRIES_MIN = 0
 RETRIES_MAX = 10
 
-# Porta TCP válida no espaço não privilegiado.
+# Porta TCP válida.
 PORTA_MIN = 1
 PORTA_MAX = 65_535
 

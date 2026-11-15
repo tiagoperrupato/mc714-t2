@@ -1,40 +1,45 @@
-"""CLI de falhas de rede: cria proxies do Toxiproxy e aplica toxics.
+"""CLI de falhas de rede: cria os proxies do Toxiproxy, aplica latência e particiona.
 
-Este script é o orquestrador scriptado e repetível das falhas de rede: fala
-com o HTTP API do Toxiproxy (serviço `toxiproxy` do compose, publicado em
-`127.0.0.1:8474`) para semear os proxies entre os Nós e, sobre eles, aplicar
-latência e partição.
-
-Não sobe nem derruba contêiner: assume que o compose já está no ar com o
-override de roteamento (`compose.toxiproxy.yaml`), de modo que os Nós já apontam
-para as portas de escuta do Toxiproxy. A fronteira de projeto é respeitada: este
-é um script de infra/experimento, não parte das Máquinas_de_Estados.
+Fala com o HTTP API do Toxiproxy (serviço `toxiproxy` do compose, publicado em
+`127.0.0.1:8474`). Não sobe nem derruba contêiner: supõe o compose no ar com o
+override `compose.toxiproxy.yaml`, que faz os Nós falarem pelas escutas do Toxiproxy.
 
 Subcomandos:
 
     python -m scripts.rede anel semear
-        Cria os 5 proxies do Anel (toxiproxy:1600i -> no-anel-i:8000).
+        Cria os 5 proxies do Anel (toxiproxy:16000+i -> no-anel-i:8000).
 
-    python -m scripts.rede anel latencia --ms 300 [--no I]
-        Injeta 300 ms de latência em todas as rotas do Anel (ou só no Nó I).
-        Com ms > Deadline, o cliente estoura o Deadline.
+    python -m scripts.rede anel latencia --ms 300 [--jitter MS] [--no I]
+        Atrasa em 300 ms as respostas que voltam por cada proxy do Anel, ou só pelo
+        do Nó I. Acima do Deadline de repasse (1 s no compose), quem envia ao I
+        estoura o prazo e o salta, mesmo com o I vivo.
 
     python -m scripts.rede anel particionar --no 5
-        Desabilita o proxy do Nó 5 (partição do Líder do resto); os Nós vivos
-        disparam e concluem uma nova eleição.
+        Desativa o proxy do Nó 5, e nenhuma Mensagem chega mais a ele. A próxima
+        eleição o salta e elege o maior id entre os outros.
 
     python -m scripts.rede anel curar [--no I]
-        Remove toxics e reabilita o(s) proxy(s) do Anel.
+        Remove os toxics e reativa os proxies do Anel, ou só o do Nó I.
+
+    python -m scripts.rede anel listar
+        Lista os proxies registrados, ligados ou não, e os toxics de cada um.
 
     python -m scripts.rede doispc semear
         Cria os proxies do Coordenador e dos 3 Participantes.
 
     python -m scripts.rede doispc particionar --participante 1
-        Desabilita o proxy do Participante 1 (partição Coordenador<->Part. 1);
-        o comportamento resultante fica registrado no log.
+        Desativa o proxy do Participante 1 (id 11), e as Mensagens do Coordenador
+        não chegam a ele. Uma transação feita durante a partição termina em ABORT
+        no prazo de coleta de Votos.
 
-    python -m scripts.rede doispc latencia --ms 300 [--participante K]
+    python -m scripts.rede doispc latencia --ms 300 [--jitter MS] [--participante K]
     python -m scripts.rede doispc curar [--participante K]
+
+Sem `--no` ou `--participante`, latencia, particionar e curar valem para todos os proxies do
+algoritmo, e no 2PC isso inclui o do Coordenador. Desativar o proxy de um Nó corta só o que
+chega a ele. Isso isola um Nó do Anel ou um Participante, porque eles só enviam em resposta
+ao que recebem. Sem `--jitter`, a latência é fixa e se repete sem Semente. O jitter é sorteado
+pelo próprio Toxiproxy, fora da Semente do projeto.
 """
 
 from __future__ import annotations

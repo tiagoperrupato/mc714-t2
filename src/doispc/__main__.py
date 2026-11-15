@@ -92,9 +92,9 @@ def _abrir_log_e_controlador(
 ) -> tuple[object, ControladorFalhas]:
     """Abre o Log_Estruturado e cria o controlador de falhas deste Nó.
 
-    O `inicio_replica` passa a sair do próprio controlador, que carimba a Semente
-    e o Plano_de_Falhas corrente. Os streams `drop`/`delay` do
-    controlador derivam da Semente, mantendo o Cenário de falha reproduzível.
+    O `inicio_replica` sai do controlador, com a Semente e o Plano_de_Falhas
+    corrente. Os streams `drop` e `delay` do controlador derivam da Semente, e o
+    Cenário de falha se repete.
     """
     log_dir = Path(os.environ.get("LOG_DIR", "results"))
     log = abrir_log(log_dir / f"doispc-{papel}-{no_id}.jsonl", no_id)

@@ -1,6 +1,5 @@
-# Override pontual: faz o Participante 3 votar SIM, para o cenário de COMMIT em
-# todos (Requisito 7.3). Combine com compose.verify.yaml quando portas do host
-# estiverem ocupadas. Usado só em demonstração/verificação.
+# Override que faz o Participante 3 votar SIM, para uma transação manual com COMMIT em todos:
+#   docker compose -f compose.yaml -f compose.commit.yaml up -d --wait coordenador
 services:
   participante-3:
     environment:

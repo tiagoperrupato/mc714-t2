@@ -2,7 +2,7 @@
 
 Dois níveis, nenhum exigindo Docker:
 
-- **Unitário com cliente fake**: prova que `NoAnel` é um adaptador fino — ele
+- **Unitário com cliente fake**: prova que `NoAnel` é um adaptador fino. Ele
   delega a decisão à Máquina_de_Estados pura e apenas despacha as Mensagens de
   saída. O repasse ao Sucessor tem novas tentativas dentro do Deadline. Só
   quando nenhuma é aceita o adaptador chama `com_sucessor_falho` e reemite ao
@@ -10,8 +10,8 @@ Dois níveis, nenhum exigindo Docker:
 
 - **Integração local (sem contêiner)**: sobe os 5 Nós como apps FastAPI em
   uvicorn locais, em portas efêmeras, dispara uma eleição por HTTP e confere que
-  todos convergem para o maior id ao consultar `GET /estado` (
-  5.4). É a mesma prova da tarefa, só que sem Docker, para rodar no CI.
+  todos convergem para o maior id ao consultar `GET /estado`. É a mesma prova do
+  cenário `anel normal`, sem Docker.
 """
 
 from __future__ import annotations

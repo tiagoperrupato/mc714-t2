@@ -118,9 +118,9 @@ def construir_no() -> tuple[NoAnel, ConfigNo, int, ControladorFalhas]:
     log_dir = Path(os.environ.get("LOG_DIR", "results"))
     log = abrir_log(log_dir / f"anel-no-{no_id}.jsonl", no_id)
 
-    # Controlador de falhas dirigido pela Semente, plugado nas duas fronteiras
-    # de rede do Nó. Registrado no log já com a Semente e o Plano_de_Falhas,
-    # substituindo o `inicio_replica` sem Plano_de_Falhas.
+    # Controlador de falhas dirigido pela Semente, plugado no recebimento e no
+    # despacho do Nó. `registrar_plano_no_log` grava o `inicio_replica` com a
+    # Semente e o Plano_de_Falhas.
     controlador = ControladorFalhas(semente, log=log)
     registrar_plano_no_log(
         controlador,

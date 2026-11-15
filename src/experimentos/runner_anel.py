@@ -47,7 +47,7 @@ class ResultadoAnel:
     `convergiu` indica se todos os Nós chegaram ao mesmo Líder. `lider` é o
     Líder eleito (o maior id, quando convergiu). `tempo_convergencia` é o
     número de passos lógicos de entrega até a convergência, e `mensagens` o total
-    de Mensagens enviadas.
+    de tentativas de entrega, perdidas incluídas.
     """
 
     convergiu: bool

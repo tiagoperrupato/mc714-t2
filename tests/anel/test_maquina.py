@@ -6,12 +6,14 @@ simulando a circulação no Anel. Isso é o que a separação "decidir vs enviar
 torna possível.
 
 Cobrem:
-- eleição a partir de qualquer iniciador converge para o maior id;
-- rodadas concorrentes convergem para o mesmo Líder;
-- com um Nó marcado morto, a eleição salta e ainda converge;
-- uma eleição atrasada não fecha de novo uma rodada concluída;
-- um Nó que volta participa da eleição seguinte;
-- o anúncio para mesmo quando o iniciador morre no meio da rodada.
+- eleição a partir de qualquer iniciador converge para o maior id
+- rodadas concorrentes convergem para o mesmo Líder
+- com um Nó marcado morto, a eleição salta e ainda converge
+- uma eleição atrasada não fecha de novo uma rodada concluída
+- dois Nós suspeitos por engano na mesma rodada podem fechá-la duas vezes, o
+  limite que o modelo declara
+- um Nó que volta participa da eleição seguinte
+- o anúncio para mesmo quando o iniciador morre no meio da rodada
 """
 
 from __future__ import annotations
@@ -38,13 +40,13 @@ class AnelSimulado:
     """Entrega Mensagens entre Nós de um Anel chamando as funções puras.
 
     Mantém um estado por Nó e uma fila de Mensagens em trânsito. `mortos` é o
-    conjunto de ids que não respondem, e o teste pode mudá-lo entre rodadas:
-    quando uma Mensagem é endereçada a um morto, o driver não a entrega; em vez
-    disso, invoca `com_sucessor_falho` no remetente, modelando o estouro de
-    Deadline da camada de rede.
+    conjunto de ids que não respondem, e o teste pode mudá-lo entre rodadas.
+    Uma Mensagem endereçada a um morto não é entregue, e o driver invoca
+    `com_sucessor_falho` no remetente, modelando o estouro de Deadline da camada
+    de rede.
 
-    Devolve, ao final, o estado de cada Nó e o histórico de Mensagens trocadas,
-    para que os testes verifiquem convergência e para a demo imprimir o tráfego.
+    Guarda o estado de cada Nó e o histórico de Mensagens trocadas, que os testes
+    inspecionam.
     """
 
     def __init__(self, anel: tuple[int, ...], mortos: frozenset[int] = frozenset()) -> None:
@@ -255,6 +257,24 @@ def test_eleicao_atrasada_nao_fecha_de_novo_a_rodada() -> None:
     novo, saida = receber(sim.estados[1], atrasada)
     assert saida == []
     assert novo.lider == 4
+
+
+def test_dois_nos_suspeitos_por_engano_fecham_a_rodada_duas_vezes() -> None:
+    # O limite que docs/modelo-e-correcao.md declara. O 4 salta o 5, que está lento,
+    # e o 1, que recusou a entrega, e o 2 fecha a rodada com o Líder 4. O 5 responde
+    # depois e repassa ao 1 a lista com o próprio id. O 1 nunca recebeu a lista do 4
+    # e fecha a mesma rodada com o Líder 5.
+    sim = AnelSimulado(ANEL5)
+    rodada, saida = sim.iniciar(1)
+    sim.mortos = frozenset({1, 5})
+    sim._entregar(saida)
+    assert {sim.estados[i].lider for i in (2, 3, 4)} == {4}
+
+    atrasada = next(m for m in sim.historico if m.tipo == TIPO_ELEICAO and m.destino == 5)
+    sim.mortos = frozenset()
+    sim._entregar([atrasada])
+    assert sim.estados[1].lider == 5
+    assert rodada in sim.estados[1].rodadas_concluidas
 
 
 def test_no_que_volta_participa_da_eleicao_seguinte() -> None:

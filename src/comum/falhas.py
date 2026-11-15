@@ -1,36 +1,35 @@
 """Injeção de falhas no nível da aplicação, determinística por Semente.
 
-Este módulo oferece um `ControladorFalhas` plugável em qualquer Nó — tanto no
-adaptador do Anel (`src.anel.no`) quanto nos apps do 2PC
-(`src.doispc.coordenador`/`participante`) — com quatro modos:
+Este módulo oferece um `ControladorFalhas` plugável em qualquer Nó, no adaptador
+do Anel (`src.anel.no`) e nos apps do 2PC (`src.doispc.coordenador` e
+`src.doispc.participante`), com quatro modos:
 
 - **crash**: o Nó deixa de responder. O controlador passa a recusar o
   processamento de Mensagens recebidas (levanta `NoEmCrashError`, que o
   adaptador traduz num HTTP 503) e a abortar o despacho de Mensagens de saída.
-- **pause**: o Nó congela por N segundos e depois volta a operar. Implementado
-  como um `sleep` no caminho de recebimento/despacho; ao fim do intervalo o Nó
-  responde normalmente de novo.
-- **delay**: atrasa cada resposta por um intervalo. O intervalo de cada decisão
-  vem do stream `delay` da Semente, então é idêntico entre
-  execuções com a mesma Semente e o mesmo Cenário.
+- **pause**: o próximo evento do Nó, recebimento ou envio, dorme N segundos, e
+  depois o Nó volta a operar. No recebimento, o sono prende o laço de eventos do
+  servidor, e o Nó inteiro deixa de responder nesse intervalo.
+- **delay**: atrasa cada Mensagem recebida ou enviada por um intervalo sorteado
+  do stream `delay` da Semente.
 - **drop**: descarta uma Mensagem com probabilidade `p`. A decisão vem do stream
-  `drop` da Semente, também reproduzível dígito a dígito.
+  `drop` da Semente.
 
 **Por que a camada comum/adaptador, e não a Máquina_de_Estados.** As
 Máquinas_de_Estados do Anel (`src.anel.maquina`) e do 2PC (`src.doispc.maquina`)
 permanecem puras: elas não sabem que falhas existem. O controlador intercepta
-nas duas fronteiras onde a rede toca a lógica — o **recebimento** de uma
+nas duas fronteiras onde a rede toca a lógica, o **recebimento** de uma
 Mensagem (antes de entregá-la à Máquina) e o **despacho** de uma Mensagem de
-saída (o `ClienteRede`). Essa é a mesma fronteira onde o timeout do Transporte já
-vive, e é o único lugar onde faz sentido descartar ou atrasar uma Mensagem sem
-contaminar a decisão do algoritmo.
+saída (o `ClienteRede`). É o único lugar onde faz sentido descartar ou atrasar
+uma Mensagem sem contaminar a decisão do algoritmo.
 
 **Determinismo.** As decisões de drop e de delay consomem,
 respectivamente, dos streams independentes `drop` e `delay` de `Streams`
 (`src.comum.aleatoriedade`). Consumir um não desloca o outro, então, fixada a
 Semente e o Cenário, a sequência de Mensagens descartadas e de atrasos aplicados
-é idêntica entre execuções. crash e pause são determinísticos por construção:
-não consomem aleatoriedade, são ligados/desligados por comando de controle.
+é idêntica entre execuções, desde que as Mensagens cheguem na mesma ordem. crash
+e pause não consomem aleatoriedade, porque são ligados e desligados por comando
+de controle.
 
 **Controle em tempo de execução.** `registrar_endpoints_falha`
 pendura os endpoints `/falha/*` em qualquer app FastAPI, para injetar e limpar
@@ -68,11 +67,10 @@ class NoEmCrashError(RuntimeError):
 class _Modos:
     """Estado mutável dos modos de falha ativos, protegido por lock no controlador.
 
-    `crash` desliga as respostas enquanto ligado. `pausa_s` congela por N
-    segundos (aplicado uma vez por evento, não a cada Mensagem indefinidamente —
-    ver `_consumir_pausa`). `atraso_s` é o teto do atraso sorteado por Mensagem
-    quando `atraso_ativo`. `drop_p` é a probabilidade de descarte quando
-    `drop_ativo`.
+    `crash` desliga as respostas enquanto ligado. `pausa_s` vale só para o
+    próximo evento (ver `_consumir_pausa`). `atraso_s` é o teto do atraso
+    sorteado por Mensagem quando `atraso_ativo`. `drop_p` é a probabilidade de
+    descarte quando `drop_ativo`.
     """
 
     crash: bool = False
@@ -138,7 +136,7 @@ class ControladorFalhas:
         self._evento("falha_injetada", modo="pause", segundos=float(segundos))
 
     def injetar_delay(self, segundos: float) -> None:
-        """Liga o atraso de respostas com teto `segundos`."""
+        """Liga o atraso de cada Mensagem recebida ou enviada, sorteado até `segundos`."""
         if segundos < 0:
             raise ValueError(f"delay >= 0; recebido {segundos!r}")
         with self._lock:

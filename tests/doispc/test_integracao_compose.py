@@ -66,7 +66,7 @@ def test_compose_config_valido() -> None:
         montados.extend(f for f in fontes if f and f.startswith("log-participante-"))
     assert len(set(montados)) == 3, "Participantes devem ter volumes distintos"
 
-    # A seção do Anel não foi removida: continua coexistindo (coordenação T4/T6).
+    # O Anel continua no mesmo compose.
     assert any(s.startswith("no-anel-") for s in servicos), "seção do Anel sumiu"
 
     # A rede dedicada do 2PC existe e não substitui a do Anel.

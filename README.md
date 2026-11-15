@@ -4,10 +4,9 @@ Implementação dos dois algoritmos distribuídos do Trabalho 2 como **Nós
 independentes que conversam por HTTP/JSON sobre Docker Compose**: a **Eleição de
 Líder em Anel**, com cinco Nós formando o anel 1 → 2 → 3 → 4 → 5 → 1, e o
 **Two-Phase Commit (2PC)**, com um Coordenador e três Participantes, cada um com
-seu Log_Duravel. Os dois algoritmos sofrem injeção de falhas tanto no nível da
-aplicação (crash, pause, delay, drop) quanto de rede (latência, perda e partição
-via Toxiproxy), e cada execução registra a Semente e o ambiente para ser
-reproduzível.
+seu Log_Duravel. Os dois algoritmos sofrem falhas injetadas na aplicação (crash,
+pause, delay, drop) e na rede, pelo Toxiproxy (latência e partição), e cada
+execução registra a Semente e o ambiente para ser reproduzível.
 
 O repositório entrega os dois algoritmos, a orquestração de experimentos que os
 exercita em processo e sobre o compose, a camada de análise que consome os CSVs
@@ -33,9 +32,10 @@ de modelo e correção em [`docs/`](docs/).
 
 - **Python 3.11 ou superior** para as CLIs de orquestração, análise e verificação.
 - **Docker com Compose v2** para subir os Nós em contêiner. A análise, os
-  invariantes e a bateria do Anel rodam **sem Docker**. A bateria do 2PC e os
-  cenários sobre o compose (`scripts/cenario.py`, `scripts/demo.py`, os cenários
-  de rede) o exigem.
+  invariantes e a bateria do Anel rodam **sem Docker**. A bateria do 2PC, os
+  cenários e as demos sobre o compose (`scripts/cenario.py`, `scripts/demo.py`,
+  `scripts/demo_rede_toxiproxy.py`) e as falhas de rede de `scripts/rede.py` o
+  exigem.
 - As dependências fixadas em `requirements.txt`:
 
 ```
@@ -49,6 +49,10 @@ pytest==8.3.4       testes
 ```
 
 `pydantic` entra como dependência transitiva do FastAPI, sem pin próprio.
+
+Nenhuma dependência implementa eleição nem commit atômico. FastAPI, uvicorn e
+httpx só transportam JSON, e a lógica dos dois algoritmos está em
+`src/anel/maquina.py` e `src/doispc/maquina.py`.
 
 ## Instalação
 
@@ -68,9 +72,12 @@ CLIs fiquem alinhados.
 
 ## Uso das CLIs
 
-As CLIs se dividem em três grupos: **experimentar** (gerar dados), **analisar** e
-**verificar** — mais os **cenários/demos** que sobem o compose. Todas resolvem
-`src` a partir da raiz do projeto, então rodam de qualquer diretório.
+As CLIs se dividem em três grupos, **experimentar** (gerar dados), **analisar** e
+**verificar**, além dos **cenários** e **demos** que sobem o compose e das
+**falhas de rede** aplicadas sobre ele. As que rodam como `python scripts/...`
+resolvem `src` a partir da raiz do projeto e rodam de qualquer diretório.
+`scripts.rede` e `scripts.demo_rede_toxiproxy` rodam como módulo (`python -m`), a
+partir da raiz do projeto.
 
 ### 1. Bateria de experimentos (`scripts/bateria.py`)
 
@@ -94,7 +101,7 @@ Réplica que falha é registrada sem interromper o restante.
 
 | Opção | Padrão | Descrição |
 |:---|:---|:---|
-| `--algoritmo` | — (obrigatória) | `anel` ou `2pc` |
+| `--algoritmo` | n/d (obrigatória) | `anel` ou `2pc` |
 | `--replicas` | 5 | Réplicas por nível |
 | `--semente-base` | 42 | Semente base das Réplicas |
 | `--transacoes` | 40 | 2pc: transações medidas por Réplica |
@@ -164,35 +171,39 @@ python scripts/cenario.py anel falha         # mata o Líder (5) e reelege o mai
 python scripts/cenario.py 2pc commit         # todos votam SIM -> COMMIT atômico
 python scripts/cenario.py 2pc abort          # Participante 3 vota NAO -> ABORT atômico
 python scripts/cenario.py 2pc crash-coord    # Coordenador cai após decidir -> dúvida -> reinício -> COMMIT
-
-python scripts/demo.py                        # encadeia anel/falha + 2pc/crash-coord e verifica
 ```
 
-A demo de rede sobe o Anel com o Toxiproxy no caminho:
+As duas demos também sobem o compose:
 
 ```bash
-python -m scripts.demo_rede_toxiproxy     # latência e partição via Toxiproxy (compose)
+python scripts/demo.py                    # encadeia anel falha e 2pc crash-coord e verifica os logs
+python -m scripts.demo_rede_toxiproxy     # o Anel pelo Toxiproxy: partição do Líder e reeleição do 4
 ```
 
 ### 5. Falhas de rede com Toxiproxy (`scripts/rede.py`)
 
-Cria os proxies entre os Nós e aplica toxics de forma scriptada e repetível,
-falando com o HTTP API do Toxiproxy (publicado em `127.0.0.1:8474`). Supõe o
-compose já no ar com o override de roteamento `compose.toxiproxy.yaml`.
+Cria os proxies entre os Nós, aplica latência e particiona, de forma scriptada e
+repetível, falando com o HTTP API do Toxiproxy (publicado em `127.0.0.1:8474`).
+Supõe o compose já no ar com o override de roteamento `compose.toxiproxy.yaml`.
 
 ```bash
 docker compose -f compose.yaml -f compose.toxiproxy.yaml up -d --wait
-python -m scripts.rede anel semear                  # cria os 5 proxies do Anel
-python -m scripts.rede anel latencia --ms 300       # latência acima do Deadline
-python -m scripts.rede anel particionar --no 5      # partição do Líder -> reeleição
-python -m scripts.rede anel curar                   # remove toxics e reabilita
+python -m scripts.rede anel semear                         # cria os 5 proxies do Anel
+python -m scripts.rede anel latencia --ms 300              # atrasa as respostas em 300 ms, abaixo do Deadline de 1 s
+python -m scripts.rede anel latencia --ms 1500 --no 3      # acima do Deadline: numa eleição, o 2 salta o 3 vivo
+python -m scripts.rede anel particionar --no 5             # nada mais chega ao 5, e a próxima eleição o salta
+python -m scripts.rede anel curar                          # remove toxics e reativa os proxies
 python -m scripts.rede doispc semear
-python -m scripts.rede doispc particionar --participante 1
+python -m scripts.rede doispc particionar --participante 1 # corta as Mensagens do Coordenador ao Participante 11
 ```
+
+Desativar o proxy de um Nó corta só as Mensagens que chegam a ele. Isso o isola
+nos dois algoritmos, porque um Nó só envia em resposta ao que recebe
+([`docs/modelo-e-correcao.md`](docs/modelo-e-correcao.md), Falhas).
 
 ## Docker Compose
 
-Todos os serviços compartilham a **mesma imagem** (ver [`Dockerfile`](Dockerfile)):
+Todos os Nós compartilham a **mesma imagem** (ver [`Dockerfile`](Dockerfile)):
 o algoritmo de cada contêiner é escolhido pelo `command` do serviço, não por uma
 imagem dedicada. A topologia é toda por variável de ambiente, nunca embutida no
 código.
@@ -201,12 +212,12 @@ código.
   `rede-anel`, publicados em `8001..8005`. Cada Nó conhece o Anel e o mapa de
   URLs por ambiente e só difere no `NO_ID`.
 - **Seção 2PC:** `coordenador` (publicado em `8000`) e `participante-1..3`
-  (`8011..8013`) na rede `rede-2pc`. Cada Participante monta um **volume nomeado
+  (`8011..8013`) na rede `rede-2pc`. Cada Nó do 2PC monta um **volume nomeado
   próprio** em `/dados` para o seu Log_Duravel, o que preserva a Decisao através
   de reinícios. Os Deadlines de Voto e de Decisao são configuráveis por ambiente.
 - **Serviço Toxiproxy:** `ghcr.io/shopify/toxiproxy:2.9.0`, ligado às duas redes,
-  com o HTTP API em `8474`. Por padrão apenas fica de pé; os Nós só passam a falar
-  pelos proxies com o override `compose.toxiproxy.yaml`.
+  com o HTTP API em `8474`. Sem override, ele só fica no ar e os Nós falam direto
+  entre si. Com o `compose.toxiproxy.yaml`, falam pelas escutas dele.
 
 Comandos de ciclo de vida:
 
@@ -219,9 +230,10 @@ docker compose down -v --remove-orphans                # derruba e limpa volumes
 
 Overrides pontuais:
 
-- `compose.toxiproxy.yaml` — roteia o tráfego dos Nós pelo Toxiproxy.
-- `compose.commit.yaml` — faz o Participante 3 votar SIM, para o cenário de COMMIT
-  em todos (o base o deixa votando NAO para demonstrar o ABORT atômico).
+- `compose.toxiproxy.yaml`: faz os Nós falarem pelas escutas do Toxiproxy.
+- `compose.commit.yaml`: faz o Participante 3 votar SIM, para uma transação manual
+  com COMMIT em todos. O compose base o deixa votando NAO, para mostrar o ABORT
+  atômico.
 
 Endpoints de controle de cada Nó:
 
@@ -250,7 +262,7 @@ invariantes.
 **A regra de dependência:** a Máquina_de_Estados pura nunca importa FastAPI nem
 httpx, e a camada de análise nunca sobe contêiner nem executa Réplica. O que
 amarra a lógica pura à rede são `src/anel/no.py`, `src/doispc/coordenador.py` e
-`src/doispc/participante.py`; o que orquestra experimentos é `src/experimentos/`.
+`src/doispc/participante.py`. O que orquestra experimentos é `src/experimentos/`.
 
 ```
 src/comum/         config, modelos, aleatoriedade, log, rede (Transporte com
@@ -301,7 +313,7 @@ também as versões do Docker e do Compose e o Python da imagem.
 | `algoritmo`, `parametro_variado`, `semente` | identificam a Réplica |
 | `num_nos`, `taxa_falhas` | parâmetros da Réplica, com a perda fixa em 0,05 |
 | `tempo_convergencia` | passos lógicos de entrega até a convergência |
-| `mensagens` | total de Mensagens entregues |
+| `mensagens` | tentativas de entrega até a convergência, perdidas incluídas |
 | `convergiu`, `lider` | resultado da eleição |
 
 `bateria_2pc_latencia_rede.csv`, uma linha por transação:
@@ -393,7 +405,7 @@ Em [`docs/`](docs/):
   persistência e reinício) e as propriedades de *safety* e *liveness*, cada uma
   ligada ao invariante que a testa.
 - [`docs/invariantes.md`](docs/invariantes.md): os seis invariantes, com a
-  tolerância de cada um e a distinção entre reprova (safety violada) e aviso.
+  tolerância de cada um e a distinção entre reprovação, aviso e lacuna.
 - [`docs/resultados-anel.md`](docs/resultados-anel.md) e
   [`docs/resultados-2pc.md`](docs/resultados-2pc.md): as tabelas e figuras da
   análise, todas geradas por comando.
@@ -414,9 +426,9 @@ python -m pytest -m slow              # os testes que sobem o compose (precisam 
 Os dois primeiros saem com código diferente de zero quando algo não bate, então
 servem em sequência depois de qualquer regeneração dos dados. A suíte sem Docker
 cobre as Máquinas puras, o Transporte, as falhas, a orquestração em processo, a
-análise e os invariantes; a suíte `slow` sobe o compose de ponta a ponta e é
-pulada de forma limpa quando o daemon não está acessível. Rode os testes `slow`
-isolados — stacks de compose em paralelo podem conflitar no `--wait` e nas portas.
+análise e os invariantes. A suíte `slow` sobe o compose de ponta a ponta e é
+pulada quando o daemon não está acessível. Rode os testes `slow` isolados, porque
+stacks de compose em paralelo podem conflitar no `--wait` e nas portas.
 
 ## Limitação do ambiente
 

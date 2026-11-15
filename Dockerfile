@@ -1,11 +1,6 @@
-# Imagem comum dos Nós do Trabalho 2.
-#
-# Uma única imagem Python serve tanto os Nós do Anel quanto os do 2PC: a imagem
-# instala o requirements.txt e copia o pacote `src/`. Qual algoritmo um
-# contêiner executa é escolhido pelo COMMAND do serviço no compose, não por uma
-# imagem dedicada — por exemplo `python -m src.anel` para um Nó do Anel, ou o
-# módulo correspondente do 2PC. Isso mantém o build único e reaproveitável pelos
-# dois algoritmos (tarefas 4 e 6).
+# Imagem única dos Nós do T2: instala o requirements.txt e copia o pacote src/. O command de cada
+# serviço do compose escolhe o algoritmo: `python -m src.anel` para um Nó do Anel e
+# `python -m src.doispc` para o Coordenador ou um Participante.
 
 FROM python:3.12-slim
 
@@ -21,12 +16,12 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia o código-fonte da aplicação. Os módulos de análise e scripts não são
+# Copia o código-fonte da aplicação. Os módulos de análise e de experimentos não são
 # necessários dentro do contêiner de um Nó, mas copiar `src/` inteiro mantém os
 # imports de `src.comum` resolvendo sem truques de PYTHONPATH.
 COPY src/ ./src/
 
-# Porta padrão dos servidores dos Nós; o compose pode sobrepor via env PORTA.
+# Porta padrão dos servidores dos Nós. O ambiente do serviço no compose pode trocá-la.
 EXPOSE 8000
 
 # Sem ENTRYPOINT fixo: o serviço do compose define o COMMAND (o módulo do

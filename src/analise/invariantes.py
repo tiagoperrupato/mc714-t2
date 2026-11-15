@@ -3,18 +3,18 @@
 Cada invariante é uma função de `Dados` para `Veredito`: a função lê o que precisa
 dos logs já carregados e devolve um veredito que **passa**, **reprova** ou
 **avisa**. A distinção central do T2 é decisão de projeto. Uma reprovação
-indica violação de uma propriedade de *safety*, e um aviso registra um
-fenômeno esperado — como o Estado_Em_Duvida bloqueante do 2PC quando o
-Coordenador cai — e **não** altera o código de saída. `scripts/verificar.py`
-sai com código diferente de zero só quando algum invariante reprova.
+indica uma propriedade violada. Um aviso registra um fenômeno esperado, como o
+Estado_Em_Duvida bloqueante do 2PC, e **não** altera o código de saída. `scripts/verificar.py` sai com código diferente de
+zero só quando algum invariante reprova.
 
 Os invariantes cobrem as propriedades declaradas em `docs/modelo-e-correcao.md`:
 
 Anel
   1. **Unicidade do Líder por rodada** (*safety*): no máximo um Líder por
      Rodada_de_Eleicao concluída, identificada pelo id único da rodada. REPROVA.
-  2. **Convergência dos vivos** (*liveness*): todos os Nós vivos que reportam um
-     Líder ao fim de uma rodada reportam o mesmo. REPROVA se divergirem.
+  2. **Convergência dos vivos** (*liveness*): todos os Nós vivos de uma rodada
+     conhecem o mesmo Líder. REPROVA se dois observadores divergem ou se um vivo
+     não recebeu o anúncio.
   3. **O eleito é o maior id vivo** (*correctness*): o Líder anunciado numa
      rodada concluída é o maior id entre os Nós vivos. REPROVA.
 
@@ -22,24 +22,21 @@ Anel
   4. **Atomicidade** (*safety*): nenhum Nó decide COMMIT enquanto outro decide
      ABORT para a mesma transação. REPROVA.
   5. **Durabilidade** (*safety*): a Decisao gravada no Log_Duravel sobrevive ao
-     reinício — a Decisao recuperada é igual à de antes. REPROVA se reverter.
-     Um Participante que votou SIM mas não tem Decisao durável (Estado_Em_Duvida
-     por crash do Coordenador) vira **aviso**, não reprovação.
+     reinício, e a Decisao recuperada é igual à de antes. REPROVA se reverter.
+     Um Participante que votou SIM e não tem Decisao durável (Estado_Em_Duvida)
+     vira **aviso**, não reprovação.
   6. **Validade** (*safety*): COMMIT só quando todos os Participantes votaram
      SIM. REPROVA.
 
-Este módulo é **autocontido** de propósito: lê os logs estruturados (JSONL) e os
-Logs_Duraveis direto com a biblioteca padrão (`json`), sem depender dos módulos
-de carga/estatística da camada de análise. Isso o mantém verificável mesmo
-quando a frente de análise ainda está em construção. Esta camada lê dados, não
+Este módulo lê os logs estruturados (JSONL) e os Logs_Duraveis só com a
+biblioteca padrão (`json`), sem a carga de CSVs de `src.analise.dados`, e não
 executa Réplica nem sobe contêiner.
 
-As tolerâncias não usam nenhum número redondo
-escolhido para caber nos dados. As propriedades aqui são de *safety* exata sobre
-eventos discretos (um Líder, uma Decisao), então a tolerância natural é zero
-desvio — qualquer violação é um defeito, não ruído amostral. A única folga
-admitida é a distinção reprova/aviso, justificada caso a caso
-na docstring de cada invariante e em `docs/invariantes.md`.
+As tolerâncias não usam nenhum número redondo escolhido para caber nos dados.
+As propriedades aqui são exatas sobre eventos discretos (um Líder, uma
+Decisao), então a tolerância é zero, e qualquer violação é um defeito, não
+ruído amostral. A única folga admitida é a distinção reprova/aviso, justificada
+caso a caso na docstring de cada invariante e em `docs/invariantes.md`.
 """
 
 from __future__ import annotations
@@ -456,11 +453,9 @@ def invariante_02_convergencia(d: Dados) -> Veredito:
 def invariante_03_maior_id_vivo(d: Dados) -> Veredito:
     """O Líder eleito é o maior id vivo (correctness). REPROVA.
 
-    Para cada rodada concluída, o `lider` anunciado deve ser igual ao maior id
-    entre os Nós vivos daquela rodada. É a definição de Líder do glossário e a
-    propriedade de safety da eleição: ela determina o maior id vivo,
-    independentemente de quem iniciou. Tolerância zero, de novo por ser igualdade
-    de inteiros — qualquer discrepância é um defeito, não flutuação.
+    Para cada rodada concluída, o `lider` anunciado deve ser o maior id entre os
+    Nós vivos daquela rodada, qualquer que seja o iniciador. Tolerância zero, por
+    ser igualdade de inteiros.
     """
     anuncios = _anuncios_de_lider(d.eventos)
     por_rodada: dict[str, set[int]] = {}
@@ -558,21 +553,19 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
 
     - Se um Nó registra uma `recuperacao` (releu o Log_Duravel após reinício), a
       `decisao` recuperada deve bater com a Decisao durável daquele Nó para a
-      transação. Divergência é reversão após reinício e REPROVA (
-      6.8).
-    - Um Participante que gravou Voto SIM mas não tem Decisao durável está em
-      Estado_Em_Duvida — o bloqueio esperado do 2PC quando o Coordenador cai
-      antes de difundir a Decisao. Isso vira **aviso**, nunca
-      reprovação: bloquear é comportamento correto do algoritmo,
-      não defeito de durabilidade. A reprovação fica reservada à reversão de uma
-      Decisao já registrada.
+      transação. Divergência é reversão após reinício e REPROVA.
+    - Um Participante que gravou Voto SIM e não tem Decisao durável está em
+      Estado_Em_Duvida, o bloqueio esperado do 2PC enquanto a DECISAO não chega
+      a ele, qualquer que seja a causa. Isso vira **aviso**, nunca reprovação:
+      bloquear é comportamento correto do algoritmo, não defeito de
+      durabilidade. A reprovação fica reservada à reversão de uma Decisao já
+      registrada.
 
-    Só a `recuperacao` conta como caso verificado. Sem reinício nos logs, o
+    Só a `recuperacao` com Decisao conta como caso verificado. Sem ela, o
     invariante fica em lacuna, e os avisos de dúvida aparecem mesmo assim.
 
-    Tolerância: zero para a reversão (igualdade de Decisao); o Estado_Em_Duvida é
-    classificado como aviso por decisão de projeto, não por folga
-    numérica.
+    Tolerância: zero para a reversão (igualdade de Decisao). O Estado_Em_Duvida é
+    aviso por decisão de projeto, não por folga numérica.
     """
     decisoes = _decisoes_por_transacao(d)
     votos = _votos_por_transacao(d)

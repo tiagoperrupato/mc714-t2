@@ -378,7 +378,7 @@ def test_decisao_nao_reverte_com_mensagem_repetida() -> None:
 
 
 def test_log_recupera_primeira_decisao_mesmo_com_entrada_posterior() -> None:
-    # Se duas Decisoes aparecem no log, a recuperação fica com a primeira (6.8).
+    # Se duas Decisoes aparecem no log, a recuperação fica com a primeira.
     log = LogDuravelMemoria()
     log.registrar(EntradaLog(transacao=TX, fase=FASE_DECISAO, valor=DECISAO_COMMIT, no=1))
     log.registrar(EntradaLog(transacao=TX, fase=FASE_DECISAO, valor=DECISAO_ABORT, no=1))

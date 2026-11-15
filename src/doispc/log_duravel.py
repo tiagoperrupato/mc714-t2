@@ -103,14 +103,14 @@ class EstadoPersistido:
 class LogDuravel(Protocol):
     """Contrato do Log_Duravel: anexar em write-ahead e recuperar o estado.
 
-    A Máquina_de_Estados depende apenas deste contrato, nunca de uma
-    implementação concreta. `registrar` só retorna depois de a
-    entrada estar durável; é por isso que gravar antes de responder pela rede
-    garante a durabilidade.
+    O executor e os serviços do 2PC dependem só deste contrato. A
+    Máquina_de_Estados nem dele, porque devolve `GravarLog` para o executor
+    cumprir. `registrar` só retorna depois de a entrada estar durável, e por isso
+    gravar antes de responder pela rede garante a durabilidade.
     """
 
     def registrar(self, entrada: EntradaLog) -> None:
-        """Anexa `entrada` em write-ahead; retorna só quando ela está durável."""
+        """Anexa `entrada` em write-ahead e só retorna quando ela está durável."""
         ...
 
     def recuperar(self, transacao: str) -> EstadoPersistido:

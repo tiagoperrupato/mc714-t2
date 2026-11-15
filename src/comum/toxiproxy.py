@@ -1,27 +1,20 @@
-"""Cliente do HTTP API do Toxiproxy — falhas de rede scriptadas e repetíveis.
+"""Cliente do HTTP API do Toxiproxy: latência e partição scriptadas e repetíveis.
 
-O Toxiproxy é um proxy TCP que fica **entre** os Nós: cada Nó, em vez de falar
-direto com o peer, fala com uma porta de escuta (`listen`) do Toxiproxy, que
-repassa ao destino real (`upstream`). O projeto aplica sobre esse proxy o
-toxic de latência e, desabilitando o proxy inteiro, a partição de rede. Tudo
-isso é controlado pelo HTTP API do serviço (porta 8474), sem reiniciar
-contêiner e sem tocar o código dos algoritmos.
+O Toxiproxy é um proxy TCP entre os Nós. Com o override `compose.toxiproxy.yaml`, cada Nó fala
+com a escuta (`listen`) do Toxiproxy que corresponde ao destino, e ela repassa ao Nó real
+(`upstream`). O projeto aplica latência como toxic, e desativar o proxy de um Nó corta as
+Mensagens que chegam a ele, a partição. Tudo passa pelo HTTP API (porta 8474), sem reiniciar
+contêiner nem tocar o código dos algoritmos.
 
-Por que este cliente vive em `src/comum/` e não nos algoritmos: é parte do
-Transporte/infra, complementar ao `ControladorFalhas` de aplicação
-(`src.comum.falhas`). Os dois são **distintos e componíveis**: o controlador
-modela a morte do processo (crash/pause) e o descarte/atraso na borda da
-aplicação; o Toxiproxy modela a degradação do **canal** (latência, perda,
-partição) que o processo não controla. O design (seção "Toxiproxy entre os
-Nós") mantém crash/pause na aplicação justamente porque o Toxiproxy não
-representa a morte do processo.
+O Toxiproxy degrada o canal e complementa o `ControladorFalhas` de `src.comum.falhas`, que injeta
+crash, pause, delay e drop na aplicação. O crash fica lá porque o Toxiproxy não representa a morte
+do processo. As Máquinas_de_Estados não importam este módulo. Quem o usa são `scripts/rede.py`,
+`scripts/demo_rede_toxiproxy.py`, a bateria do 2PC (`src/experimentos/condutor_doispc.py`) e os
+testes de integração.
 
-As Máquinas_de_Estados permanecem puras: elas não importam este módulo. Quem o
-usa é o orquestrador de rede (`scripts/rede.py`) e os testes de integração. A
-latência acima do Deadline faz o `ClienteRede` (`src.comum.rede`) devolver
-`EnvioTimeout`; o corte de conexão (partição) devolve `EnvioConexaoRecusada` ou
-`EnvioIndisponivel` — é esse mapeamento de borda que deixa a falha de rede
-dirigir o salto do Anel e o ABORT por timeout do 2PC.
+Latência acima do Deadline faz o `ClienteRede` devolver `EnvioTimeout`, e o proxy desativado
+devolve `EnvioConexaoRecusada` ou `EnvioIndisponivel`. O Anel lê os dois como Sucessor falho. O
+2PC só os registra no evento `envia`, e o ABORT vem do prazo de coleta de Votos.
 
 Referência do API: https://github.com/Shopify/toxiproxy#http-api
 """
@@ -43,8 +36,11 @@ class ToxiproxyError(RuntimeError):
 
     Agrupa erros de transporte (serviço fora do ar) e respostas de erro do API
     (4xx/5xx), sempre com o contexto suficiente para o chamador diagnosticar.
-    Os scripts de cenário tratam esta exceção como condição de setup, nunca a
-    confundindo com o comportamento do algoritmo sob falha.
+    Este módulo só a captura para tentar de novo em `esperar_pronto` e para
+    ignorar a remoção de um proxy ou toxic já ausente. Fora dele ninguém a
+    trata, então ela interrompe o script, a bateria ou o teste que usa o
+    cliente, e uma falha de setup não se confunde com o comportamento do
+    algoritmo sob falha.
     """
 
 
@@ -55,7 +51,8 @@ class Proxy:
     `nome` identifica o proxy no API. `listen` é o endereço host:porta onde o
     Toxiproxy aceita conexões (os Nós apontam para cá), e `upstream` é o endereço
     host:porta do Nó real para onde o tráfego é repassado. O proxy nasce
-    habilitado, e a partição o desliga com `definir_habilitado`.
+    habilitado. Desativado por `definir_habilitado`, nada mais chega ao
+    `upstream`: é a partição de entrada do Nó.
     """
 
     nome: str
@@ -75,7 +72,7 @@ class ClienteToxiproxy:
     """Cliente mínimo do HTTP API do Toxiproxy (criar proxies e aplicar toxics).
 
     `base_url` aponta para o API (por padrão a porta 8474 do serviço no
-    compose). O cliente é reutilizável; `fechar` libera a conexão httpx. Todos
+    compose). O cliente é reutilizável, e `fechar` libera a conexão httpx. Todos
     os métodos levantam `ToxiproxyError` em falha de transporte ou resposta de
     erro, para que o setup de um Cenário de rede falhe alto e cedo, distinto do
     comportamento do algoritmo que o Cenário pretende observar.
@@ -114,8 +111,8 @@ class ClienteToxiproxy:
         """Bloqueia até o API responder, ou levanta `ToxiproxyError` no Deadline.
 
         Útil logo após `docker compose up`: o contêiner do Toxiproxy pode levar
-        um instante para abrir o API. Respeita um Deadline total, no espírito do
-        Transporte do projeto — nada de espera infinita.
+        um instante para abrir o API. Respeita um Deadline total, como o
+        Transporte do projeto, e nunca espera para sempre.
         """
         limite = time.monotonic() + deadline
         ultimo: Optional[Exception] = None
@@ -147,12 +144,11 @@ class ClienteToxiproxy:
             pass
 
     def definir_habilitado(self, nome: str, habilitado: bool) -> None:
-        """Liga/desliga o proxy. Desligar (False) corta a rota = partição.
+        """Liga ou desliga o proxy. Desligado, ele fecha a escuta e nada chega ao Nó por ela.
 
-        Modela a partição de rede: com o proxy desabilitado
-        o Toxiproxy fecha as conexões, e o `ClienteRede` traduz isso em
-        `EnvioConexaoRecusada`/`EnvioIndisponivel`, que o Anel lê como Sucessor
-        falho (salto) e o 2PC lê para decidir/registrar o bloqueio.
+        O `ClienteRede` de quem envia devolve `EnvioConexaoRecusada` ou
+        `EnvioIndisponivel`, que o Anel lê como Sucessor falho. No 2PC o resultado
+        só vai ao evento `envia`, e o ABORT vem do prazo de coleta de Votos.
         """
         self._req("POST", f"/proxies/{nome}", json={"enabled": habilitado})
 
@@ -201,9 +197,8 @@ class ClienteToxiproxy:
     def semear(self, proxies: list[Proxy]) -> None:
         """Reseta e recria o conjunto `proxies` do zero, de forma repetível.
 
-        É o ponto de entrada dos scripts de cenário: dada a lista de proxies de
-        um algoritmo, zera o estado e os cria, garantindo que duas execuções do
-        mesmo Cenário partam da mesma topologia.
+        Dada a lista de proxies de um algoritmo, zera o estado e os cria, e duas
+        execuções do mesmo Cenário partem da mesma topologia.
         """
         self.resetar()
         for proxy in proxies:
@@ -226,9 +221,9 @@ class ClienteToxiproxy:
 #
 # As funções abaixo descrevem, em um só lugar, QUAIS proxies o compose expõe e
 # como os ids dos Nós mapeiam para as portas de escuta do Toxiproxy. Os valores
-# têm de casar exatamente com o `compose.yaml` (as portas em `URLS`,
-# `DOISPC_PARTICIPANTES`, `COORD_HOST/PORTA` apontadas para o Toxiproxy) e com
-# `scripts/rede.py`. Mantê-los aqui evita números mágicos espalhados.
+# têm de casar exatamente com o `compose.toxiproxy.yaml` (as portas em `URLS`,
+# `DOISPC_PARTICIPANTES`, `COORD_HOST/PORTA` apontadas para o Toxiproxy).
+# Mantê-los aqui evita números mágicos espalhados.
 
 # Porta base das escutas do Anel: o Nó de id `i` é alcançado via `PORTA_ANEL_BASE + i`.
 PORTA_ANEL_BASE = 16000
@@ -249,12 +244,10 @@ def nome_proxy_participante(ordem: int) -> str:
 
 
 def proxies_anel(ids: tuple[int, ...]) -> list[Proxy]:
-    """Proxies do Anel: um por Nó, repassando `toxiproxy:1600i -> no-anel-i:8000`.
+    """Proxies do Anel, um por Nó: `toxiproxy:(16000 + i) -> no-anel-i:8000`.
 
-    Cada Nó `j`, ao repassar ao Sucessor `i`, usa `http://toxiproxy:1600i`, de
-    modo que todo o tráfego entre Nós do Anel atravessa o Toxiproxy e pode ser
-    degradado/particionado por proxy. Partição do Líder é
-    desabilitar o proxy do Líder.
+    Quem repassa ao Sucessor `i` usa essa escuta, então todo o tráfego do Anel
+    atravessa o Toxiproxy. Desativar o proxy do Líder corta as Mensagens para ele.
     """
     return [
         Proxy(
@@ -269,11 +262,11 @@ def proxies_anel(ids: tuple[int, ...]) -> list[Proxy]:
 def proxies_2pc(participantes: tuple[int, ...]) -> list[Proxy]:
     """Proxies do 2PC: um para o Coordenador e um por Participante.
 
-    O Coordenador é alcançado via `toxiproxy:17000 -> coordenador:8000`; cada
-    Participante `p` via `toxiproxy:1700?` -> `participante-?:8000`. Assim tanto
-    Coordenador->Participante quanto Participante->Coordenador passam pelo
-    Toxiproxy, e particionar o Coordenador de um Participante é desabilitar o
-    proxy daquele Participante.
+    O do Coordenador é `toxiproxy:17000 -> coordenador:8000`, e o do Participante
+    de id `p` é `toxiproxy:(17000 + p) -> participante-k:8000`, com `k` a posição
+    de `p` em `participantes`. Desativar o proxy de um Participante corta as
+    Mensagens do Coordenador a ele. As que ele envia passam pelo proxy do
+    Coordenador.
     """
     proxies = [
         Proxy(
