@@ -1,29 +1,16 @@
-"""Roda os invariantes de correção do T2 sobre os logs coletados.
+"""Roda os invariantes de correção sobre os logs dos Nós e devolve o código de saída.
 
-Lê os Logs_Estruturados (JSONL) e os Logs_Duraveis do 2PC que os Nós reais
-deixaram sob `results/`, executa os invariantes de `src.analise.invariantes`
-e reporta, por invariante, se passou, reprovou ou emitiu aviso.
-
-Sai com código **diferente de zero apenas quando algum invariante reprova** — ou
-seja, quando uma propriedade de *safety* é violada. Um aviso,
-como o Estado_Em_Duvida bloqueante do 2PC, aparece no relatório
-mas NÃO altera o código de saída, porque bloquear é comportamento correto do
-algoritmo. A ausência de dados (nenhum log coletado ainda) também não reprova:
-não há violação a relatar, apenas nada a verificar.
+Cada diretório `*_logs` é uma execução e é verificado sozinho, porque os invariantes do Anel tomam
+como vivos os Nós que aparecem no log. Um caminho sem `*_logs` dentro é verificado inteiro. Sai 1
+quando algum invariante reprova em algum diretório. Aviso e lacuna não mudam o código de saída, a
+menos que quem chama exija o invariante, como cada cenário faz com os que ele demonstra.
 
 Uso:
 
-    python scripts/verificar.py
-        Verifica tudo que houver sob `results/`.
+    python scripts/verificar.py                                   # cada diretório *_logs de results/
+    python scripts/verificar.py results/cenario_anel_falha_logs   # um diretório só
 
-    python scripts/verificar.py logs_a/ logs_b/ um_arquivo.log
-        Verifica caminhos específicos (arquivos ou diretórios), úteis para
-        conferir o resultado de um cenário isolado.
-
-Este comando NÃO re-simula réplica: as
-propriedades do T2 são de correção sobre eventos discretos observados nos logs
-dos Nós reais, não médias estatísticas de uma bateria. A camada permanece fiel à
-regra de ouro — lê dados, não executa Réplica nem sobe contêiner.
+Lê dados, não executa Réplica nem sobe contêiner.
 """
 
 from __future__ import annotations
@@ -31,6 +18,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import Iterable
 
 # Torna `src` importável quando o script roda de qualquer diretório.
 _RAIZ = Path(__file__).resolve().parent.parent
@@ -46,51 +34,70 @@ def _construir_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="verificar.py",
         description=(
-            "Verifica os invariantes de correção do T2 sobre os logs coletados. "
-            "Sai 0 quando nenhum invariante reprova (mesmo havendo avisos) e 1 "
-            "quando alguma propriedade de safety é violada."
+            "Verifica os invariantes de correção do T2 em cada diretório de logs. Sai 0 quando "
+            "nenhum invariante reprova, mesmo havendo avisos, e 1 quando algum invariante "
+            "reprova em algum diretório."
         ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "caminhos",
-        nargs="*",
-        type=Path,
-        help="arquivos ou diretórios de log a verificar (default: results/)",
+        "caminhos", nargs="*", type=Path, default=[RESULTS_PADRAO],
+        help="diretórios ou arquivos de log. Um diretório com *_logs dentro é verificado por "
+        "eles (default: results/)",
     )
     return parser
 
 
-def verificar(caminhos: list[Path], *, imprimir=print) -> int:
-    """Carrega os logs dos `caminhos`, roda os invariantes e devolve o código de saída.
+def _unidades(caminhos: list[Path]) -> list[Path]:
+    """Os `*_logs` de cada caminho que os tem, ou o próprio caminho, na ordem dada."""
+    lista: list[Path] = []
+    for caminho in caminhos:
+        filhos = sorted(p for p in caminho.glob("*_logs") if p.is_dir()) if caminho.is_dir() else []
+        lista.extend(filhos or [caminho])
+    return lista
 
-    Devolve 0 quando nenhum invariante reprova (incluindo o caso de ausência de
-    dados e o de apenas avisos) e 1 quando há ao menos uma reprovação de safety.
-    """
-    eventos = invariantes.carregar_eventos(*caminhos)
-    duraveis = invariantes.carregar_duraveis(*caminhos)
 
+def _verificar_unidade(unidade: Path, imprimir, exigidos: tuple[int, ...]) -> bool:
+    """Roda os invariantes sobre os logs de uma execução e devolve se nenhum reprovou."""
+    eventos = invariantes.carregar_eventos(unidade)
+    duraveis = invariantes.carregar_duraveis(unidade)
     if not eventos and not duraveis:
-        locais = ", ".join(str(c) for c in caminhos)
+        imprimir(f"\n=== {unidade.name}: nenhum log ===\n")
+        if exigidos:
+            numeros = ", ".join(f"{n:02d}" for n in exigidos)
+            imprimir(f"Reprovado: {unidade.name} não tem log, e os invariantes {numeros} são exigidos.")
+            return False
+        imprimir("Nada a verificar. Os cenários coletam os logs: python scripts/cenario.py anel normal")
+        return True
+    vereditos = invariantes.verificar_todos(invariantes.Dados(eventos=eventos, duraveis=duraveis))
+    titulo = f"{unidade.name}: {len(eventos)} evento(s) e {len(duraveis)} entrada(s) de Log_Duravel"
+    ok = invariantes.relatar(vereditos, titulo, imprimir=imprimir)
+    sem_caso = [v for v in vereditos if v.numero in exigidos and v.verificados == 0]
+    for v in sem_caso:
         imprimir(
-            f"nenhum log encontrado em: {locais}\n"
-            "nada a verificar. Os cenários coletam os logs: python scripts/cenario.py anel normal"
+            f"Reprovado: o invariante {v.numero:02d} ({v.titulo}) é exigido e terminou sem caso "
+            f"verificado em {unidade.name}."
         )
-        return 0
+    return ok and not sem_caso
 
-    dados = invariantes.Dados(eventos=eventos, duraveis=duraveis)
-    vereditos = invariantes.verificar_todos(dados)
-    imprimir(
-        f"\nlidos {len(eventos)} evento(s) estruturado(s) e "
-        f"{len(duraveis)} entrada(s) de Log_Duravel."
+
+def verificar(caminhos: list[Path], *, imprimir=print, exigidos: Iterable[int] = ()) -> int:
+    """Verifica cada execução dos `caminhos` sozinha e devolve 1 se alguma reprovou.
+
+    Um invariante de `exigidos` que termina sem caso verificado reprova o diretório.
+    """
+    exigidos = tuple(exigidos)
+    lista = _unidades(caminhos)
+    reprovadas = [u.name for u in lista if not _verificar_unidade(u, imprimir, exigidos)]
+    resumo = (
+        f"{len(reprovadas)} com reprovação: {', '.join(reprovadas)}."
+        if reprovadas else "nenhum com reprovação."
     )
-    ok = invariantes.relatar(vereditos, imprimir=imprimir)
-    return 0 if ok else 1
+    imprimir(f"\n{len(lista)} diretório(s) verificado(s), {resumo}")
+    return 1 if reprovadas else 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _construir_parser().parse_args(argv)
-    return verificar(list(args.caminhos) or [RESULTS_PADRAO])
+    return verificar(_construir_parser().parse_args(argv).caminhos)
 
 
 if __name__ == "__main__":

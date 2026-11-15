@@ -177,23 +177,63 @@ def test_coleta_do_2pc_copia_cada_volume_uma_vez(tmp_path: Path, monkeypatch) ->
     assert copias == [(s, "/dados/.", tmp_path / s) for s in conteineres.SERVICOS_2PC]
 
 
-@pytest.mark.parametrize(("decisao", "codigo"), [("COMMIT", 0), ("ABORT", 1)])
-def test_cenario_sai_1_quando_o_desfecho_difere_do_esperado(
-    tmp_path: Path, monkeypatch, decisao: str, codigo: int
-) -> None:
-    # Um `2pc commit` que termina em ABORT passa nos invariantes de safety, e só
-    # a conferência do desfecho o pega. O compose e a condução são substituídos.
+def test_copia_de_log_que_falha_levanta_com_o_comando_de_limpeza(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        conteineres,
+        "compose",
+        lambda *a, **k: subprocess.CompletedProcess(a, 1, "", "no such container"),
+    )
+    with pytest.raises(RuntimeError, match="docker compose down -v --remove-orphans"):
+        conteineres.coletar_logs("anel", conteineres.SERVICOS_ANEL, tmp_path, [])
+
+
+def _logs_de_commit(_algoritmo, _servicos, destino: Path, _arquivos) -> None:
+    """Logs de um COMMIT com Voto SIM de todos, que verificam os invariantes 04 e 06."""
+    escrever_jsonl(
+        destino / "coordenador" / "coordenador.log",
+        [{"transacao": "tx1", "fase": "decisao", "valor": "COMMIT", "no": 1}],
+    )
+    for pid in (11, 12, 13):
+        escrever_jsonl(
+            destino / f"participante-{pid - 10}" / f"participante-{pid}.log",
+            [
+                {"transacao": "tx1", "fase": "voto", "valor": "SIM", "no": pid},
+                {"transacao": "tx1", "fase": "decisao", "valor": "COMMIT", "no": pid},
+            ],
+        )
+
+
+def _cenario_sem_docker(monkeypatch, coletar, decisao: str = "COMMIT") -> None:
+    """Troca o compose, a coleta e a condução de um `2pc commit` que termina em `decisao`."""
     monkeypatch.setattr(cenario, "docker_disponivel", lambda: True)
     monkeypatch.setattr(
         cenario, "compose", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", "")
     )
-    monkeypatch.setattr(cenario, "coletar_logs", lambda *a: None)
+    monkeypatch.setattr(cenario, "coletar_logs", coletar)
     monkeypatch.setattr(cenario, "_coletar_stdout", lambda *a: None)
     monkeypatch.setattr(
         cenario,
         "_cenario_2pc",
         lambda *a: {"cenario": "2pc_commit", "decisao": decisao, "esperado": {"decisao": "COMMIT"}},
     )
+
+
+def test_cenario_sem_log_reprova(tmp_path: Path, monkeypatch) -> None:
+    # Sem log, nenhum invariante tem caso, e os do modo são exigidos.
+    _cenario_sem_docker(monkeypatch, lambda *a: None)
+    saida = io.StringIO()
+    assert cenario.executar_cenario("2pc", "commit", tmp_path, saida=saida, erro=io.StringIO()) == 1
+    assert "não tem log" in saida.getvalue()
+    assert _registro(tmp_path, "2pc", "commit")["verificacao"]["ok"] is False
+
+
+@pytest.mark.parametrize(("decisao", "codigo"), [("COMMIT", 0), ("ABORT", 1)])
+def test_cenario_sai_1_quando_o_desfecho_difere_do_esperado(
+    tmp_path: Path, monkeypatch, decisao: str, codigo: int
+) -> None:
+    # Um `2pc commit` que termina em ABORT passa nos invariantes de safety, e só
+    # a conferência do desfecho o pega. O compose e a condução são substituídos.
+    _cenario_sem_docker(monkeypatch, _logs_de_commit, decisao)
     erro = io.StringIO()
     assert cenario.executar_cenario("2pc", "commit", tmp_path, saida=io.StringIO(), erro=erro) == codigo
     reg = _registro(tmp_path, "2pc", "commit")

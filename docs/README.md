@@ -1,14 +1,26 @@
 # Índice do enunciado
 
 Uma linha por item do enunciado do Trabalho 2, com o documento que o responde, o módulo que o
-implementa e o comando que o demonstra ou regenera. Os IDs são os do checklist do enunciado. Os
-comandos rodam a partir de `T2/`.
+implementa e o comando que o demonstra ou regenera. Os IDs numeram os itens na ordem das seções do
+enunciado: G para a descrição geral, I para a escolha dos algoritmos, M para o modelo e a correção,
+C para a comunicação, A para o ambiente, E para a análise experimental, D para os entregáveis e B
+para o bônus. Os comandos rodam na raiz do projeto, a pasta do `compose.yaml`.
+
+## Descrição geral
+
+| Item | O que pede | Onde está |
+|:-----|:-----------|:----------|
+| G1 | algoritmos clássicos corretos, com hipóteses explícitas, sob variação de carga, topologia e falhas | [`../README.md`](../README.md), [`modelo-e-correcao.md`](modelo-e-correcao.md) |
+| G2 | trabalho em dupla | [`../README.md`](../README.md), seção Divisão de trabalho da dupla |
+| G3 | uma máquina com contêineres como ambiente de referência | [`../README.md`](../README.md), seções Docker Compose e Limitação do ambiente |
+| G6 | prazo e uma submissão por dupla no Classroom | não se aplica ao repositório |
 
 ## Implementação
 
 | Item | O que pede | Resposta | Módulo | Comando |
 |:-----|:-----------|:---------|:-------|:--------|
 | I1 | dois algoritmos complementares | [`../README.md`](../README.md), [`modelo-e-correcao.md`](modelo-e-correcao.md) | [`src/anel/`](../src/anel/), [`src/doispc/`](../src/doispc/) | `python scripts/demo.py` |
+| I2 | algoritmo fora da lista exige acordo prévio | o anel e o 2PC estão na lista do enunciado | n/d | n/d |
 | I3 | biblioteca não implementa o algoritmo | [`../README.md`](../README.md), seção Requisitos | [`src/comum/rede.py`](../src/comum/rede.py) | n/d |
 | M1 a M4 | modelo temporal, canais, falhas, relógios, persistência e reinício | [`modelo-e-correcao.md`](modelo-e-correcao.md), seções Modelo de cada algoritmo | n/d | n/d |
 | M5 | propriedades de safety e liveness | [`modelo-e-correcao.md`](modelo-e-correcao.md), seções Propriedades | [`src/analise/invariantes.py`](../src/analise/invariantes.py) | `python scripts/verificar.py` |
@@ -17,6 +29,7 @@ comandos rodam a partir de `T2/`.
 | C1 | deadline explícito em toda chamada | [`modelo-e-correcao.md`](modelo-e-correcao.md), Canais (M2) | [`src/comum/rede.py`](../src/comum/rede.py) | n/d |
 | C2, C3 | filas, pub/sub e Redis | não se aplica, a comunicação é HTTP/JSON ponto a ponto | n/d | n/d |
 | A1, A2 | Compose v2, um contêiner por nó, comandos de construir, iniciar, testar e remover | [`../README.md`](../README.md), seções Docker Compose e Verificação | [`compose.yaml`](../compose.yaml), [`Dockerfile`](../Dockerfile) | `docker compose build`, `docker compose down -v --remove-orphans` |
+| A3 | Docker Desktop, Docker Engine ou Podman no desenvolvimento | [`../README.md`](../README.md), seção Requisitos | n/d | n/d |
 | A4 | mesma implementação, troca só de configuração | [`../README.md`](../README.md), seção Docker Compose, topologia por variável de ambiente | [`src/comum/config.py`](../src/comum/config.py) | n/d |
 | A5 | ao menos três nós lógicos | [`modelo-e-correcao.md`](modelo-e-correcao.md), itens Nós | [`compose.yaml`](../compose.yaml) | n/d |
 | A6 | contêineres não são domínios de falha independentes | [`modelo-e-correcao.md`](modelo-e-correcao.md), Limitação do ambiente | n/d | n/d |
@@ -38,10 +51,18 @@ comandos rodam a partir de `T2/`.
 
 | Item | O que pede | Onde está |
 |:-----|:-----------|:----------|
-| G5, D2 | código, testes, `compose.yaml`, instruções, scripts e dados brutos | este repositório. Os dados brutos são os CSVs e os JSON de [`../results/`](../results/) |
-| D2 | cópia do relatório e tag de entrega | n/d |
-| D1 | relatório IEEE de até seis páginas | n/d, fora do repositório |
-| D3 | vídeo de cerca de cinco minutos | n/d, fora do repositório |
+| G4 | PDF no Classroom com nome e RA da dupla e os links do repositório e do vídeo na primeira página | n/d |
+| G5, D2 | código, testes, `compose.yaml`, instruções, scripts e dados brutos | este repositório. Os dados brutos são os CSVs, os JSON e os logs dos cenários (`cenario_*_logs/`) de [`../results/`](../results/) |
+| D1 | relatório IEEE de até seis páginas | n/d |
+| D2 | cópia do relatório e tag de entrega | [`relatorio/`](relatorio/), com o `.tex`, a classe e o PDF |
+| D3 | vídeo de cerca de cinco minutos | n/d |
+
+## Bônus
+
+Uma linha por conceito adicional do B1.
+
+| Item | O que pede | Resposta | Módulo | Comando |
+|:-----|:-----------|:---------|:-------|:--------|
 
 ## Artefatos versionados
 

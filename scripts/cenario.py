@@ -95,9 +95,11 @@ RESULTS_PADRAO = _RAIZ / "results"
 # resultado e sobreponível por --semente para reproduzir uma execução.
 SEMENTE_PADRAO = 0
 
-MODOS: dict[str, tuple[str, ...]] = {
-    "anel": ("normal", "falha"),
-    "2pc": ("commit", "abort", "crash-coord"),
+# Os modos de cada algoritmo e os invariantes que cada um demonstra. Um deles sem caso
+# verificado nos logs do cenário o reprova, e por isso um cenário sem log não passa.
+MODOS: dict[str, dict[str, tuple[int, ...]]] = {
+    "anel": {"normal": (1, 2, 3), "falha": (1, 2, 3)},
+    "2pc": {"commit": (4, 6), "abort": (4,), "crash-coord": (4, 5, 6)},
 }
 
 
@@ -283,8 +285,8 @@ def executar_cenario(
     """Sobe o cenário, conduz o algoritmo, coleta logs, VERIFICA e derruba o compose.
 
     Devolve 0 em sucesso (avisos de invariante não reprovam), 1 em falha de
-    execução, desfecho diferente do esperado ou reprovação de um invariante de
-    safety, e 2 quando o Docker não está disponível. A configuração do cenário é
+    execução, desfecho diferente do esperado, reprovação de um invariante ou
+    invariante de `MODOS` sem caso verificado, e 2 quando o Docker não está disponível. A configuração do cenário é
     validada antes de subir qualquer contêiner, e o compose é sempre derrubado ao
     final.
     """
@@ -344,7 +346,9 @@ def executar_cenario(
 
             # Roda os invariantes sobre os logs coletados deste cenário.
             linhas_verif: list[str] = []
-            codigo_verif = verificar.verificar([logs_dir], imprimir=linhas_verif.append)
+            codigo_verif = verificar.verificar(
+                [logs_dir], imprimir=linhas_verif.append, exigidos=MODOS[algoritmo][modo]
+            )
             registro["verificacao"] = {
                 "codigo": codigo_verif,
                 "ok": codigo_verif == 0,

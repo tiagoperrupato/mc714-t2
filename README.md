@@ -52,7 +52,7 @@ pytest==8.3.4       testes
 
 ## Instalação
 
-A partir de `T2/`:
+Na raiz do projeto, a pasta do `compose.yaml`:
 
 ```bash
 python3 -m venv .venv
@@ -129,21 +129,23 @@ lugar reprova, o que garante que nenhuma tabela de `docs/` seja digitada à mão
 
 ### 3. Verificação (`scripts/verificar.py`)
 
-Roda os invariantes de correção (safety e liveness) sobre os
-Logs_Estruturados e Logs_Duraveis que os Nós reais deixaram sob `results/`.
+Roda os invariantes de correção (safety e liveness) sobre os Logs_Estruturados e
+Logs_Duraveis que os Nós reais deixaram sob `results/`. Cada diretório `*_logs` é uma
+execução e é conferido sozinho, porque os invariantes do Anel tomam como vivos os Nós
+que aparecem no log dela. Um caminho dado na linha de comando também é conferido
+sozinho, a menos que contenha diretórios `*_logs`, e aí cada um deles é.
 
 ```bash
-python scripts/verificar.py                       # verifica tudo sob results/
-python scripts/verificar.py results/cenario_anel_falha_logs   # caminhos específicos
+python scripts/verificar.py                                   # cada diretório *_logs de results/
+python scripts/verificar.py results/cenario_anel_falha_logs   # um diretório só
 ```
 
-Sai com código **diferente de zero apenas quando um invariante reprova** — ou
-seja, quando uma propriedade de *safety* é violada. Um aviso, como o
-Estado_Em_Duvida bloqueante do 2PC enquanto o Coordenador está fora, aparece no relatório
-mas não altera o código de saída, porque bloquear é comportamento correto do
+Cada diretório tem o seu relatório, e a última linha diz quantos reprovaram. O comando
+sai 1 quando algum invariante reprova em algum diretório. Um aviso, como o
+Estado_Em_Duvida bloqueante do 2PC enquanto o Coordenador está fora, aparece no
+relatório sem mudar o código de saída, porque bloquear é comportamento correto do
 algoritmo. A ausência de logs também não reprova. A lista de invariantes, com a
-tolerância de cada um e a razão dela, está em
-[`docs/invariantes.md`](docs/invariantes.md).
+tolerância de cada um e a razão dela, está em [`docs/invariantes.md`](docs/invariantes.md).
 
 ### 4. Cenários sobre o compose
 
@@ -151,7 +153,8 @@ Enquanto a bateria mede tendência com muitas Réplicas, estes scripts sobem um
 cenário **real** sobre o Docker Compose, conduzem o algoritmo pelos endpoints de
 controle, coletam os logs dos Nós para `results/` e rodam os invariantes sobre
 eles. Cada cenário confere o desfecho contra o esperado e sai 1 quando ele
-difere ou quando um invariante reprova. Todos derrubam o compose ao final
+difere, quando um invariante reprova ou quando um invariante que o cenário
+demonstra fica sem caso verificado nos logs. Todos derrubam o compose ao final
 (`down -v --remove-orphans`) e, sem Docker, saem com uma mensagem clara em vez
 de travar.
 
@@ -264,7 +267,7 @@ src/analise/       dados, estatistica, formato, graficos, anel_exp, doispc_exp,
                    invariantes
 scripts/           bateria, analisar, verificar, cenario, demo, rede e demo_rede_toxiproxy
 docs/              modelo e correção, invariantes, resultados, com dados/ e figuras/
-results/           dados brutos (CSVs e JSON, no git), logs e Logs_Duraveis (fora dele)
+results/           dados brutos no git (CSVs, JSON e logs dos cenários), logs da bateria do 2PC fora dele
 ```
 
 O **Deadline é obrigatório por projeto**: o cliente do Transporte não expõe
@@ -278,9 +281,10 @@ retransmitida até o ACK de cada Participante.
 
 ## Arquivos de saída
 
-Gravados em `results/`. Os CSVs das baterias e os registros JSON dos cenários são
-os dados brutos da entrega e ficam no git. Os logs dos Nós e o stdout dos
-contêineres são refeitos a cada execução e ficam fora dele. Há dois tipos.
+Gravados em `results/`. Os dados brutos da entrega ficam no git: os CSVs das
+baterias e, de cada cenário, o registro JSON e os logs dos Nós. Os logs da bateria
+do 2PC, com cerca de 5 MB, e o stdout dos contêineres são refeitos a cada execução
+e ficam fora dele. Há dois tipos.
 
 ### CSVs da bateria
 
@@ -323,16 +327,17 @@ também as versões do Docker e do Compose e o Python da imagem.
 | `tempo_recuperacao_s` | do `docker compose start` até todos os Participantes decidirem |
 | `mensagens`, `duracao_replica_s` | como acima, com o crash e o reinício |
 
-Os logs dos Nós de cada Réplica do 2PC ficam em `bateria_2pc_logs/`, e o
-`scripts/verificar.py` os confere junto com os dos cenários.
+Os logs dos Nós de cada Réplica do 2PC ficam em `bateria_2pc_logs/`, fora do git,
+e o `scripts/verificar.py` os confere como um diretório à parte.
 
 ### Logs dos cenários
 
 Os cenários sobre o compose coletam, por Nó, o Log_Estruturado (JSONL) e,
 no 2PC, o Log_Duravel, em subdiretórios como `cenario_anel_falha_logs/` e
-`cenario_2pc_crash-coord_logs/`, mais um `.json` com o registro do cenário (que
-inclui o relatório da verificação) e um `.txt` por Nó com o stdout do contêiner.
-São esses logs que `scripts/verificar.py` consome.
+`cenario_2pc_crash-coord_logs/`, mais um `.json` com o registro do cenário, que
+inclui o relatório da verificação, e um `.txt` por Nó com o stdout do contêiner.
+Os diretórios `*_logs` e o `.json` entram no git, e o stdout fica fora. São esses
+logs que `scripts/verificar.py` consome, um diretório por vez.
 
 ## Reprodutibilidade
 
@@ -343,12 +348,14 @@ O README não fixa as especificações de uma máquina de propósito: o que impo
 que **cada resultado traz o ambiente em que foi medido**, já que resultados
 absolutos de máquinas diferentes não são comparados diretamente.
 
-Os CSVs e os JSON versionados em `results/` são os dados de onde saem as tabelas
-de `docs/`. Num checkout fresco, sem rodar experimento nenhum, o comando abaixo
-regenera cada tabela a partir deles e sai 0:
+Os CSVs, os JSON e os logs dos cenários versionados em `results/` são os dados de
+onde saem as tabelas de `docs/` e o veredito dos invariantes. Num checkout fresco,
+sem rodar experimento nenhum, os dois comandos abaixo regeneram cada tabela e
+refazem a verificação de cada cenário, e saem 0:
 
 ```bash
 python scripts/analisar.py conferir
+python scripts/verificar.py
 ```
 
 Para refazer os experimentos, a sequência abaixo regenera **dados, tabelas e
@@ -390,11 +397,15 @@ Em [`docs/`](docs/):
 - [`docs/resultados-anel.md`](docs/resultados-anel.md) e
   [`docs/resultados-2pc.md`](docs/resultados-2pc.md): as tabelas e figuras da
   análise, todas geradas por comando.
+- [`docs/relatorio/`](docs/relatorio/): o relatório IEEE, com o `.tex`, a classe
+  IEEEtran e o PDF compilado.
+- [`docs/roteiro-video.md`](docs/roteiro-video.md): o roteiro do vídeo de
+  demonstração, com os cenários `anel falha` e `2pc crash-coord`.
 
 ## Verificação
 
 ```bash
-python scripts/verificar.py           # os invariantes de correção sobre results/
+python scripts/verificar.py           # os invariantes sobre cada diretório de logs de results/
 python scripts/analisar.py conferir   # tabelas de docs/ contra os dados atuais
 python -m pytest -m "not slow"        # a suíte completa sem Docker
 python -m pytest -m slow              # os testes que sobem o compose (precisam de Docker)
@@ -440,11 +451,6 @@ hipótese e do que ela implica para a correção está em
   dados brutos versionados e a documentação de entrega.
 
 O histórico de commits registra o detalhe de cada parte.
-
-O relatório IEEE (duas colunas, no máximo seis páginas) e o vídeo de demonstração
-(cerca de cinco minutos) são produzidos pela dupla e estão fora do escopo do
-código deste repositório. Os cenários de falha (`anel falha` e `2pc crash-coord`)
-são os mesmos que o vídeo mostra.
 
 ## Uso de IA generativa
 

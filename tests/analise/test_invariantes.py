@@ -305,7 +305,7 @@ def test_relatar_devolve_false_quando_ha_reprovacao() -> None:
     ]
     vereditos = inv.verificar_todos(_dados(eventos))
     saida: list[str] = []
-    ok = inv.relatar(vereditos, imprimir=saida.append)
+    ok = inv.relatar(vereditos, "teste", imprimir=saida.append)
     assert ok is False
 
 
@@ -313,7 +313,7 @@ def test_relatar_devolve_true_com_apenas_avisos() -> None:
     duraveis = [_entrada_duravel("tx1", "voto", "SIM", 11)]  # em dúvida -> aviso
     vereditos = inv.verificar_todos(_dados([], duraveis))
     saida: list[str] = []
-    ok = inv.relatar(vereditos, imprimir=saida.append)
+    ok = inv.relatar(vereditos, "teste", imprimir=saida.append)
     assert ok is True
     assert any("aviso" in linha.lower() for linha in saida)
 
@@ -461,3 +461,70 @@ def test_verificar_main_sem_caminho_usa_results_padrao(tmp_path: Path, monkeypat
     )
     monkeypatch.setattr(verificar, "RESULTS_PADRAO", tmp_path)
     assert verificar.main([]) == 0
+
+
+def test_verificar_confere_cada_diretorio_de_logs_sozinho(tmp_path: Path) -> None:
+    from scripts import verificar
+
+    # Dois anéis de tamanhos diferentes, um por execução. Lidos juntos, o de três Nós
+    # parece ter os Nós 4 e 5 vivos sem conhecer o Líder 3.
+    escrever_jsonl(
+        tmp_path / "cenario_anel_normal_logs" / "anel.jsonl",
+        [_recebeu_lider(no, rodada="r5", lider=5) for no in (1, 2, 3, 4, 5)],
+    )
+    escrever_jsonl(
+        tmp_path / "cenario_tres_nos_logs" / "anel.jsonl",
+        [_recebeu_lider(no, rodada="r3", lider=3) for no in (1, 2, 3)],
+    )
+    juntos = inv.verificar_todos(inv.Dados(eventos=inv.carregar_eventos(tmp_path)))
+    assert not _por_numero(juntos, 2).ok and not _por_numero(juntos, 3).ok
+
+    saida: list[str] = []
+    assert verificar.verificar([tmp_path], imprimir=saida.append) == 0, "\n".join(saida)
+    assert sum(linha.startswith("\n=== cenario_") for linha in saida) == 2
+    explicitos = sorted(tmp_path.glob("*_logs"))
+    assert verificar.verificar(explicitos, imprimir=lambda *_: None) == 0
+
+
+def test_verificar_sai_um_quando_um_dos_diretorios_reprova(tmp_path: Path) -> None:
+    from scripts import verificar
+
+    escrever_jsonl(
+        tmp_path / "cenario_anel_normal_logs" / "anel.jsonl",
+        [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)],
+    )
+    escrever_jsonl(
+        tmp_path / "cenario_2pc_commit_logs" / "2pc.log",
+        [
+            _entrada_duravel("tx1", "decisao", "COMMIT", 11),
+            _entrada_duravel("tx1", "decisao", "ABORT", 12),
+        ],
+    )
+    saida: list[str] = []
+    assert verificar.verificar([tmp_path], imprimir=saida.append) == 1
+    assert saida[-1] == "\n2 diretório(s) verificado(s), 1 com reprovação: cenario_2pc_commit_logs."
+
+
+def test_verificar_reprova_invariante_exigido_sem_caso(tmp_path: Path) -> None:
+    from scripts import verificar
+
+    # Um anel correto não tem caso do 2PC: sem exigência é lacuna, exigido reprova.
+    logs = tmp_path / "cenario_anel_normal_logs"
+    escrever_jsonl(
+        logs / "anel.jsonl", [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)]
+    )
+    assert verificar.verificar([logs], imprimir=lambda *_: None, exigidos=(1, 2, 3)) == 0
+    saida: list[str] = []
+    assert verificar.verificar([logs], imprimir=saida.append, exigidos=(1, 4)) == 1
+    assert any("invariante 04" in linha and "cenario_anel_normal_logs" in linha for linha in saida)
+
+
+def test_verificar_reprova_diretorio_sem_log_quando_ha_exigencia(tmp_path: Path) -> None:
+    from scripts import verificar
+
+    vazio = tmp_path / "cenario_anel_normal_logs"
+    vazio.mkdir()
+    assert verificar.verificar([vazio], imprimir=lambda *_: None) == 0
+    saida: list[str] = []
+    assert verificar.verificar([vazio], imprimir=saida.append, exigidos=(1, 2, 3)) == 1
+    assert any("não tem log" in linha for linha in saida)

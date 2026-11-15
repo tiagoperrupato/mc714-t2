@@ -10,10 +10,11 @@ Logs_Duraveis que os Nós reais deixam sob `results/`.
 python scripts/verificar.py
 ```
 
-O comando sai com código 0 quando nenhum invariante reprova — mesmo havendo
-avisos — e 1 quando alguma propriedade de *safety* é violada. A
-implementação está em [`src/analise/invariantes.py`](../src/analise/invariantes.py),
-com um invariante por função.
+O comando confere cada diretório `*_logs` de `results/` sozinho, porque cada um é uma
+execução e os invariantes do Anel tomam como vivos os Nós que aparecem no log dela. Sai 0
+quando nenhum invariante reprova em nenhum diretório, mesmo havendo avisos, e 1 quando
+algum invariante reprova em algum deles. A implementação está em
+[`src/analise/invariantes.py`](../src/analise/invariantes.py), com um invariante por função.
 
 ## Reprova, aviso e lacuna
 
@@ -40,7 +41,9 @@ então os invariantes do 2PC não têm transação alguma. Ou o caso que o invar
 confere não aconteceu: sem reinício não há `recuperacao` para o 5, e sem COMMIT
 não há validade a conferir no 6. Uma lacuna é reportada à parte e não reprova
 por si. Quem roda só um cenário do Anel não deve receber reprovação pelos
-invariantes do 2PC que não exercitou.
+invariantes do 2PC que não exercitou. Cada cenário, porém, exige os invariantes que
+demonstra (`MODOS` em `scripts/cenario.py`), e uma lacuna num deles reprova o cenário.
+Assim um cenário sem log nenhum não passa.
 
 ## Como as tolerâncias são escolhidas
 

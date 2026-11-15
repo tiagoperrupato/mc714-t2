@@ -263,13 +263,11 @@ def veredito(
     detalhe: str,
     avisos: list[str] | None = None,
 ) -> Veredito:
-    """Monta o veredito; reprova quando nada foi verificado.
+    """Monta o veredito. Sem caso verificado, sai com ok falso e verificados zero.
 
-    "Nenhum caso a verificar" é tratado como reprovação: um invariante
-    que não encontrou dado algum não demonstrou a propriedade, e silenciar isso
-    daria uma falsa sensação de correção. O comando de verificação, porém, decide
-    o que fazer com a ausência de dados (ver `scripts/verificar.py`), que pode
-    pular um invariante quando o algoritmo correspondente não foi exercitado.
+    `relatar` mostra esse caso como lacuna, que não reprova. Um invariante sem dado não
+    demonstrou a propriedade, mas também não a violou. O cenário que exige o invariante
+    reprova a lacuna (ver `scripts/verificar.py`).
     """
     if verificados == 0:
         return Veredito(
@@ -347,7 +345,7 @@ def _anuncios_de_lider(eventos: Sequence[EventoLog]) -> list[AnuncioLider]:
 
 
 def _nos_do_anel(eventos: Sequence[EventoLog]) -> frozenset[int]:
-    """Todos os ids de Nó que emitiram algum evento do Anel."""
+    """Os ids que emitiram algum evento do Anel. Os eventos são de uma execução só."""
     anel_evts = {
         EV_INICIOU_ELEICAO, EV_RECEBEU, EV_REPASSOU, EV_SUCESSOR_FALHO,
     }
@@ -376,7 +374,9 @@ def _mortos_observados(eventos: Sequence[EventoLog], rodada: str) -> frozenset[i
 def _vivos_na_rodada(d: Dados, rodada: str) -> frozenset[int]:
     """Os Nós vivos na rodada: os do Anel menos os saltados nela.
 
-    Um Nó morto aparece como `sucessor_falho` no log de quem o contornou.
+    A inferência supõe um anel só nos eventos, e por isso `scripts/verificar.py` confere
+    cada diretório `*_logs` sozinho. Um Nó morto aparece como `sucessor_falho` no log de
+    quem o contornou.
     """
     return _nos_do_anel(d.eventos) - _mortos_observados(d.eventos, rodada)
 
@@ -683,16 +683,14 @@ def verificar_todos(d: Dados) -> list[Veredito]:
 
 def relatar(
     vereditos: Sequence[Veredito],
-    titulo: str = "Invariantes de correção",
+    titulo: str,
     *,
     imprimir=print,
 ) -> bool:
     """Imprime o relatório e devolve True quando nenhum invariante reprovou.
 
-    Um invariante sem caso a verificar (verificados == 0) é reportado à parte,
-    como lacuna de dados, e NÃO reprova por si — é `scripts/verificar.py` que
-    decide se a ausência de dados do algoritmo é aceitável. Avisos (como o
-    Estado_Em_Duvida) aparecem no relatório mas não alteram o código de saída.
+    Lacuna, quando nenhum caso foi verificado, e aviso, como o Estado_Em_Duvida, aparecem
+    no relatório sem reprovar.
     """
     imprimir(f"\n=== {titulo} ===\n")
     largura = max((len(v.titulo) for v in vereditos), default=0)

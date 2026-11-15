@@ -1,0 +1,5 @@
+{"ts": 1794262363.3607593, "no": 5, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "anel", "anel": [1, 2, 3, 4, 5], "deadline": 1.0}}
+{"ts": 1794262365.7306366, "no": 5, "tipo": "recebeu", "msg_tipo": "eleicao", "origem": 4, "corpo": {"rodada": "1-4b1d8451", "ids": [1, 2, 3, 4]}}
+{"ts": 1794262365.7634048, "no": 5, "tipo": "repassou", "msg_tipo": "eleicao", "destino": 1}
+{"ts": 1794262365.7667577, "no": 5, "tipo": "recebeu", "msg_tipo": "lider", "origem": 4, "corpo": {"rodada": "1-4b1d8451", "lider": 5}}
+{"ts": 1794262365.7678328, "no": 5, "tipo": "repassou", "msg_tipo": "lider", "destino": 1}

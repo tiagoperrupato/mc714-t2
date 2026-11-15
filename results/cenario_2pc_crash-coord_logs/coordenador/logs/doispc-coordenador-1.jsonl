@@ -1,0 +1,22 @@
+{"ts": 1794262434.9682045, "no": 1, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "2pc", "papel": "coordenador", "participantes": [11, 12, 13], "deadline_voto": 3.0, "deadline_decisao": 2.0, "cair_apos_decidir": true}}
+{"ts": 1794262437.1579432, "no": 1, "tipo": "inicia_transacao", "transacao": "tx-9f232988", "participantes": [11, 12, 13]}
+{"ts": 1794262437.159977, "no": 1, "tipo": "grava_log", "transacao": "tx-9f232988", "fase": "inicio", "valor": "WAIT"}
+{"ts": 1794262437.1760936, "no": 1, "tipo": "envia", "msg_tipo": "prepare", "destino": 11, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262437.1844282, "no": 1, "tipo": "recebe", "msg_tipo": "voto", "origem": 11, "transacao": "tx-9f232988"}
+{"ts": 1794262437.1846983, "no": 1, "tipo": "envia", "msg_tipo": "prepare", "destino": 12, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262437.1969535, "no": 1, "tipo": "recebe", "msg_tipo": "voto", "origem": 12, "transacao": "tx-9f232988"}
+{"ts": 1794262437.1974566, "no": 1, "tipo": "envia", "msg_tipo": "prepare", "destino": 13, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262437.208379, "no": 1, "tipo": "recebe", "msg_tipo": "voto", "origem": 13, "transacao": "tx-9f232988"}
+{"ts": 1794262437.2091637, "no": 1, "tipo": "crash_apos_decidir", "transacao": "tx-9f232988", "decisao": "COMMIT"}
+{"ts": 1794262437.9003673, "no": 1, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "2pc", "papel": "coordenador", "participantes": [11, 12, 13], "deadline_voto": 3.0, "deadline_decisao": 2.0, "cair_apos_decidir": true}}
+{"ts": 1794262437.9267972, "no": 1, "tipo": "recuperacao", "transacao": "tx-9f232988", "decisao": "COMMIT"}
+{"ts": 1794262437.9359899, "no": 1, "tipo": "envia", "msg_tipo": "decisao", "destino": 11, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262437.9387646, "no": 1, "tipo": "envia", "msg_tipo": "decisao", "destino": 12, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262437.9410114, "no": 1, "tipo": "envia", "msg_tipo": "decisao", "destino": 13, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262438.9277668, "no": 1, "tipo": "reenvia_decisao", "transacao": "tx-9f232988", "destinos": [11, 12, 13]}
+{"ts": 1794262438.9384072, "no": 1, "tipo": "envia", "msg_tipo": "decisao", "destino": 11, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262438.942234, "no": 1, "tipo": "recebe", "msg_tipo": "ack", "origem": 11, "transacao": "tx-9f232988"}
+{"ts": 1794262438.9502013, "no": 1, "tipo": "envia", "msg_tipo": "decisao", "destino": 12, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262438.9528248, "no": 1, "tipo": "recebe", "msg_tipo": "ack", "origem": 12, "transacao": "tx-9f232988"}
+{"ts": 1794262438.9580648, "no": 1, "tipo": "envia", "msg_tipo": "decisao", "destino": 13, "transacao": "tx-9f232988", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794262438.9590478, "no": 1, "tipo": "recebe", "msg_tipo": "ack", "origem": 13, "transacao": "tx-9f232988"}

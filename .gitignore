@@ -1,30 +1,38 @@
-# Saída gerada em tempo de execução. Os CSVs das baterias e os registros JSON dos cenários são os
-# dados brutos da entrega e entram no git. Os logs dos Nós e o stdout dos contêineres ficam fora.
-# O `!results/` desfaz, só aqui, o `results/` de um .gitignore acima desta pasta.
-!results/
+# Saída gerada em tempo de execução. Entram no git os dados brutos da entrega: os CSVs das
+# baterias e, de cada cenário, o registro JSON e os logs dos Nós. Os logs da bateria do 2PC e o
+# stdout dos contêineres são refeitos a cada execução e ficam fora.
 results/*
 !results/*.csv
 !results/*.json
+!results/cenario_*_logs/
+
+# Instruções e configuração locais dos assistentes de código.
+AGENTS.md
+CLAUDE.md
+.agents/
+.claude/
 
 # Caches e ambientes Python.
 __pycache__/
 *.py[cod]
 .venv/
 venv/
-
-# Caches de ferramentas.
 .pytest_cache/
 
-# Enunciado do trabalho (material do curso, nao autoral), fora do repo. O .md e a transcricao local
-# do PDF.
+# Metadados do Finder no macOS.
+.DS_Store
+
+# Enunciado do trabalho, material do curso. O .md é a transcrição local do PDF.
 docs/Trabalho2-MC714_2s2026.md
 docs/Trabalho2-MC714_2s2026.pdf
 
-# Artefatos de build do LaTeX. O .tex, a classe e o .pdf entram no git; o resto e gerado.
+# Artefatos da compilação do relatório com pdflatex e latexmk. O .tex, a classe e o .pdf entram.
 docs/relatorio/*.aux
-docs/relatorio/*.log
-docs/relatorio/*.out
-docs/relatorio/*.toc
 docs/relatorio/*.bbl
 docs/relatorio/*.blg
+docs/relatorio/*.fdb_latexmk
+docs/relatorio/*.fls
+docs/relatorio/*.log
+docs/relatorio/*.out
 docs/relatorio/*.synctex.gz
+docs/relatorio/*.toc

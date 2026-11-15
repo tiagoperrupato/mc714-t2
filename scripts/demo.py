@@ -12,10 +12,9 @@ conferidos pelos invariantes de correção:
    de gravar a Decisao, e os Participantes ficam em Estado_Em_Duvida. O
    contêiner reinicia, o Coordenador relê o log e todos decidem COMMIT.
 
-Cada cenário já roda `scripts/verificar.py` sobre os seus próprios logs ao final
-(ver `scripts/cenario.py`), confirmando a correção. Esta demo apenas encadeia os
-dois e, no fim, roda a verificação de novo sobre TODOS os logs coletados dos dois
-cenários juntos, deixando um relatório único.
+Cada cenário já roda `scripts/verificar.py` sobre os próprios logs ao final (ver
+`scripts/cenario.py`). No fim, a demo verifica de novo cada diretório `*_logs` de
+`--results`, um a um, e resume quantos reprovaram.
 
 Este é o mesmo roteiro que o vídeo de demonstração da dupla mostra. Requer Docker
 com Compose v2; sem Docker, sai com código 2 e uma mensagem clara, sem travar.
@@ -86,13 +85,13 @@ def executar_demo(
             print(f"[demo] cenário {algoritmo}/{modo} falhou (código {codigo})", file=erro)
             return 1
 
-    # Verificação final sobre TODOS os logs coletados pela demo, de uma vez.
-    print("\n[demo] === verificação consolidada dos logs coletados ===", file=saida)
+    # Verificação final de cada diretório *_logs de base, um a um.
+    print("\n[demo] === verificação de cada diretório de logs ===", file=saida)
     linhas: list[str] = []
     codigo_verif = verificar.verificar([base], imprimir=linhas.append)
     print("\n".join(linhas), file=saida)
     if codigo_verif != 0:
-        print("[demo] a verificação consolidada REPROVOU", file=erro)
+        print("[demo] a verificação final REPROVOU", file=erro)
         return 1
     print("\n[demo] correção confirmada: nenhuma violação de safety.", file=saida)
     return 0

@@ -199,11 +199,15 @@ def reiniciar_coordenador(arquivos: list[Path], prazo: float = 30.0) -> tuple[fl
     return time.monotonic() - inicio, finais
 
 
-def copiar_de_container(servico: str, origem: str, destino: Path, arquivos: list[Path]) -> bool:
-    """Copia `origem` do contêiner para `destino` no host. Caminho ausente devolve False."""
+def copiar_de_container(servico: str, origem: str, destino: Path, arquivos: list[Path]) -> None:
+    """Copia `origem` do contêiner para `destino` no host, ou levanta `RuntimeError`."""
     destino.parent.mkdir(parents=True, exist_ok=True)
     r = compose("cp", f"{servico}:{origem}", str(destino), arquivos=arquivos, timeout=120)
-    return r.returncode == 0
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"docker compose cp {servico}:{origem} falhou: {r.stderr.strip()}. "
+            "Derrube a pilha com docker compose down -v --remove-orphans e repita."
+        )
 
 
 def coletar_logs(algoritmo: str, servicos: list[str], destino: Path, arquivos: list[Path]) -> None:
