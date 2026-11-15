@@ -17,6 +17,8 @@ Dois níveis, como no resto do projeto:
   eleição o reintegra. No `crash-coord`, o processo do Coordenador morre depois
   de decidir, os Participantes ficam em dúvida, a verificação feita com o
   Coordenador fora dá o aviso dos três, e o contêiner reiniciado os tira dela.
+  No `2pc particao`, o Participante 11 fica sem receber Mensagens, o Coordenador
+  aborta no prazo de Votos, e a retransmissão leva o ABORT ao 11 depois da cura.
   Eles PULAM de forma limpa sem Docker. Como subir vários stacks em paralelo pode
   estourar o `--wait`, estes testes devem rodar um de cada vez.
 """
@@ -94,6 +96,13 @@ def test_override_2pc_crash_coord_derruba_o_coordenador() -> None:
     assert 'DOISPC_CAIR_APOS_DECIDIR: "true"' in txt
     # Todos votam SIM no cenário de crash (para ficarem em dúvida).
     assert txt.count('DOISPC_VOTO: "SIM"') == 3
+
+
+def test_override_2pc_particao_todos_votam_sim() -> None:
+    # O ABORT da partição só pode vir do prazo de coleta de Votos, e não de um NAO.
+    txt = cenario.override_2pc("particao", 0)
+    assert txt.count('DOISPC_VOTO: "SIM"') == 3
+    assert 'DOISPC_CAIR_APOS_DECIDIR: "false"' in txt
 
 
 def test_override_anel_fixa_semente_nos_cinco_nos() -> None:
@@ -380,3 +389,23 @@ def test_2pc_crash_coord_e2e_recupera(tmp_path: Path) -> None:
     assert reg["verificacao"]["ok"] is True
     # Ninguém termina em dúvida, então o invariante 5 não avisa nada.
     assert not any("aviso:" in l for l in reg["verificacao"]["relatorio"])
+
+
+@pytest.mark.slow
+@pularsem_docker
+def test_2pc_particao_e2e_aborta_e_termina(tmp_path: Path) -> None:
+    """`2pc particao`: ABORT no prazo de Votos com o 11 isolado, e ABORT no 11 depois da cura."""
+    codigo = cenario.executar_cenario("2pc", "particao", tmp_path, semente=0)
+    assert codigo == 0
+    reg = _registro(tmp_path, "2pc", "particao")
+    assert reg["decisao"] == "ABORT"
+    assert reg["decisoes_durante_particao"] == {"11": None, "12": "ABORT", "13": "ABORT"}
+    assert reg["concluido_durante_particao"] is False
+    assert reg["decisoes_participantes"] == {"11": "ABORT", "12": "ABORT", "13": "ABORT"}
+    assert reg["concluido"] is True
+    # Os três votariam SIM, então o ABORT veio do prazo de coleta de Votos.
+    log = tmp_path / "cenario_2pc_particao_logs" / "coordenador" / "logs" / "doispc-coordenador-1.jsonl"
+    eventos = [json.loads(l)["tipo"] for l in log.read_text(encoding="utf-8").splitlines()]
+    assert "timeout_votos" in eventos
+    assert reg["desfecho"]["ok"] is True
+    assert reg["verificacao"]["ok"] is True

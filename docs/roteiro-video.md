@@ -7,7 +7,7 @@ executa de ponta a ponta (`scripts/cenario.py`), então o que aparece no vídeo 
 que o código realmente faz, sem encenação.
 
 > Esta é uma proposta: ajustem a divisão de falas, o ritmo e o que mostrar na tela
-> conforme preferirem. O orçamento de tempo soma ~5 min; cortem onde for preciso.
+> conforme preferirem. O orçamento de tempo soma ~5 min. Cortem onde for preciso.
 
 ## Antes de gravar (checklist)
 
@@ -28,7 +28,7 @@ que o código realmente faz, sem encenação.
 
 ---
 
-## Bloco 1 — Abertura e visão geral (~40 s)
+## Bloco 1. Abertura e visão geral (~40 s)
 
 **Quem:** Integrante A.
 
@@ -46,12 +46,12 @@ O que mostrar:
 
 ---
 
-## Bloco 2 — Eleição em Anel: cenário normal (~45 s)
+## Bloco 2. Eleição em Anel: cenário normal (~45 s)
 
 **Quem:** Integrante A.
 
 O que dizer:
-- O anel é unidirecional ($1\to2\to3\to4\to5\to1$); a mensagem de eleição acumula
+- O anel é unidirecional ($1\to2\to3\to4\to5\to1$), e a mensagem de eleição acumula
   os ids e o maior vence.
 - A propriedade esperada: todos os vivos convergem para o **maior id vivo (5)**.
 
@@ -64,14 +64,15 @@ python scripts/cenario.py anel normal
 
 ---
 
-## Bloco 3 — Eleição em Anel: falha do Líder (~50 s)
+## Bloco 3. Eleição em Anel: falha do Líder (~50 s)
 
 **Quem:** Integrante A.
 
 O que dizer:
-- Agora matamos o contêiner do Líder (5). Com a detecção por timeout, o Nó que
-  não consegue entregar ao sucessor **salta** para o próximo vivo e dispara uma
-  reeleição.
+- Agora matamos o contêiner do Líder (5), e o cenário dispara uma nova eleição no
+  Nó 1. Nenhum Nó inicia eleição sozinho. Na circulação, o 4 tenta entregar ao 5
+  três vezes, uma a cada terço do Deadline, desiste e **salta** para o próximo
+  vivo, o 1.
 - A consequência esperada: a reeleição converge para o **maior vivo restante (4)**.
 
 O que mostrar / rodar:
@@ -79,11 +80,11 @@ O que mostrar / rodar:
 python scripts/cenario.py anel falha
 ```
 - Apontar: elege 5, derruba o 5, reelege **4**. Mencionar que os invariantes de
-  unicidade, convergência e "maior id vivo" (01–03) passam.
+  unicidade, convergência e "maior id vivo" (01 a 03) passam.
 
 ---
 
-## Bloco 4 — Two-Phase Commit: cenário normal (~45 s)
+## Bloco 4. Two-Phase Commit: cenário normal (~45 s)
 
 **Quem:** Integrante B.
 
@@ -102,17 +103,17 @@ python scripts/cenario.py 2pc abort     # um NÃO -> ABORT atômico
 
 ---
 
-## Bloco 5 — 2PC: crash do Coordenador e recuperação (~70 s) — clímax
+## Bloco 5. 2PC: crash do Coordenador e recuperação (~70 s), o clímax
 
 **Quem:** Integrante B.
 
 O que dizer:
-- Este é o caso crítico. O Coordenador **grava a Decisão e cai antes de
-  difundi-la**. Os três Participantes ficam **em dúvida** (votaram SIM, mas não
-  sabem o desfecho) — e **bloqueiam**, porque este 2PC não tem terminação
-  cooperativa.
-- Destacar que o bloqueio é **comportamento correto do 2PC**, o preço da
-  atomicidade, e não um defeito (o invariante o classifica como *aviso*).
+- Este é o caso crítico. O Coordenador grava a Decisão e cai antes de difundi-la.
+  Os três Participantes ficam **em dúvida**, porque votaram SIM e não sabem o
+  desfecho, e **bloqueiam**, já que este 2PC não tem terminação cooperativa.
+- O bloqueio é **comportamento correto do 2PC**, o preço da atomicidade, e não um
+  defeito. A verificação feita com o Coordenador fora o mostra como aviso, sem
+  reprovar.
 - Ao reiniciar o contêiner, o Coordenador **relê o Log Durável** e **retransmite a
   DECISÃO até o ACK** de cada Participante. Todos decidem **COMMIT**.
 
@@ -120,19 +121,19 @@ O que mostrar / rodar:
 ```bash
 python scripts/cenario.py 2pc crash-coord
 ```
-- Apontar na saída: os Participantes em dúvida com o Coordenador fora → reinício →
-  todos em COMMIT. A Decisão recuperada do log **bate** com a gravada antes do
-  crash (durabilidade, invariante 05).
+- Apontar na saída: "Em dúvida: [11, 12, 13]", a verificação com o Coordenador
+  fora, com três avisos e nenhuma reprovação, o reinício e todos em COMMIT. A
+  verificação final não tem aviso, e a Decisão recuperada do log bate com a
+  gravada antes do crash (invariante 05).
 - Fechar com:
 ```bash
-python scripts/verificar.py
+python scripts/verificar.py results/cenario_2pc_crash-coord_logs
 ```
-  mostrando que **todos os invariantes de safety passam** (código de saída 0) e os
-  avisos de dúvida desaparecem após a recuperação.
+  mostrando os invariantes 04 a 06 aprovados e código de saída 0.
 
 ---
 
-## Bloco 6 — Resultados e fechamento (~50 s)
+## Bloco 6. Resultados e fechamento (~50 s)
 
 **Quem:** Integrante B.
 
@@ -140,7 +141,9 @@ O que dizer / mostrar (usar as figuras de `docs/figuras/`):
 - **Anel:** mensagens crescem como $2n-1$ (medido: 5,00 / 9,20 / 13,40 para
   $n=3,5,7$), batendo com a complexidade esperada.
 - **2PC:** a latência de commit cresce em linha com os $2N$ atrasos de ida da rede
-  (de ~8,5 ms a ~344,6 ms para 0→50 ms), e a recuperação fica **abaixo de 1 s**.
+  (de 8,5 ms a 344,6 ms para 0 a 50 ms). A recuperação leva em média menos de
+  0,9 s, com pior caso de 1,55 s, a maior parte na partida do contêiner e do
+  interpretador.
 - Uma frase sobre **reprodutibilidade**: tudo é dirigido por Semente, cada
   resultado carimba o ambiente, e `analisar.py conferir` garante que as tabelas de
   `docs/` batem com os dados brutos versionados.
@@ -166,6 +169,6 @@ O que dizer / mostrar (usar as figuras de `docs/figuras/`):
 - Se a bateria do 2PC (~10 min) for longa demais para o vídeo, **não rode ao vivo**:
   mostre as figuras já geradas e cite os números.
 - Os cenários (`cenario.py`) são rápidos e dão a demonstração "ao vivo" de
-  correção — priorize-os no tempo de tela.
+  correção. Priorize-os no tempo de tela.
 - Deixe o `verificar.py` para o final como "prova" de que as propriedades valem.
 - Cuidado com o `2pc crash-coord`: espere o reinício completar antes de cortar.

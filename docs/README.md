@@ -24,7 +24,7 @@ para o bônus. Os comandos rodam na raiz do projeto, a pasta do `compose.yaml`.
 | I3 | biblioteca não implementa o algoritmo | [`../README.md`](../README.md), seção Requisitos | [`src/comum/rede.py`](../src/comum/rede.py) | n/d |
 | M1 a M4 | modelo temporal, canais, falhas, relógios, persistência e reinício | [`modelo-e-correcao.md`](modelo-e-correcao.md), seções Modelo de cada algoritmo | n/d | n/d |
 | M5 | propriedades de safety e liveness | [`modelo-e-correcao.md`](modelo-e-correcao.md), seções Propriedades | [`src/analise/invariantes.py`](../src/analise/invariantes.py) | `python scripts/verificar.py` |
-| M6 | correção por testes ou por verificação dos logs | [`invariantes.md`](invariantes.md) | [`src/analise/invariantes.py`](../src/analise/invariantes.py), [`tests/`](../tests/) | `python scripts/verificar.py`, `python -m pytest` |
+| M6 | correção por testes ou por verificação dos logs | [`invariantes.md`](invariantes.md), [`modelo-e-correcao.md`](modelo-e-correcao.md), Falhas do modelo e onde são demonstradas | [`src/analise/invariantes.py`](../src/analise/invariantes.py), [`tests/`](../tests/) | `python scripts/verificar.py`, `python -m pytest` |
 | M7 | quantidade mínima de nós | [`modelo-e-correcao.md`](modelo-e-correcao.md), itens Nós | [`compose.yaml`](../compose.yaml) | n/d |
 | C1 | deadline explícito em toda chamada | [`modelo-e-correcao.md`](modelo-e-correcao.md), Canais (M2) | [`src/comum/rede.py`](../src/comum/rede.py) | n/d |
 | C2, C3 | filas, pub/sub e Redis | não se aplica, a comunicação é HTTP/JSON ponto a ponto | n/d | n/d |
@@ -39,7 +39,7 @@ para o bônus. Os comandos rodam na raiz do projeto, a pasta do `compose.yaml`.
 
 | Item | O que pede | Resposta | Módulo | Comando |
 |:-----|:-----------|:---------|:-------|:--------|
-| E1 | cenário normal e cenário de falha por algoritmo | [`modelo-e-correcao.md`](modelo-e-correcao.md), Cenários que exercitam cada propriedade | [`scripts/cenario.py`](../scripts/cenario.py) | `python scripts/cenario.py anel falha`, `python scripts/cenario.py anel reinicio`, `python scripts/cenario.py 2pc crash-coord` |
+| E1 | cenário normal e cenário de falha por algoritmo | [`modelo-e-correcao.md`](modelo-e-correcao.md), Cenários que exercitam cada propriedade | [`scripts/cenario.py`](../scripts/cenario.py) | `python scripts/cenario.py anel normal`, `python scripts/cenario.py anel falha`, `python scripts/cenario.py anel reinicio`, `python scripts/cenario.py 2pc commit`, `python scripts/cenario.py 2pc crash-coord`, `python scripts/cenario.py 2pc particao` |
 | E2 | métrica de desempenho justificada | [`resultados-anel.md`](resultados-anel.md), [`resultados-2pc.md`](resultados-2pc.md), [`modelo-e-correcao.md`](modelo-e-correcao.md), Relógios (M4) | [`src/experimentos/runner_anel.py`](../src/experimentos/runner_anel.py), [`src/experimentos/condutor_doispc.py`](../src/experimentos/condutor_doispc.py) | `python scripts/bateria.py --algoritmo anel`, `python scripts/bateria.py --algoritmo 2pc` |
 | E3 | um parâmetro em três ou mais níveis | seções Configuração de [`resultados-anel.md`](resultados-anel.md) e [`resultados-2pc.md`](resultados-2pc.md) | [`scripts/bateria.py`](../scripts/bateria.py) | `python scripts/bateria.py --algoritmo anel`, `--algoritmo 2pc` |
 | E4 | repetição, tendência, variabilidade e percentis | tabelas de [`resultados-anel.md`](resultados-anel.md) e [`resultados-2pc.md`](resultados-2pc.md) | [`src/analise/estatistica.py`](../src/analise/estatistica.py) | `python scripts/analisar.py tudo` |

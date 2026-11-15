@@ -34,8 +34,8 @@ services:
 
   # ---- 2PC: Coordenador <-> Participantes via o Toxiproxy -------------------
   # O Coordenador alcança cada Participante pela escuta dele, e os Participantes alcançam o
-  # Coordenador pela 17000. Votos e prazos vêm do compose.yaml e do override que a bateria do 2PC
-  # empilha sobre este arquivo (override_2pc).
+  # Coordenador pela 17000. Votos e prazos vêm do compose.yaml e do override_2pc que a bateria do
+  # 2PC e o cenário 2pc particao empilham sobre este arquivo.
   coordenador:
     environment:
       DOISPC_PARTICIPANTES: "11@toxiproxy:17011,12@toxiproxy:17012,13@toxiproxy:17013"

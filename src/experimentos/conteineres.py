@@ -142,12 +142,14 @@ def eleger(bases: dict[int, str], ids: list[int], esperado: int) -> tuple[dict[i
     return lideres, time.monotonic() - inicio
 
 
-def estados_participantes(*, esperar_decisao: bool, timeout: float = 10.0) -> dict[int, Any]:
-    """O `/estado` de cada participante, esperando até todos decidirem se pedido."""
+def estados_participantes(
+    *, esperar_decisao: bool, timeout: float = 10.0, portas: dict[int, int] = PORTAS_PART
+) -> dict[int, Any]:
+    """O `/estado` dos participantes de `portas`, esperando até todos eles decidirem se pedido."""
     limite = time.monotonic() + timeout
     while True:
         estados: dict[int, Any] = {}
-        for pid, porta in PORTAS_PART.items():
+        for pid, porta in portas.items():
             try:
                 estados[pid] = http_json(f"http://127.0.0.1:{porta}/estado")
             except (urllib.error.URLError, OSError):

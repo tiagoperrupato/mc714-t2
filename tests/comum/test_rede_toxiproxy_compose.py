@@ -9,11 +9,11 @@ Dois níveis, no mesmo espírito tolerante dos demais testes de compose do T2:
   override reescreve o endereçamento dos Nós para as portas de escuta do
   Toxiproxy (os Nós "passam a falar pelos proxies"). Não sobe contêiner.
 
-- `test_particao_do_lider_dispara_reeleicao`: quando o daemon do Docker está
+- `test_particao_do_lider_reelege_o_maior_vivo`: quando o daemon do Docker está
   acessível, sobe o Anel com roteamento pelo Toxiproxy, semeia os proxies,
-  elege o Líder 5, DESABILITA o proxy do Nó 5 (partição) e dispara nova
-  eleição, confirmando que os Nós vivos reelegem o maior id vivo, 4.
-  Marcado como lento; derruba o compose ao final.
+  elege o Líder 5, DESATIVA o proxy do Nó 5, que deixa de receber Mensagens, e
+  dispara nova eleição. Confere que os vivos reelegem 4 e que os invariantes
+  passam nos logs dos Nós. Marcado como lento, derruba o compose ao final.
 
 Quando o Docker não está disponível, os testes PULAM de forma limpa.
 """
@@ -22,16 +22,19 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 
-from src.comum.toxiproxy import ClienteToxiproxy, proxies_anel
+from scripts import verificar
+from src.comum.toxiproxy import ClienteToxiproxy, nome_proxy_anel, proxies_anel
 from src.experimentos.conteineres import (
     COMPOSE,
     COMPOSE_TOXIPROXY,
     PORTAS_ANEL,
     RAIZ,
     SERVICOS_ANEL,
+    coletar_logs,
     compose,
     docker_disponivel,
     eleger,
@@ -90,7 +93,7 @@ def test_compose_config_com_toxiproxy_valido() -> None:
 
 @pularsem_daemon
 @pytest.mark.slow
-def test_particao_do_lider_dispara_reeleicao() -> None:
+def test_particao_do_lider_reelege_o_maior_vivo(tmp_path: Path) -> None:
     """Partição do Líder do Anel via Toxiproxy leva à reeleição."""
     bases = {i: f"http://127.0.0.1:{porta}" for i, porta in PORTAS_ANEL.items()}
 
@@ -110,10 +113,17 @@ def test_particao_do_lider_dispara_reeleicao() -> None:
         assert set(lideres.values()) == {5}, f"não convergiu para 5: {lideres}"
 
         # Partição do Líder: desabilita o proxy do Nó 5.
-        tox.definir_habilitado("anel-5", False)
+        tox.definir_habilitado(nome_proxy_anel(5), False)
 
         # Nova eleição: os Nós vivos (1..4) reelegem o maior id vivo, 4.
         lideres, _ = eleger(bases, [1, 2, 3, 4], 4)
         assert set(lideres.values()) == {4}, f"reeleição não convergiu para 4: {lideres}"
+
+        # Na segunda rodada, o sucessor_falho do 4 tira o 5 dos vivos.
+        coletar_logs("anel", SERVICOS_ANEL, tmp_path, ARQUIVOS)
+        saida: list[str] = []
+        assert verificar.verificar([tmp_path], imprimir=saida.append, exigidos=(1, 2, 3)) == 0, (
+            "\n".join(saida)
+        )
     finally:
         compose("down", "-v", "--remove-orphans", arquivos=ARQUIVOS, timeout=180)

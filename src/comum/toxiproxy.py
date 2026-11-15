@@ -9,8 +9,9 @@ contêiner nem tocar o código dos algoritmos.
 O Toxiproxy degrada o canal e complementa o `ControladorFalhas` de `src.comum.falhas`, que injeta
 crash, pause, delay e drop na aplicação. O crash fica lá porque o Toxiproxy não representa a morte
 do processo. As Máquinas_de_Estados não importam este módulo. Quem o usa são `scripts/rede.py`,
-`scripts/demo_rede_toxiproxy.py`, a bateria do 2PC (`src/experimentos/condutor_doispc.py`) e os
-testes de integração.
+a demo de rede (`scripts/demo_rede_toxiproxy.py`), o cenário `2pc particao` de
+`scripts/cenario.py`, a bateria do 2PC (`src/experimentos/condutor_doispc.py`) e os testes de
+integração.
 
 Latência acima do Deadline faz o `ClienteRede` devolver `EnvioTimeout`, e o proxy desativado
 devolve `EnvioConexaoRecusada` ou `EnvioIndisponivel`. O Anel lê os dois como Sucessor falho. O

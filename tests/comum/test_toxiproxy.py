@@ -22,9 +22,12 @@ import pytest
 
 from src.comum.toxiproxy import (
     PORTA_2PC_BASE,
+    PROXY_2PC_COORDENADOR,
     ClienteToxiproxy,
     Proxy,
     ToxiproxyError,
+    nome_proxy_anel,
+    nome_proxy_participante,
     proxies_2pc,
     proxies_anel,
 )
@@ -190,6 +193,7 @@ def test_erro_de_api_vira_toxiproxyerror() -> None:
 def test_topologia_anel_mapeia_ids_para_portas() -> None:
     proxies = proxies_anel((1, 2, 3, 4, 5))
     assert [p.nome for p in proxies] == [f"anel-{i}" for i in range(1, 6)]
+    assert [p.nome for p in proxies] == [nome_proxy_anel(i) for i in range(1, 6)]
     assert {p.listen for p in proxies} == {f"0.0.0.0:{16000 + i}" for i in range(1, 6)}
     # O upstream de cada proxy aponta ao serviço do compose correspondente.
     assert proxies[0].upstream == "no-anel-1:8000"
@@ -200,6 +204,7 @@ def test_topologia_2pc_coordenador_e_participantes() -> None:
     proxies = proxies_2pc((11, 12, 13))
     nomes = [p.nome for p in proxies]
     assert nomes == ["2pc-coordenador", "2pc-participante-1", "2pc-participante-2", "2pc-participante-3"]
+    assert nomes == [PROXY_2PC_COORDENADOR, *(nome_proxy_participante(k) for k in (1, 2, 3))]
     coord = proxies[0]
     assert coord.listen == f"0.0.0.0:{PORTA_2PC_BASE}"
     assert coord.upstream == "coordenador:8000"

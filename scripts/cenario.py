@@ -49,6 +49,13 @@ Cenários do 2PC:
         reinicia o contêiner e mostra todos decidindo COMMIT depois que o
         Coordenador relê o Log_Duravel e difunde a Decisao gravada.
 
+    python scripts/cenario.py 2pc particao
+        Todos votam SIM, com o Toxiproxy entre o Coordenador e os Participantes. O
+        proxy do Participante 11 é desativado antes da transação, e o PREPARE não
+        chega a ele. O Coordenador decide ABORT no prazo de coleta de Votos e o
+        difunde. O 11 fica sem Decisao enquanto a partição dura, e depois da cura a
+        retransmissão da DECISAO o alcança. Todos terminam em ABORT.
+
 Requer Docker com Compose v2. Sem Docker, o script falha com uma mensagem clara
 e código de saída 2, em vez de travar.
 
@@ -74,10 +81,12 @@ if str(_RAIZ) not in sys.path:
     sys.path.insert(0, str(_RAIZ))
 
 from scripts import verificar  # noqa: E402
+from src.comum.toxiproxy import ClienteToxiproxy, nome_proxy_participante, proxies_2pc  # noqa: E402
 from src.experimentos.ambiente import coletar_ambiente  # noqa: E402
 from src.experimentos.conteineres import (  # noqa: E402
     BASE_COORD,
     COMPOSE,
+    COMPOSE_TOXIPROXY,
     PORTAS_ANEL,
     PORTAS_PART,
     SERVICOS_2PC,
@@ -107,7 +116,7 @@ SEMENTE_PADRAO = 0
 # verificado nos logs do cenário o reprova, e por isso um cenário sem log não passa.
 MODOS: dict[str, dict[str, tuple[int, ...]]] = {
     "anel": {"normal": (1, 2, 3), "falha": (1, 2, 3), "reinicio": (1, 2, 3)},
-    "2pc": {"commit": (4, 6), "abort": (4,), "crash-coord": (4, 5, 6)},
+    "2pc": {"commit": (4, 6), "abort": (4,), "crash-coord": (4, 5, 6), "particao": (4,)},
 }
 
 
@@ -214,6 +223,8 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
     os logs com o Coordenador fora, reinicia o contêiner e mede o tempo até todos
     decidirem.
     """
+    if modo == "particao":
+        return _cenario_2pc_particao(erro)
     esperada = "ABORT" if modo == "abort" else "COMMIT"
     esperado: dict[str, Any] = {
         "decisao": esperada,
@@ -271,6 +282,54 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
         | {
             "participantes_em_duvida": sorted(PORTAS_PART),
             "avisos_com_coordenador_fora": len(PORTAS_PART),
+            "concluido": True,
+        },
+    }
+
+
+def _cenario_2pc_particao(erro) -> dict[str, Any]:
+    """Particiona o Participante 11 durante uma transação e cura a partição depois do ABORT.
+
+    Os três votariam SIM, então o ABORT só pode vir do prazo de coleta de Votos, e o log do
+    Coordenador traz o `timeout_votos`.
+    """
+    proxy = nome_proxy_participante(1)  # o primeiro Participante, id 11
+    outros = {pid: porta for pid, porta in PORTAS_PART.items() if pid != 11}
+    with ClienteToxiproxy() as tox:
+        tox.esperar_pronto()
+        tox.semear(proxies_2pc(tuple(sorted(PORTAS_PART))))
+        esperar_saude(BASE_COORD, 30.0)
+        tox.definir_habilitado(proxy, False)
+        inicio = time.monotonic()
+        resposta = http_json(f"{BASE_COORD}/transacao", metodo="POST", timeout=30.0)
+        latencia = time.monotonic() - inicio
+        estados_participantes(esperar_decisao=True, portas=outros)
+        durante = decisoes(estados_participantes(esperar_decisao=False))
+        coord_durante = http_json(f"{BASE_COORD}/estado")
+        print(
+            f"[cenario] {resposta.get('decisao')} em {latencia:.2f} s com o 11 isolado: {durante}",
+            file=erro,
+        )
+        tox.definir_habilitado(proxy, True)
+    finais = decisoes(estados_participantes(esperar_decisao=True))
+    estado_coord = esperar_conclusao()
+    print(f"[cenario] partição curada: {finais}", file=erro)
+    return {
+        "cenario": "2pc_particao",
+        "algoritmo": "2pc",
+        "modo": "particao",
+        "falha_injetada": f"proxy {proxy} desativado antes da transação e reativado depois do ABORT",
+        "decisao": resposta.get("decisao"),
+        "latencia_decisao_s": round(latencia, 4),
+        "decisoes_durante_particao": durante,
+        "concluido_durante_particao": coord_durante.get("concluido"),
+        "decisoes_participantes": finais,
+        "concluido": estado_coord.get("concluido"),
+        "esperado": {
+            "decisao": "ABORT",
+            "decisoes_durante_particao": {11: None, 12: "ABORT", 13: "ABORT"},
+            "concluido_durante_particao": False,
+            "decisoes_participantes": dict.fromkeys(PORTAS_PART, "ABORT"),
             "concluido": True,
         },
     }
@@ -360,13 +419,16 @@ def executar_cenario(
         return 1
 
     if algoritmo == "anel":
-        servicos = SERVICOS_ANEL
+        nos = SERVICOS_ANEL
         override_texto = _override_anel(semente)
         conduzir = lambda arquivos: _cenario_anel(modo, arquivos)  # noqa: E731
     else:
-        servicos = SERVICOS_2PC
+        nos = SERVICOS_2PC
         override_texto = override_2pc(modo, semente)
         conduzir = lambda arquivos: _cenario_2pc(modo, arquivos, erro)  # noqa: E731
+    # Só a partição põe o Toxiproxy entre os Nós. Os logs são dos Nós, e o stdout de todos.
+    particao = (algoritmo, modo) == ("2pc", "particao")
+    servicos = [*nos, "toxiproxy"] if particao else nos
 
     if not docker_disponivel():
         print(
@@ -382,7 +444,7 @@ def executar_cenario(
     with tempfile.TemporaryDirectory() as tmp:
         override = Path(tmp) / "cenario-override.yaml"
         override.write_text(override_texto, encoding="utf-8")
-        arquivos = [COMPOSE, override]
+        arquivos = [COMPOSE, COMPOSE_TOXIPROXY, override] if particao else [COMPOSE, override]
 
         compose("down", "-v", "--remove-orphans", arquivos=arquivos)
         up = compose("up", "-d", "--build", "--wait", *servicos, arquivos=arquivos, timeout=900)
@@ -400,7 +462,7 @@ def executar_cenario(
             logs_dir = base / f"cenario_{rotulo_arq}_logs"
             if logs_dir.exists():
                 shutil.rmtree(logs_dir)
-            coletar_logs(algoritmo, servicos, logs_dir, arquivos)
+            coletar_logs(algoritmo, nos, logs_dir, arquivos)
             _coletar_stdout(servicos, base / f"cenario_{rotulo_arq}_stdout", arquivos)
 
             # Roda os invariantes sobre os logs coletados deste cenário.
