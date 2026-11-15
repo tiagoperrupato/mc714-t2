@@ -3,7 +3,7 @@
 Dois níveis, como no resto do projeto:
 
 - **Sem Docker**: valida a lógica do `scripts/cenario.py` e do `scripts/demo.py`
-  que NÃO precisa de contêiner — a normalização/validação de modos, a montagem
+  que NÃO precisa de contêiner — a validação de modos, a montagem
   dos overrides de cenário com a Semente, o registro da Semente, a coleta de
   cada log uma vez, o código 1 quando o desfecho difere do esperado, e a prova
   de que um log com Participantes em Estado_Em_Duvida, como o que fica enquanto
@@ -35,24 +35,20 @@ from tests.apoio import escrever_jsonl
 
 
 # --------------------------------------------------------------------------- #
-# Sem Docker: normalização e validação de modos.
+# Sem Docker: validação de modos.
 # --------------------------------------------------------------------------- #
 
 
-def test_normalizar_aliases_2pc() -> None:
-    # normal == commit, falha == abort; crash-coord é próprio.
-    assert cenario._normalizar("2pc", "normal") == ("commit", "commit")
-    assert cenario._normalizar("2pc", "falha") == ("abort", "abort")
-    assert cenario._normalizar("2pc", "commit") == ("commit", "commit")
-    assert cenario._normalizar("2pc", "abort") == ("abort", "abort")
-    assert cenario._normalizar("2pc", "crash-coord") == ("crash-coord", "crash-coord")
+def test_modos_de_modos_sao_aceitos() -> None:
+    for algoritmo, modos in cenario.MODOS.items():
+        for modo in modos:
+            cenario._validar_modo(algoritmo, modo)
 
 
-def test_normalizar_anel_valido_e_invalido() -> None:
-    assert cenario._normalizar("anel", "normal") == ("normal", "normal")
-    assert cenario._normalizar("anel", "falha") == ("falha", "falha")
+@pytest.mark.parametrize(("algoritmo", "modo"), [("2pc", "normal"), ("anel", "crash-coord")])
+def test_modo_fora_de_modos_e_recusado(algoritmo: str, modo: str) -> None:
     with pytest.raises(ValueError):
-        cenario._normalizar("anel", "crash-coord")
+        cenario._validar_modo(algoritmo, modo)
 
 
 def test_modo_2pc_invalido_retorna_codigo_1(tmp_path: Path, monkeypatch) -> None:

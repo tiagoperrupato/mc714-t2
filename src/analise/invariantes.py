@@ -49,8 +49,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from src.anel.maquina import TIPO_LIDER
+from src.doispc.log_duravel import (
+    DECISAO_ABORT,
+    DECISAO_COMMIT,
+    FASE_DECISAO,
+    FASE_VOTO,
+    VOTO_SIM,
+)
+
 # --------------------------------------------------------------------------- #
-# Constantes de eventos e fases, espelhando os produtores dos logs.
+# Tipos de evento, espelhando os produtores dos logs.
 # --------------------------------------------------------------------------- #
 
 # Tipos de evento do log estruturado do Anel (ver src/anel/no.py).
@@ -59,23 +68,10 @@ EV_RECEBEU = "recebeu"
 EV_REPASSOU = "repassou"
 EV_SUCESSOR_FALHO = "sucessor_falho"
 
-# Tipos de Mensagem do Anel que aparecem no corpo de um evento `recebeu`.
-MSG_LIDER = "lider"
-
 # Tipos de evento do log estruturado do 2PC (ver src/doispc/executor.py e
 # coordenador.py/participante.py).
-EV_GRAVA_LOG = "grava_log"
-EV_APLICA = "aplica"
 EV_RECUPERACAO = "recuperacao"
 EV_INICIA_TRANSACAO = "inicia_transacao"
-
-# Fases e valores do Log_Duravel (ver src/doispc/log_duravel.py).
-FASE_VOTO = "voto"
-FASE_DECISAO = "decisao"
-VOTO_SIM = "SIM"
-VOTO_NAO = "NAO"
-DECISAO_COMMIT = "COMMIT"
-DECISAO_ABORT = "ABORT"
 
 # Recorte do relatório: lista no máximo algumas ocorrências por
 # invariante, para o relatório caber na tela.
@@ -143,15 +139,10 @@ class Dados:
 
     `eventos` são as linhas do Log_Estruturado de todos os Nós, na ordem em que
     foram lidas. `duraveis` são as entradas de todos os Logs_Duraveis do 2PC.
-    `vivos_por_rodada`, quando conhecido, mapeia o id de uma rodada do Anel ao
-    conjunto de ids vivos naquela rodada; quando vazio, os invariantes do Anel
-    inferem os vivos dos próprios eventos (os Nós saltados por `sucessor_falho`
-    na rodada são tratados como mortos nela).
     """
 
     eventos: tuple[EventoLog, ...] = ()
     duraveis: tuple[EntradaDuravel, ...] = ()
-    vivos_por_rodada: Mapping[str, frozenset[int]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -337,7 +328,7 @@ def _anuncios_de_lider(eventos: Sequence[EventoLog]) -> list[AnuncioLider]:
     for ev in eventos:
         if ev.tipo != EV_RECEBEU:
             continue
-        if ev.campos.get("msg_tipo") != MSG_LIDER:
+        if ev.campos.get("msg_tipo") != TIPO_LIDER:
             continue
         corpo = ev.campos.get("corpo") or {}
         if "rodada" not in corpo or "lider" not in corpo:
@@ -383,16 +374,10 @@ def _mortos_observados(eventos: Sequence[EventoLog], rodada: str) -> frozenset[i
 
 
 def _vivos_na_rodada(d: Dados, rodada: str) -> frozenset[int]:
-    """Conjunto de Nós vivos na `rodada`.
+    """Os Nós vivos na rodada: os do Anel menos os saltados nela.
 
-    Usa `vivos_por_rodada` quando o chamador o forneceu (um cenário conhece quem
-    matou e quando). Na falta disso, infere dos eventos: todos os Nós do Anel
-    menos os saltados naquela rodada. Essa inferência é conservadora e
-    suficiente para os cenários coletados, onde a morte de um Nó aparece como
-    `sucessor_falho` no log de quem o contornou.
+    Um Nó morto aparece como `sucessor_falho` no log de quem o contornou.
     """
-    if rodada in d.vivos_por_rodada:
-        return frozenset(d.vivos_por_rodada[rodada])
     return _nos_do_anel(d.eventos) - _mortos_observados(d.eventos, rodada)
 
 
@@ -552,11 +537,8 @@ def invariante_04_atomicidade(d: Dados) -> Veredito:
     verificados = 0
     for transacao in sorted(decisoes):
         por_no = decisoes[transacao]
-        if not por_no:
-            continue
         verificados += 1
-        valores = set(por_no.values())
-        if valores == {DECISAO_COMMIT, DECISAO_ABORT} or len(valores) > 1:
+        if len(set(por_no.values())) > 1:
             commit = sorted(n for n, v in por_no.items() if v == DECISAO_COMMIT)
             abort = sorted(n for n, v in por_no.items() if v == DECISAO_ABORT)
             falhas.append(

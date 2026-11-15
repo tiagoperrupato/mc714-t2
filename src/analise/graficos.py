@@ -19,9 +19,9 @@ import matplotlib.pyplot as plt  # noqa: E402  (obrigatoriamente após use("Agg"
 DPI: int = 150
 
 
-def nova_figura(largura: float = 9.0, altura: float = 6.0):
+def nova_figura():
     """Cria uma figura e um eixo com o tamanho padrão do projeto."""
-    return plt.subplots(figsize=(largura, altura))
+    return plt.subplots(figsize=(9.0, 6.0))
 
 
 def salvar(fig, caminho: Path) -> None:

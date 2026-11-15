@@ -30,10 +30,10 @@ Cenários do Anel:
 
 Cenários do 2PC:
 
-    python scripts/cenario.py 2pc commit        (alias: 2pc normal)
+    python scripts/cenario.py 2pc commit
         Coordenador + 3 Participantes, todos votando SIM → COMMIT em todos.
 
-    python scripts/cenario.py 2pc abort          (alias: 2pc falha)
+    python scripts/cenario.py 2pc abort
         Participante 3 vota NAO → ABORT atômico em todos.
 
     python scripts/cenario.py 2pc crash-coord
@@ -95,15 +95,9 @@ RESULTS_PADRAO = _RAIZ / "results"
 # resultado e sobreponível por --semente para reproduzir uma execução.
 SEMENTE_PADRAO = 0
 
-# Modos normalizados do 2PC. Mantemos os aliases `normal`/`falha` por
-# compatibilidade (normal == commit, falha == abort).
-_MODOS_2PC = {
-    "normal": "commit",
-    "commit": "commit",
-    "falha": "abort",
-    "abort": "abort",
-    "crash-coord": "crash-coord",
-    "crash_coord": "crash-coord",
+MODOS: dict[str, tuple[str, ...]] = {
+    "anel": ("normal", "falha"),
+    "2pc": ("commit", "abort", "crash-coord"),
 }
 
 
@@ -128,7 +122,7 @@ def _override_anel(semente: int) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, Any]:
+def _cenario_anel(modo: str, arquivos: list[Path]) -> dict[str, Any]:
     """Conduz um cenário do Anel sobre o compose e devolve as métricas observadas.
 
     - `normal`: dispara uma eleição com os cinco Nós vivos, que converge para o
@@ -147,7 +141,6 @@ def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, An
         "cenario": f"anel_{modo}",
         "algoritmo": "anel",
         "modo": modo,
-        "semente": semente,
         "maior_id_topologia": 5,
         "lideres_iniciais": lideres,
         "tempo_convergencia_s": round(tempo, 4),
@@ -173,7 +166,7 @@ def _cenario_anel(modo: str, semente: int, arquivos: list[Path]) -> dict[str, An
 # --------------------------------------------------------------------------- #
 
 
-def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> dict[str, Any]:
+def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
     """Conduz uma transação 2PC sobre o compose e devolve as métricas observadas.
 
     O voto dos Participantes e o crash do Coordenador vêm do override montado por
@@ -183,7 +176,7 @@ def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> di
     de gravar a Decisao. O condutor registra os Participantes em dúvida, reinicia
     o contêiner e mede o tempo até todos decidirem.
     """
-    esperada = "ABORT" if modo_norm == "abort" else "COMMIT"
+    esperada = "ABORT" if modo == "abort" else "COMMIT"
     esperado: dict[str, Any] = {
         "decisao": esperada,
         "decisoes_participantes": dict.fromkeys(PORTAS_PART, esperada),
@@ -196,12 +189,11 @@ def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> di
         resposta = {"erro": str(exc)}
     latencia = time.monotonic() - inicio
 
-    if modo_norm != "crash-coord":
+    if modo != "crash-coord":
         return {
-            "cenario": f"2pc_{modo_norm}",
+            "cenario": f"2pc_{modo}",
             "algoritmo": "2pc",
-            "modo": modo_norm,
-            "semente": semente,
+            "modo": modo,
             "decisao": resposta.get("decisao"),
             "latencia_commit_s": round(latencia, 4),
             "participantes": resposta.get("participantes"),
@@ -224,8 +216,7 @@ def _cenario_2pc(modo_norm: str, semente: int, arquivos: list[Path], erro) -> di
     return {
         "cenario": "2pc_crash-coord",
         "algoritmo": "2pc",
-        "modo": modo_norm,
-        "semente": semente,
+        "modo": modo,
         "falha_injetada": "processo do Coordenador morre depois de gravar a Decisao "
         "(DOISPC_CAIR_APOS_DECIDIR) e o contêiner é reiniciado",
         "participantes_em_duvida": em_duvida,
@@ -274,23 +265,10 @@ def _gravar_registro(registro: dict[str, Any], destino: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _normalizar(algoritmo: str, modo: str) -> tuple[str, str]:
-    """Valida e normaliza (algoritmo, modo) ANTES de qualquer efeito colateral.
-
-    Devolve (modo_rotulo, modo_normalizado). Para o Anel, o rótulo é o próprio
-    modo (normal/falha). Para o 2PC, o rótulo é o modo normalizado
-    (commit/abort/crash-coord), resolvendo os aliases normal/falha.
-    """
-    if algoritmo == "anel":
-        if modo not in ("normal", "falha"):
-            raise ValueError(f"modo do Anel inválido: {modo!r} (use normal|falha)")
-        return modo, modo
-    norm = _MODOS_2PC.get(modo)
-    if norm is None:
-        raise ValueError(
-            f"modo do 2PC inválido: {modo!r} (use commit|abort|crash-coord)"
-        )
-    return norm, norm
+def _validar_modo(algoritmo: str, modo: str) -> None:
+    """Recusa um modo fora de `MODOS`, antes de qualquer efeito colateral."""
+    if modo not in MODOS[algoritmo]:
+        raise ValueError(f"modo do {algoritmo} inválido: {modo!r} (use {'|'.join(MODOS[algoritmo])})")
 
 
 def executar_cenario(
@@ -311,7 +289,7 @@ def executar_cenario(
     final.
     """
     try:
-        rotulo, modo_norm = _normalizar(algoritmo, modo)
+        _validar_modo(algoritmo, modo)
     except ValueError as exc:
         print(f"[cenario] configuração inválida: {exc}", file=erro)
         return 1
@@ -323,11 +301,11 @@ def executar_cenario(
     if algoritmo == "anel":
         servicos = SERVICOS_ANEL
         override_texto = _override_anel(semente)
-        conduzir = lambda arquivos: _cenario_anel(rotulo, semente, arquivos)  # noqa: E731
+        conduzir = lambda arquivos: _cenario_anel(modo, arquivos)  # noqa: E731
     else:
         servicos = SERVICOS_2PC
-        override_texto = override_2pc(modo_norm, semente)
-        conduzir = lambda arquivos: _cenario_2pc(modo_norm, semente, arquivos, erro)  # noqa: E731
+        override_texto = override_2pc(modo, semente)
+        conduzir = lambda arquivos: _cenario_2pc(modo, arquivos, erro)  # noqa: E731
 
     if not docker_disponivel():
         print(
@@ -338,7 +316,7 @@ def executar_cenario(
         return 2
 
     base = Path(results)
-    rotulo_arq = f"{algoritmo}_{rotulo}"
+    rotulo_arq = f"{algoritmo}_{modo}"
 
     with tempfile.TemporaryDirectory() as tmp:
         override = Path(tmp) / "cenario-override.yaml"
@@ -376,26 +354,26 @@ def executar_cenario(
             arquivo_registro = base / f"cenario_{rotulo_arq}.json"
             _gravar_registro(registro, arquivo_registro)
             print(
-                f"[cenario] {algoritmo}/{rotulo} (semente={semente}): "
+                f"[cenario] {algoritmo}/{modo} (semente={semente}): "
                 f"{json.dumps({k: v for k, v in registro.items() if k != 'verificacao'}, ensure_ascii=False)}",
                 file=saida,
             )
             print("\n".join(linhas_verif), file=saida)
             if divergencias:
                 print(
-                    f"[cenario] o desfecho de {algoritmo}/{rotulo} difere do esperado: "
+                    f"[cenario] o desfecho de {algoritmo}/{modo} difere do esperado: "
                     f"{'; '.join(divergencias)}. Registro em {arquivo_registro}, "
                     f"logs dos Nós em {logs_dir}",
                     file=erro,
                 )
             if codigo_verif != 0:
                 print(
-                    f"[cenario] VERIFICAÇÃO REPROVOU para {algoritmo}/{rotulo}",
+                    f"[cenario] VERIFICAÇÃO REPROVOU para {algoritmo}/{modo}",
                     file=erro,
                 )
             return 1 if divergencias or codigo_verif != 0 else 0
         except Exception as exc:  # noqa: BLE001 - qualquer falha de condução
-            print(f"[cenario] falha ao conduzir {algoritmo}/{rotulo}: {exc}", file=erro)
+            print(f"[cenario] falha ao conduzir {algoritmo}/{modo}: {exc}", file=erro)
             return 1
         finally:
             compose("down", "-v", "--remove-orphans", arquivos=arquivos)
@@ -410,7 +388,7 @@ def _construir_parser() -> argparse.ArgumentParser:
     parser.add_argument("algoritmo", choices=["anel", "2pc"], help="algoritmo alvo")
     parser.add_argument(
         "modo",
-        help="Anel: normal|falha. 2PC: commit|abort|crash-coord (normal=commit, falha=abort)",
+        help=" ".join(f"{alg}: {'|'.join(modos)}." for alg, modos in MODOS.items()),
     )
     parser.add_argument(
         "--semente",

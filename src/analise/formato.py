@@ -15,12 +15,11 @@ import math
 AUSENTE: str = "n/d"
 
 
-def numero(valor: float, casas: int = 4, sinal: bool = False) -> str:
-    """Número com vírgula decimal e `casas` fixas, `n/d` se ausente e "+" explícito."""
+def numero(valor: float, casas: int) -> str:
+    """Número com vírgula decimal e `casas` fixas, ou `n/d` se ausente."""
     if valor is None or (isinstance(valor, float) and math.isnan(valor)):
         return AUSENTE
-    texto = f"{valor:{'+' if sinal else ''}.{casas}f}"
-    return texto.replace(".", ",")
+    return f"{valor:.{casas}f}".replace(".", ",")
 
 
 def inteiro(valor) -> str:
@@ -33,17 +32,16 @@ def inteiro(valor) -> str:
 def tabela_markdown(
     linhas: list[dict[str, str]],
     colunas: list[str],
-    colunas_texto: list[str] | None = None,
+    colunas_texto: list[str],
 ) -> str:
     """Tabela markdown alinhada, a partir de células já formatadas como texto.
 
-    `colunas_texto` vão à esquerda e as demais à direita. Sem ele, só a primeira
-    coluna é texto.
+    `colunas_texto` vão à esquerda e as demais à direita.
     """
     if not linhas:
         return "_(sem linhas)_"
 
-    esquerda = set(colunas_texto) if colunas_texto is not None else {colunas[0]}
+    esquerda = set(colunas_texto)
     largura = {
         c: max(len(c), *(len(str(linha.get(c, ""))) for linha in linhas))
         for c in colunas

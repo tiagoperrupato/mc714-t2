@@ -2,9 +2,8 @@
 
 A análise lê exclusivamente os CSVs de `results/` produzidos por
 `scripts/bateria.py`: nunca sobe contêiner nem reexecuta uma
-Réplica. Este módulo concentra os caminhos padrão, a leitura validada (arquivo
-presente, colunas obrigatórias, chave única por Réplica) e os helpers de recorte
-por nível de parâmetro usados pelas análises de cada algoritmo.
+Réplica. Este módulo concentra os caminhos padrão e a leitura validada (arquivo
+presente, colunas obrigatórias, chave única por Réplica).
 
 A raiz do projeto e os destinos de `results/`, `docs/dados/` e
 `docs/figuras/` são derivados aqui a partir da localização deste arquivo, sem
@@ -28,13 +27,8 @@ DIR_FIGURAS: Path = DIR_DOCS / "figuras"
 # CSVs produzidos pela bateria (scripts/bateria.py). Os do 2PC são um por transação e um por crash
 # do Coordenador.
 BATERIA_ANEL_NOS: Path = DIR_RESULTS / "bateria_anel_num_nos.csv"
-BATERIA_ANEL_FALHAS: Path = DIR_RESULTS / "bateria_anel_taxa_falhas.csv"
 BATERIA_2PC_LATENCIA: Path = DIR_RESULTS / "bateria_2pc_latencia_rede.csv"
 BATERIA_2PC_RECUPERACAO: Path = DIR_RESULTS / "bateria_2pc_recuperacao.csv"
-
-# Para casar um nível float (num_nos lido como 5.0, taxa 0.10) com o que o
-# usuário digita na CLI.
-TOLERANCIA: float = 1e-9
 
 # Colunas mínimas exigidas em cada esquema, conforme grava a bateria do T2. As
 # colunas de ambiente (amb_*) existem mas não são validadas aqui, pois são
@@ -162,22 +156,3 @@ def carregar_2pc_recuperacao(caminho: Path) -> pd.DataFrame:
     rejeitar_duplicadas(df, CHAVE_REPLICA, caminho)
     return df
 
-
-def filtrar_nivel(
-    df: pd.DataFrame, coluna: str, valor: float, tolerancia: float = TOLERANCIA
-) -> pd.DataFrame:
-    """As linhas de um nível de parâmetro.
-
-    Levanta `DadosError` listando os níveis disponíveis se nenhum casar, para que
-    um nível ausente não vire uma tabela silenciosamente vazia.
-    """
-    if coluna not in df.columns:
-        raise DadosError(f"coluna {coluna!r} ausente no arquivo carregado")
-    recorte = df[(df[coluna].astype(float) - valor).abs() <= tolerancia]
-    if recorte.empty:
-        disponiveis = ", ".join(f"{v:g}" for v in sorted(df[coluna].astype(float).unique()))
-        raise DadosError(
-            f"nenhuma linha com {coluna} = {valor:g}; os níveis presentes são: "
-            f"{disponiveis}."
-        )
-    return recorte

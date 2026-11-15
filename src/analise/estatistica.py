@@ -13,7 +13,6 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-import pandas as pd
 
 # Quantis de 0,975 da t de Student por graus de liberdade, tabelados para não
 # depender de scipy.
@@ -43,8 +42,6 @@ def t_critico_95(gl: int) -> float:
     if gl in _T_CRITICO_95:
         return _T_CRITICO_95[gl]
     candidatos = [g for g in _T_CRITICO_95 if g <= gl]
-    if not candidatos:
-        return _T_NORMAL_95
     return _T_CRITICO_95[max(candidatos)] if gl <= 120 else _T_NORMAL_95
 
 
@@ -56,14 +53,6 @@ class Resumo:
     media: float
     desvio: float
     ic95_meio: float
-
-    @property
-    def ic95_inf(self) -> float:
-        return self.media - self.ic95_meio
-
-    @property
-    def ic95_sup(self) -> float:
-        return self.media + self.ic95_meio
 
 
 def resumir(valores) -> Resumo:
@@ -102,91 +91,18 @@ class Percentis:
 PERCENTIS_LATENCIA: tuple[int, ...] = (50, 95, 99)
 
 
-def percentis(valores, quantis: tuple[int, ...] = PERCENTIS_LATENCIA) -> Percentis:
+def percentis(valores) -> Percentis:
     """p50/p95/p99 de uma amostra, descartando NaN.
 
     Usa interpolação linear entre as posições (o padrão do numpy), que é a
     convenção mais comum para percentis amostrais de latência e coincide com a
     mediana usual em p50. Levanta `ValueError` se a amostra ficar vazia.
     """
-    if quantis != PERCENTIS_LATENCIA:
-        raise ValueError(
-            f"os percentis de latência do T2 são {PERCENTIS_LATENCIA}, "
-            f"recebido {quantis}"
-        )
     amostra = np.asarray(valores, dtype=float)
     amostra = amostra[~np.isnan(amostra)]
     n = int(amostra.size)
     if n == 0:
         raise ValueError("amostra vazia: nenhum valor válido para os percentis")
-    p50, p95, p99 = (float(np.percentile(amostra, q)) for q in quantis)
+    p50, p95, p99 = (float(np.percentile(amostra, q)) for q in PERCENTIS_LATENCIA)
     return Percentis(n=n, p50=p50, p95=p95, p99=p99)
 
-
-def agregar(
-    df: pd.DataFrame,
-    chaves: list[str],
-    metricas: list[str],
-    minimo_replicas: int = 1,
-) -> pd.DataFrame:
-    """Resume `metricas` por grupo de `chaves`, em formato longo: uma linha por métrica.
-
-    Grupos com menos de `minimo_replicas` valores válidos são descartados. Cada
-    linha traz n, média, desvio e o IC 95% do grupo.
-    """
-    linhas = []
-    for valores_chave, grupo in df.groupby(chaves, sort=True):
-        if not isinstance(valores_chave, tuple):
-            valores_chave = (valores_chave,)
-        for metrica in metricas:
-            serie = grupo[metrica].to_numpy(dtype=float)
-            serie = serie[~np.isnan(serie)]
-            if serie.size < minimo_replicas:
-                continue
-            resumo = resumir(serie)
-            linhas.append(
-                dict(zip(chaves, valores_chave))
-                | {
-                    "metrica": metrica,
-                    "n_replicas": resumo.n,
-                    "media": resumo.media,
-                    "desvio_padrao": resumo.desvio,
-                    "ic95_meio": resumo.ic95_meio,
-                    "ic95_inf": resumo.ic95_inf,
-                    "ic95_sup": resumo.ic95_sup,
-                }
-            )
-    return pd.DataFrame(linhas)
-
-
-def agregar_percentis(
-    df: pd.DataFrame,
-    chaves: list[str],
-    metrica: str,
-    minimo_replicas: int = 1,
-) -> pd.DataFrame:
-    """p50/p95/p99 de uma métrica de latência por grupo de `chaves`.
-
-    Uma linha por grupo, com n e os três percentis, descartando grupos com menos
-    de `minimo_replicas` valores válidos.
-    """
-    linhas = []
-    for valores_chave, grupo in df.groupby(chaves, sort=True):
-        if not isinstance(valores_chave, tuple):
-            valores_chave = (valores_chave,)
-        serie = grupo[metrica].to_numpy(dtype=float)
-        serie = serie[~np.isnan(serie)]
-        if serie.size < minimo_replicas:
-            continue
-        p = percentis(serie)
-        linhas.append(
-            dict(zip(chaves, valores_chave))
-            | {
-                "metrica": metrica,
-                "n_replicas": p.n,
-                "p50": p.p50,
-                "p95": p.p95,
-                "p99": p.p99,
-            }
-        )
-    return pd.DataFrame(linhas)

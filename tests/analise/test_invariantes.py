@@ -49,10 +49,10 @@ def _entrada_duravel(transacao: str, fase: str, valor: str, no: int) -> dict:
     return {"transacao": transacao, "fase": fase, "valor": valor, "no": no}
 
 
-def _dados(eventos: list[dict], duraveis: list[dict] | None = None, **kw) -> inv.Dados:
+def _dados(eventos: list[dict], duraveis: list[dict] | None = None) -> inv.Dados:
     evs = tuple(inv.EventoLog.de_json(e) for e in eventos)
     durs = tuple(inv.EntradaDuravel.de_json(e) for e in (duraveis or []))
-    return inv.Dados(eventos=evs, duraveis=durs, **kw)
+    return inv.Dados(eventos=evs, duraveis=durs)
 
 
 def _por_numero(vereditos, numero: int) -> inv.Veredito:
@@ -159,14 +159,6 @@ def test_anel_reeleicao_pelo_mesmo_no_e_outra_rodada() -> None:
         v = invariante(d)
         assert v.ok, (v.titulo, v.falhas)
         assert v.verificados == 2
-
-
-def test_anel_maior_id_vivo_usa_vivos_por_rodada_quando_dado() -> None:
-    # O chamador informa que na rodada r1 os vivos são {1,2,3,4}; eleger 4 é certo.
-    eventos = [_recebeu_lider(no, rodada="r1", lider=4) for no in (1, 2, 3, 4)]
-    d = _dados(eventos, vivos_por_rodada={"r1": frozenset({1, 2, 3, 4})})
-    v = inv.invariante_03_maior_id_vivo(d)
-    assert v.ok
 
 
 # --------------------------------------------------------------------------- #
@@ -460,8 +452,12 @@ def test_verificar_sai_zero_sem_dados(tmp_path: Path) -> None:
     assert codigo == 0
 
 
-def test_verificar_main_usa_results_padrao(tmp_path: Path) -> None:
+def test_verificar_main_sem_caminho_usa_results_padrao(tmp_path: Path, monkeypatch) -> None:
     from scripts import verificar
 
-    codigo = verificar.main(["--results", str(tmp_path)])
-    assert codigo == 0
+    escrever_jsonl(
+        tmp_path / "cenario_anel_normal_logs" / "anel.jsonl",
+        [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)],
+    )
+    monkeypatch.setattr(verificar, "RESULTS_PADRAO", tmp_path)
+    assert verificar.main([]) == 0

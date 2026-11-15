@@ -16,9 +16,6 @@ Uso:
     python scripts/verificar.py
         Verifica tudo que houver sob `results/`.
 
-    python scripts/verificar.py --results caminho/para/results
-        Verifica os logs sob outro diretório.
-
     python scripts/verificar.py logs_a/ logs_b/ um_arquivo.log
         Verifica caminhos específicos (arquivos ou diretórios), úteis para
         conferir o resultado de um cenário isolado.
@@ -61,12 +58,6 @@ def _construir_parser() -> argparse.ArgumentParser:
         type=Path,
         help="arquivos ou diretórios de log a verificar (default: results/)",
     )
-    parser.add_argument(
-        "--results",
-        type=Path,
-        default=None,
-        help=f"diretório de resultados a varrer (default: {RESULTS_PADRAO})",
-    )
     return parser
 
 
@@ -83,8 +74,7 @@ def verificar(caminhos: list[Path], *, imprimir=print) -> int:
         locais = ", ".join(str(c) for c in caminhos)
         imprimir(
             f"nenhum log encontrado em: {locais}\n"
-            "nada a verificar — colete logs com os cenários (scripts/cenario.py) "
-            "ou aponte --results para os dados."
+            "nada a verificar. Os cenários coletam os logs: python scripts/cenario.py anel normal"
         )
         return 0
 
@@ -100,10 +90,7 @@ def verificar(caminhos: list[Path], *, imprimir=print) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _construir_parser().parse_args(argv)
-    caminhos: list[Path] = list(args.caminhos)
-    if not caminhos:
-        caminhos = [args.results or RESULTS_PADRAO]
-    return verificar(caminhos)
+    return verificar(list(args.caminhos) or [RESULTS_PADRAO])
 
 
 if __name__ == "__main__":
