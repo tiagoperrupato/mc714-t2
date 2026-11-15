@@ -77,7 +77,7 @@ def _montar_linha(agora: float, no_id: int, tipo: str, campos: Mapping[str, Any]
     return json.dumps(registro, ensure_ascii=False, sort_keys=False)
 
 
-def abrir_log(caminho: Path, no_id: int, *, relogio=time.time) -> LogEstruturado:
+def abrir_log(caminho: Path, no_id: int) -> LogEstruturado:
     """Abre (criando diretórios) um arquivo de log sob `results/` e devolve o logger.
 
     O chamador é dono do fluxo subjacente via `LogEstruturado`; em produção o
@@ -85,4 +85,4 @@ def abrir_log(caminho: Path, no_id: int, *, relogio=time.time) -> LogEstruturado
     """
     caminho.parent.mkdir(parents=True, exist_ok=True)
     fluxo = caminho.open("a", encoding="utf-8")
-    return LogEstruturado(no_id, fluxo, relogio=relogio)
+    return LogEstruturado(no_id, fluxo)

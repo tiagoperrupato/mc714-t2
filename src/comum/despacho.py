@@ -18,25 +18,16 @@ T = TypeVar("T")
 class Despachante(Generic[T]):
     """Entrega cada item enfileirado a `enviar`, um por vez e em ordem, numa thread própria."""
 
-    def __init__(self, enviar: Callable[[T], None], *, iniciar: bool = True) -> None:
+    def __init__(self, enviar: Callable[[T], None]) -> None:
         self._enviar = enviar
         self._fila: "queue.Queue[Optional[T]]" = queue.Queue()
-        self._thread: Optional[threading.Thread] = None
-        if iniciar:
-            self.iniciar()
-
-    def iniciar(self) -> None:
-        """Inicia a thread, se ainda não está rodando."""
-        if self._thread is not None and self._thread.is_alive():
-            return
         self._thread = threading.Thread(target=self._laco, daemon=True)
         self._thread.start()
 
     def parar(self) -> None:
         """Encerra a thread depois de esvaziar a fila."""
         self._fila.put(None)
-        if self._thread is not None:
-            self._thread.join(timeout=5.0)
+        self._thread.join(timeout=5.0)
 
     def drenar(self) -> None:
         """Bloqueia até a fila esvaziar, inclusive o que for enfileirado durante a espera."""

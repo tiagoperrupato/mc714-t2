@@ -2,11 +2,10 @@
 
 O Toxiproxy é um proxy TCP que fica **entre** os Nós: cada Nó, em vez de falar
 direto com o peer, fala com uma porta de escuta (`listen`) do Toxiproxy, que
-repassa ao destino real (`upstream`). Sobre esse proxy aplicam-se *toxics* —
-latência, corte de banda, timeout, reset de conexão — e, derrubando o proxy
-inteiro, modela-se partição de rede. Tudo isso é controlado pelo HTTP API do
-serviço (porta 8474), sem reiniciar contêiner e sem tocar o código dos
-algoritmos.
+repassa ao destino real (`upstream`). O projeto aplica sobre esse proxy o
+toxic de latência e, desabilitando o proxy inteiro, a partição de rede. Tudo
+isso é controlado pelo HTTP API do serviço (porta 8474), sem reiniciar
+contêiner e sem tocar o código dos algoritmos.
 
 Por que este cliente vive em `src/comum/` e não nos algoritmos: é parte do
 Transporte/infra, complementar ao `ControladorFalhas` de aplicação
@@ -30,10 +29,13 @@ Referência do API: https://github.com/Shopify/toxiproxy#http-api
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, Mapping, Optional
+from dataclasses import dataclass
+from typing import Any, Optional
 
 import httpx
+
+API_PADRAO = "http://127.0.0.1:8474"
+TIMEOUT_API_S = 5.0
 
 
 class ToxiproxyError(RuntimeError):
@@ -51,22 +53,21 @@ class Proxy:
     """Um proxy nomeado: a porta de escuta e o destino real para o qual repassa.
 
     `nome` identifica o proxy no API. `listen` é o endereço host:porta onde o
-    Toxiproxy aceita conexões (os Nós apontam para cá); `upstream` é o endereço
-    host:porta do Nó real para onde o tráfego é repassado. `habilitado=False`
-    corta o proxy, modelando partição de rede.
+    Toxiproxy aceita conexões (os Nós apontam para cá), e `upstream` é o endereço
+    host:porta do Nó real para onde o tráfego é repassado. O proxy nasce
+    habilitado, e a partição o desliga com `definir_habilitado`.
     """
 
     nome: str
     listen: str
     upstream: str
-    habilitado: bool = True
 
     def para_json(self) -> dict[str, Any]:
         return {
             "name": self.nome,
             "listen": self.listen,
             "upstream": self.upstream,
-            "enabled": self.habilitado,
+            "enabled": True,
         }
 
 
@@ -87,13 +88,11 @@ class ClienteToxiproxy:
 
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:8474",
+        base_url: str = API_PADRAO,
         *,
         transporte: Optional[httpx.Client] = None,
-        timeout: float = 5.0,
     ) -> None:
         self._base = base_url.rstrip("/")
-        self._timeout = timeout
         self._proprio = transporte is None
         self._http = transporte or httpx.Client()
 
@@ -102,7 +101,7 @@ class ClienteToxiproxy:
     def _req(self, metodo: str, caminho: str, *, json: Any = None) -> httpx.Response:
         url = self._base + caminho
         try:
-            resp = self._http.request(metodo, url, json=json, timeout=self._timeout)
+            resp = self._http.request(metodo, url, json=json, timeout=TIMEOUT_API_S)
         except httpx.HTTPError as erro:  # transporte fora do ar
             raise ToxiproxyError(f"{metodo} {url} falhou no transporte: {erro}") from erro
         if resp.status_code >= 400:
@@ -111,7 +110,7 @@ class ClienteToxiproxy:
             )
         return resp
 
-    def esperar_pronto(self, deadline: float = 30.0, intervalo: float = 0.25) -> None:
+    def esperar_pronto(self, deadline: float = 30.0) -> None:
         """Bloqueia até o API responder, ou levanta `ToxiproxyError` no Deadline.
 
         Útil logo após `docker compose up`: o contêiner do Toxiproxy pode levar
@@ -126,7 +125,7 @@ class ClienteToxiproxy:
                 return
             except ToxiproxyError as erro:
                 ultimo = erro
-                time.sleep(intervalo)
+                time.sleep(0.25)
         raise ToxiproxyError(f"Toxiproxy não respondeu em {deadline}s: {ultimo}")
 
     # -- proxies ------------------------------------------------------------
@@ -137,16 +136,15 @@ class ClienteToxiproxy:
 
     def criar_proxy(self, proxy: Proxy) -> None:
         """Cria (ou recria) `proxy`. Remove um homônimo antes, p/ idempotência."""
-        self.remover_proxy(proxy.nome, silencioso=True)
+        self._remover_proxy(proxy.nome)
         self._req("POST", "/proxies", json=proxy.para_json())
 
-    def remover_proxy(self, nome: str, *, silencioso: bool = False) -> None:
-        """Remove o proxy `nome`. Com `silencioso`, ignora um 404 (já ausente)."""
+    def _remover_proxy(self, nome: str) -> None:
+        """Remove o proxy `nome`, ignorando o 404 de um proxy já ausente."""
         try:
             self._req("DELETE", f"/proxies/{nome}")
         except ToxiproxyError:
-            if not silencioso:
-                raise
+            pass
 
     def definir_habilitado(self, nome: str, habilitado: bool) -> None:
         """Liga/desliga o proxy. Desligar (False) corta a rota = partição.
@@ -166,94 +164,37 @@ class ClienteToxiproxy:
         """
         self._req("POST", "/reset")
         for nome in list(self.listar_proxies().keys()):
-            self.remover_proxy(nome, silencioso=True)
+            self._remover_proxy(nome)
 
     # -- toxics -------------------------------------------------------------
 
-    def adicionar_toxic(
-        self,
-        proxy: str,
-        *,
-        tipo: str,
-        atributos: Mapping[str, Any],
-        nome: Optional[str] = None,
-        direcao: str = "downstream",
-        toxicidade: float = 1.0,
-    ) -> dict[str, Any]:
-        """Aplica um toxic genérico a `proxy` e devolve a descrição criada.
-
-        `tipo` é um dos toxics do Toxiproxy (`latency`, `bandwidth`, `timeout`,
-        `slow_close`, `reset_peer`, `limit_data`, ...). `atributos` são os
-        parâmetros do toxic (ex.: `{"latency": 300}` em ms). `direcao` é
-        `downstream` (upstream->cliente) ou `upstream` (cliente->upstream).
-        `toxicidade` é a probabilidade de o toxic incidir numa conexão (1.0 =
-        sempre), o que permite modelar perda/degradação parcial.
-        """
-        corpo: dict[str, Any] = {
-            "type": tipo,
-            "stream": direcao,
-            "toxicity": toxicidade,
-            "attributes": dict(atributos),
-        }
-        if nome is not None:
-            corpo["name"] = nome
-        return self._req("POST", f"/proxies/{proxy}/toxics", json=corpo).json()
-
     def latencia(
         self, proxy: str, ms: int, jitter_ms: int = 0, *, direcao: str = "downstream"
-    ) -> dict[str, Any]:
+    ) -> None:
         """Injeta `ms` de latência (com `jitter_ms` opcional) na rota do proxy.
 
+        `direcao` é `downstream` (upstream->cliente) ou `upstream` (cliente->upstream).
         Latência acima do Deadline do `ClienteRede` faz a chamada estourar e
         devolver `EnvioTimeout`. O nome do toxic leva a direção,
         para que os dois sentidos de um proxy tenham latência ao mesmo tempo.
         """
-        return self.adicionar_toxic(
-            proxy,
-            tipo="latency",
-            atributos={"latency": int(ms), "jitter": int(jitter_ms)},
-            nome=f"latency_{direcao}",
-            direcao=direcao,
-        )
-
-    def timeout(self, proxy: str, ms: int = 0, *, direcao: str = "downstream") -> dict[str, Any]:
-        """Para dados após `ms` e depois fecha a conexão (0 = fecha imediatamente).
-
-        Modela uma rota que engole os dados e nunca responde, levando o cliente
-        a estourar o Deadline — outra forma, mais abrupta, de disparar o salto
-        do Anel e o ABORT por timeout do 2PC.
-        """
-        return self.adicionar_toxic(
-            proxy,
-            tipo="timeout",
-            atributos={"timeout": int(ms)},
-            nome="timeout",
-            direcao=direcao,
-        )
-
-    def banda(self, proxy: str, kbps: int, *, direcao: str = "downstream") -> dict[str, Any]:
-        """Limita a banda da rota a `kbps` (kilobytes/s), degradando a vazão."""
-        return self.adicionar_toxic(
-            proxy,
-            tipo="bandwidth",
-            atributos={"rate": int(kbps)},
-            nome="bandwidth",
-            direcao=direcao,
-        )
-
-    def remover_toxic(self, proxy: str, nome: str, *, silencioso: bool = False) -> None:
-        """Remove o toxic `nome` de `proxy`, restaurando a rota saudável."""
-        try:
-            self._req("DELETE", f"/proxies/{proxy}/toxics/{nome}")
-        except ToxiproxyError:
-            if not silencioso:
-                raise
+        corpo = {
+            "name": f"latency_{direcao}",
+            "type": "latency",
+            "stream": direcao,
+            "toxicity": 1.0,
+            "attributes": {"latency": int(ms), "jitter": int(jitter_ms)},
+        }
+        self._req("POST", f"/proxies/{proxy}/toxics", json=corpo)
 
     def limpar_toxics(self, proxy: str) -> None:
-        """Remove todos os toxics de `proxy`, deixando a rota limpa e habilitada."""
+        """Remove todos os toxics de `proxy`, deixando a rota limpa."""
         descricao = self._req("GET", f"/proxies/{proxy}").json()
         for toxic in descricao.get("toxics", []):
-            self.remover_toxic(proxy, toxic["name"], silencioso=True)
+            try:
+                self._req("DELETE", f"/proxies/{proxy}/toxics/{toxic['name']}")
+            except ToxiproxyError:
+                pass
 
     # -- alto nível ---------------------------------------------------------
 
@@ -289,14 +230,22 @@ class ClienteToxiproxy:
 # `DOISPC_PARTICIPANTES`, `COORD_HOST/PORTA` apontadas para o Toxiproxy) e com
 # `scripts/rede.py`. Mantê-los aqui evita números mágicos espalhados.
 
-# Porta base das escutas do Anel: o Nó de id `i` é alcançado via `PORTA_ANEL+i`.
+# Porta base das escutas do Anel: o Nó de id `i` é alcançado via `PORTA_ANEL_BASE + i`.
 PORTA_ANEL_BASE = 16000
-# Portas fixas das escutas do 2PC.
-PORTA_2PC_COORD = 17000
-PORTA_2PC_PART_BASE = 17000  # participante id p -> 17000 + p (11 -> 17011, ...)
+# Porta base das escutas do 2PC: o Coordenador escuta na base e o Participante de id `p` em
+# base + p (11 -> 17011, ...).
+PORTA_2PC_BASE = 17000
+PROXY_2PC_COORDENADOR = "2pc-coordenador"
 
-# Host do serviço Toxiproxy dentro das redes do compose.
-HOST_TOXIPROXY = "toxiproxy"
+
+def nome_proxy_anel(no_id: int) -> str:
+    """Nome do proxy que leva ao Nó `no_id` do Anel."""
+    return f"anel-{no_id}"
+
+
+def nome_proxy_participante(ordem: int) -> str:
+    """Nome do proxy que leva ao Participante de posição `ordem` (1, 2, 3)."""
+    return f"2pc-participante-{ordem}"
 
 
 def proxies_anel(ids: tuple[int, ...]) -> list[Proxy]:
@@ -309,7 +258,7 @@ def proxies_anel(ids: tuple[int, ...]) -> list[Proxy]:
     """
     return [
         Proxy(
-            nome=f"anel-{i}",
+            nome=nome_proxy_anel(i),
             listen=f"0.0.0.0:{PORTA_ANEL_BASE + i}",
             upstream=f"no-anel-{i}:8000",
         )
@@ -328,16 +277,16 @@ def proxies_2pc(participantes: tuple[int, ...]) -> list[Proxy]:
     """
     proxies = [
         Proxy(
-            nome="2pc-coordenador",
-            listen=f"0.0.0.0:{PORTA_2PC_COORD}",
+            nome=PROXY_2PC_COORDENADOR,
+            listen=f"0.0.0.0:{PORTA_2PC_BASE}",
             upstream="coordenador:8000",
         )
     ]
     for ordem, pid in enumerate(participantes, start=1):
         proxies.append(
             Proxy(
-                nome=f"2pc-participante-{ordem}",
-                listen=f"0.0.0.0:{PORTA_2PC_PART_BASE + pid}",
+                nome=nome_proxy_participante(ordem),
+                listen=f"0.0.0.0:{PORTA_2PC_BASE + pid}",
                 upstream=f"participante-{ordem}:8000",
             )
         )

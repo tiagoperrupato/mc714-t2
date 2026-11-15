@@ -32,14 +32,6 @@ def test_mensagem_e_frozen() -> None:
         msg.tipo = "lider"  # type: ignore[misc]
 
 
-def test_com_corpo_nao_muta_original() -> None:
-    original = Mensagem(tipo="eleicao", origem=1, destino=2, corpo={"ids": [1]})
-    nova = original.com_corpo(rodada=7)
-    assert "rodada" not in original.corpo
-    assert nova.corpo["rodada"] == 7
-    assert nova.corpo["ids"] == [1]
-
-
 def test_roundtrip_json() -> None:
     msg = Mensagem(tipo="prepare", origem=10, destino=20, corpo={"tx": "abc"})
     reconstruida = Mensagem.de_json(msg.para_json())

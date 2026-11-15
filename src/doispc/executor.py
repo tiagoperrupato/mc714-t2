@@ -14,7 +14,7 @@ despacho de rede nem a gravação durável.
 
 from __future__ import annotations
 
-from typing import Callable, Mapping, Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from src.comum.despacho import Despachante
 from src.comum.log import LogEstruturado
@@ -28,8 +28,7 @@ class ExecutorAcoes:
 
     `enderecos` resolve o id de um Nó destino para a URL base do seu servidor
     HTTP, usada pelo `ClienteRede`. `deadline` é o prazo obrigatório de cada
-    envio. `ao_aplicar`, se fornecido, é chamado para cada
-    `Aplicar` (efeito local do COMMIT/ABORT), além do registro no log.
+    envio.
     """
 
     def __init__(
@@ -41,7 +40,6 @@ class ExecutorAcoes:
         deadline: float,
         enderecos: Mapping[int, str],
         log: Optional[LogEstruturado] = None,
-        ao_aplicar: Optional[Callable[[str, str], None]] = None,
     ) -> None:
         self._no_id = no_id
         self._log_duravel = log_duravel
@@ -49,7 +47,6 @@ class ExecutorAcoes:
         self._deadline = deadline
         self._enderecos = dict(enderecos)
         self._log = log
-        self._ao_aplicar = ao_aplicar
         self._saida: Despachante[Enviar] = Despachante(self.enviar)
 
     def executar(self, acoes: Sequence[Acao]) -> None:
@@ -79,9 +76,7 @@ class ExecutorAcoes:
             )
 
     def _aplicar(self, acao: Aplicar) -> None:
-        """Aplica localmente o efeito da Decisao (COMMIT/ABORT)."""
-        if self._ao_aplicar is not None:
-            self._ao_aplicar(acao.transacao, acao.decisao)
+        """Aplica localmente o efeito da Decisao (COMMIT/ABORT), que é o registro no log."""
         if self._log is not None:
             self._log.evento("aplica", transacao=acao.transacao, decisao=acao.decisao)
 

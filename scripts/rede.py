@@ -3,7 +3,7 @@
 Este script é o orquestrador scriptado e repetível das falhas de rede: fala
 com o HTTP API do Toxiproxy (serviço `toxiproxy` do compose, publicado em
 `127.0.0.1:8474`) para semear os proxies entre os Nós e, sobre eles, aplicar
-latência, perda e partição — tudo parametrizado e com Semente registrada.
+latência e partição.
 
 Não sobe nem derruba contêiner: assume que o compose já está no ar com o
 override de roteamento (`compose.toxiproxy.yaml`), de modo que os Nós já apontam
@@ -35,10 +35,6 @@ Subcomandos:
 
     python -m scripts.rede doispc latencia --ms 300 [--participante K]
     python -m scripts.rede doispc curar [--participante K]
-
-A Semente de um Cenário é registrada apenas para rastreabilidade (os toxics
-destes comandos são determinísticos por construção); experimentos com
-toxicidade < 1 derivam a aleatoriedade da Semente no nível da bateria.
 """
 
 from __future__ import annotations
@@ -47,16 +43,17 @@ import argparse
 import sys
 
 from src.comum.toxiproxy import (
-    PORTA_2PC_COORD,
+    API_PADRAO,
     ClienteToxiproxy,
     Proxy,
+    nome_proxy_anel,
+    nome_proxy_participante,
     proxies_2pc,
     proxies_anel,
 )
 
 ANEL_IDS = (1, 2, 3, 4, 5)
 PART_IDS = (11, 12, 13)
-API_PADRAO = "http://127.0.0.1:8474"
 
 
 def _cliente(args: argparse.Namespace) -> ClienteToxiproxy:
@@ -71,14 +68,6 @@ def _proxies_do_algoritmo(algoritmo: str) -> list[Proxy]:
     return proxies_2pc(PART_IDS)
 
 
-def _nome_proxy_anel(no: int) -> str:
-    return f"anel-{no}"
-
-
-def _nome_proxy_part(ordem: int) -> str:
-    return f"2pc-participante-{ordem}"
-
-
 # ---------------------------------------------------------------------------
 # Ações
 # ---------------------------------------------------------------------------
@@ -90,26 +79,16 @@ def _semear(args: argparse.Namespace) -> int:
         cli.semear(proxies)
         nomes = ", ".join(p.nome for p in proxies)
         print(f"[rede] semeados {len(proxies)} proxies do {args.algoritmo}: {nomes}")
-        if args.semente is not None:
-            print(f"[rede] Cenário com Semente registrada: {args.semente}")
     return 0
 
 
-def _alvos_anel(args: argparse.Namespace) -> list[str]:
-    if getattr(args, "no", None) is not None:
-        return [_nome_proxy_anel(args.no)]
-    return [_nome_proxy_anel(i) for i in ANEL_IDS]
-
-
-def _alvos_2pc(args: argparse.Namespace) -> list[str]:
-    if getattr(args, "participante", None) is not None:
-        return [_nome_proxy_part(args.participante)]
-    # Sem alvo específico: todos os proxies do 2PC, inclusive o Coordenador.
-    return ["2pc-coordenador"] + [_nome_proxy_part(k) for k in (1, 2, 3)]
-
-
 def _alvos(args: argparse.Namespace) -> list[str]:
-    return _alvos_anel(args) if args.algoritmo == "anel" else _alvos_2pc(args)
+    """O proxy do Nó ou do Participante pedido, ou todos os do algoritmo, Coordenador incluído."""
+    if args.algoritmo == "anel" and args.no is not None:
+        return [nome_proxy_anel(args.no)]
+    if args.algoritmo == "doispc" and args.participante is not None:
+        return [nome_proxy_participante(args.participante)]
+    return [p.nome for p in _proxies_do_algoritmo(args.algoritmo)]
 
 
 def _latencia(args: argparse.Namespace) -> int:
@@ -161,7 +140,6 @@ def _construir_parser() -> argparse.ArgumentParser:
     parser.add_argument("algoritmo", choices=["anel", "doispc"], help="algoritmo alvo")
     parser.add_argument("--api", default=API_PADRAO, help="URL do HTTP API do Toxiproxy")
     parser.add_argument("--espera", type=float, default=30.0, help="Deadline de espera pelo API, em s")
-    parser.add_argument("--semente", type=int, default=None, help="Semente do Cenário (registro)")
 
     sub = parser.add_subparsers(dest="acao", required=True)
 
@@ -171,18 +149,18 @@ def _construir_parser() -> argparse.ArgumentParser:
     p_lat = sub.add_parser("latencia", help="injeta latência nas rotas")
     p_lat.add_argument("--ms", type=int, required=True, help="latência em milissegundos")
     p_lat.add_argument("--jitter", type=int, default=0, help="jitter em milissegundos")
-    p_lat.add_argument("--no", type=int, help="Anel: só o Nó I (default: todos)")
-    p_lat.add_argument("--participante", type=int, help="2PC: só o Participante K=1..3")
+    p_lat.add_argument("--no", type=int, choices=ANEL_IDS, help="Anel: só o Nó I (default: todos)")
+    p_lat.add_argument("--participante", type=int, choices=(1, 2, 3), help="2PC: só o Participante K=1..3")
     p_lat.set_defaults(func=_latencia)
 
     p_par = sub.add_parser("particionar", help="desabilita proxy(s) = partição")
-    p_par.add_argument("--no", type=int, help="Anel: só o Nó I (default: todos)")
-    p_par.add_argument("--participante", type=int, help="2PC: só o Participante K=1..3")
+    p_par.add_argument("--no", type=int, choices=ANEL_IDS, help="Anel: só o Nó I (default: todos)")
+    p_par.add_argument("--participante", type=int, choices=(1, 2, 3), help="2PC: só o Participante K=1..3")
     p_par.set_defaults(func=_particionar)
 
     p_cur = sub.add_parser("curar", help="remove toxics e reabilita proxy(s)")
-    p_cur.add_argument("--no", type=int, help="Anel: só o Nó I (default: todos)")
-    p_cur.add_argument("--participante", type=int, help="2PC: só o Participante K=1..3")
+    p_cur.add_argument("--no", type=int, choices=ANEL_IDS, help="Anel: só o Nó I (default: todos)")
+    p_cur.add_argument("--participante", type=int, choices=(1, 2, 3), help="2PC: só o Participante K=1..3")
     p_cur.set_defaults(func=_curar)
 
     return parser

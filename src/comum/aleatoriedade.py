@@ -1,8 +1,8 @@
 """Streams de aleatoriedade independentes por responsabilidade, derivados da Semente.
 
 Cada responsabilidade tem seu próprio gerador. Consumir valores de
-um stream não desloca os demais, então, para a mesma Semente, a sequência de
-jitter, de drops e de delays é idêntica entre execuções, qualquer que seja a
+um stream não desloca o outro, então, para a mesma Semente, a sequência de
+drops e de delays é idêntica entre execuções, qualquer que seja a
 ordem em que o Nó os consome. É o que torna um Cenário de
 falha repetível dígito a dígito.
 
@@ -19,24 +19,24 @@ _LIMITE_SEMENTE = 2**63
 
 
 class Streams:
-    """Os geradores independentes de um Nó: `jitter`, `drop` e `delay`.
+    """Os dois geradores independentes de um Nó.
 
-    - `jitter`: pequenas variações temporais que não representam falha.
     - `drop`: decide se uma Mensagem é descartada (falha de perda).
     - `delay`: decide o atraso aplicado a uma resposta (falha de atraso).
     """
 
-    jitter: random.Random
     drop: random.Random
     delay: random.Random
 
     def __init__(self, semente: int) -> None:
-        """Deriva as três sementes, na ordem fixa, de um gerador semeado com `semente`.
+        """Deriva as sementes, na ordem fixa, de um gerador semeado com `semente`.
 
         A ordem de derivação é parte do contrato de reprodutibilidade: não a
-        reordene sem revisar os Cenários gravados.
+        reordene sem revisar os Cenários e as baterias gravados.
         """
         spawner = random.Random(semente)
-        self.jitter = random.Random(spawner.randrange(_LIMITE_SEMENTE))
+        # A primeira semente derivada fica sem uso: drop e delay seguem como a segunda e a
+        # terceira, as sequências que produziram as baterias versionadas.
+        spawner.randrange(_LIMITE_SEMENTE)
         self.drop = random.Random(spawner.randrange(_LIMITE_SEMENTE))
         self.delay = random.Random(spawner.randrange(_LIMITE_SEMENTE))

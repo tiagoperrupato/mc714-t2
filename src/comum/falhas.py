@@ -21,8 +21,8 @@ Máquinas_de_Estados do Anel (`src.anel.maquina`) e do 2PC (`src.doispc.maquina`
 permanecem puras: elas não sabem que falhas existem. O controlador intercepta
 nas duas fronteiras onde a rede toca a lógica — o **recebimento** de uma
 Mensagem (antes de entregá-la à Máquina) e o **despacho** de uma Mensagem de
-saída (o `ClienteRede`). Essa é a mesma fronteira onde o jitter/timeout já
-vivem, e é o único lugar onde faz sentido descartar ou atrasar uma Mensagem sem
+saída (o `ClienteRede`). Essa é a mesma fronteira onde o timeout do Transporte já
+vive, e é o único lugar onde faz sentido descartar ou atrasar uma Mensagem sem
 contaminar a decisão do algoritmo.
 
 **Determinismo.** As decisões de drop e de delay consomem,
@@ -51,7 +51,7 @@ from typing import Any, Callable, Mapping, Optional
 from src.comum.aleatoriedade import Streams
 from src.comum.log import LogEstruturado
 from src.comum.modelos import Mensagem
-from src.comum.rede import ResultadoEnvio
+from src.comum.rede import CallbackMensagem, ResultadoEnvio
 
 
 class NoEmCrashError(RuntimeError):
@@ -124,16 +124,10 @@ class ControladorFalhas:
         return self._semente
 
     def injetar_crash(self) -> None:
-        """Liga o modo crash: o Nó deixa de responder até `limpar`/`curar_crash`."""
+        """Liga o modo crash: o Nó deixa de responder até `limpar`."""
         with self._lock:
             self._modos.crash = True
         self._evento("falha_injetada", modo="crash")
-
-    def curar_crash(self) -> None:
-        """Desliga só o crash, preservando os demais modos (útil na demonstração)."""
-        with self._lock:
-            self._modos.crash = False
-        self._evento("falha_curada", modo="crash")
 
     def injetar_pause(self, segundos: float) -> None:
         """Agenda um congelamento de `segundos` no próximo evento."""
@@ -182,10 +176,6 @@ class ControladorFalhas:
                 "drop_ativo": m.drop_ativo,
                 "drop_p": m.drop_p,
             }
-
-    def plano_de_falhas(self) -> dict[str, Any]:
-        """Descrição do Plano_de_Falhas corrente, para registrar no log."""
-        return self.estado()
 
     # -- Interceptação do recebimento --------------------------------------
 
@@ -275,9 +265,6 @@ class ControladorFalhas:
 # ---------------------------------------------------------------------------
 # Plugagem no recebimento: embrulha o callback de Mensagem do adaptador
 # ---------------------------------------------------------------------------
-
-CallbackMensagem = Callable[[Mensagem], Mapping[str, Any]]
-
 
 def envolver_recebimento(
     controlador: ControladorFalhas, callback: CallbackMensagem
@@ -395,7 +382,7 @@ def registrar_endpoints_falha(app, controlador: ControladorFalhas) -> None:
 
     @app.post("/falha/drop")
     async def _drop(corpo: dict = Body(default={})) -> JSONResponse:  # pragma: no cover
-        probabilidade = float((corpo or {}).get("p", (corpo or {}).get("probabilidade", 0.0)))
+        probabilidade = float((corpo or {}).get("p", 0.0))
         controlador.injetar_drop(probabilidade)
         return JSONResponse(content=controlador.estado())
 
@@ -413,7 +400,7 @@ def registrar_plano_no_log(
     controlador: ControladorFalhas,
     log: LogEstruturado,
     *,
-    cenario: Mapping[str, Any] | None = None,
+    cenario: Mapping[str, Any],
 ) -> None:
     """Registra a Semente e o Plano_de_Falhas no início da Réplica.
 
@@ -423,6 +410,6 @@ def registrar_plano_no_log(
     """
     log.inicio_replica(
         semente=controlador.semente,
-        plano_de_falhas=controlador.plano_de_falhas(),
-        cenario=dict(cenario or {}),
+        plano_de_falhas=controlador.estado(),
+        cenario=dict(cenario),
     )

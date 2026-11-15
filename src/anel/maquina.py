@@ -72,22 +72,18 @@ class EstadoAnel:
         object.__setattr__(self, "mortos", frozenset(self.mortos))
         object.__setattr__(self, "rodadas_concluidas", frozenset(self.rodadas_concluidas))
 
-    def sucessor_de(self, no_id: int, *, ignorando: frozenset[int] = frozenset()) -> int | None:
+    def sucessor_de(self, no_id: int) -> int | None:
         """Próximo Nó vivo após `no_id` na ordem do Anel, pulando mortos.
 
-        `ignorando` é um conjunto adicional de ids a pular nesta consulta (por
-        exemplo, o Sucessor que acabou de estourar o Deadline, antes mesmo de ser
-        gravado em `mortos`). Devolve `None` se não há nenhum outro Nó vivo além
-        de `no_id`, caso em que a circulação não tem para onde seguir.
+        Devolve `None` se não há nenhum outro Nó vivo além de `no_id`, caso em que
+        a circulação não tem para onde seguir.
         """
         n = len(self.anel)
         inicio = self.anel.index(no_id)
-        pular = self.mortos | ignorando
+        # `passo` vai de 1 a n - 1 e os ids são distintos, então o candidato nunca é `no_id`.
         for passo in range(1, n):
             candidato = self.anel[(inicio + passo) % n]
-            if candidato == no_id:
-                continue
-            if candidato not in pular:
+            if candidato not in self.mortos:
                 return candidato
         return None
 

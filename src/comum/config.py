@@ -146,21 +146,3 @@ def _exigir_int(nome: str, valor, valido, dominio: str) -> None:
     """Variante de `_exigir` para parâmetros estritamente inteiros."""
     _exigir(nome, valor, valido, dominio, tipos=(int,))
 
-
-def _demo() -> None:  # pragma: no cover - demonstração de console
-    """Mostra uma config válida aceita e uma inválida recusada antes de qualquer efeito."""
-    print("== Config válida ==")
-    valida = ConfigNo(id=5, algoritmo="anel", porta=8005, semente=42, sucessores=(1,))
-    valida.validar()
-    print(f"  aceita: {valida}")
-
-    print("== Config inválida (semente negativa) ==")
-    invalida = ConfigNo(id=5, algoritmo="anel", porta=8005, semente=-1)
-    try:
-        invalida.validar()
-    except ConfigInvalidaError as erro:
-        print(f"  recusada antes de qualquer efeito colateral: {erro}")
-
-
-if __name__ == "__main__":  # pragma: no cover
-    _demo()

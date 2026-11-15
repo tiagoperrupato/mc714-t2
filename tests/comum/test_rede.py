@@ -116,7 +116,11 @@ def test_integracao_envio_bem_sucedido_entre_dois_apps() -> None:
         # distintos trocando Mensagens no mesmo teste.
         assert len(recebidas_b) == 1 and recebidas_b[0].corpo["ids"] == [1]
 
-        resposta_b = cliente.enviar(app_a.base_url, msg.com_corpo(ids=[1, 2]), deadline=2.0)
+        resposta_b = cliente.enviar(
+            app_a.base_url,
+            Mensagem(tipo="eleicao", origem=2, destino=1, corpo={"ids": [1, 2]}),
+            deadline=2.0,
+        )
         assert isinstance(resposta_b, EnvioOk)
         assert len(recebidas_a) == 1
 

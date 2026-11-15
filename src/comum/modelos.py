@@ -11,7 +11,7 @@ o núcleo comum não importe a lógica do Anel nem do 2PC.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -61,12 +61,6 @@ class Mensagem:
         # `frozen=True` impede atribuição comum; usamos `object.__setattr__`
         # apenas para normalizar o corpo numa view imutável na construção.
         object.__setattr__(self, "corpo", _congelar_corpo(self.corpo))
-
-    def com_corpo(self, **campos: Any) -> "Mensagem":
-        """Nova Mensagem com `campos` mesclados ao corpo, sem mutar a original."""
-        novo = dict(self.corpo)
-        novo.update(campos)
-        return replace(self, corpo=novo)
 
     def para_json(self) -> dict[str, Any]:
         """Representação serializável em dicionário simples (corpo copiado)."""

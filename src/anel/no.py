@@ -74,7 +74,6 @@ class NoAnel:
         cliente: ClienteRede,
         deadline: float,
         log: LogEstruturado | None = None,
-        iniciar_worker: bool = True,
     ) -> None:
         if deadline <= 0:
             raise ValueError(f"deadline deve ser > 0; recebido {deadline!r}")
@@ -84,15 +83,9 @@ class NoAnel:
         self._deadline = deadline
         self._log = log
         self._lock = threading.Lock()
-        self._saida: Despachante[Mensagem] = Despachante(
-            self._despachar_uma, iniciar=iniciar_worker
-        )
+        self._saida: Despachante[Mensagem] = Despachante(self._despachar_uma)
 
     # -- Ciclo de vida do worker de despacho -------------------------------
-
-    def iniciar(self) -> None:
-        """Inicia o worker de despacho em background, se ainda não está rodando."""
-        self._saida.iniciar()
 
     def parar(self) -> None:
         """Sinaliza o worker a encerrar e aguarda, drenando a fila."""

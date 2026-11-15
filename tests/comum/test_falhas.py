@@ -146,13 +146,6 @@ def test_crash_recusa_recebimento_e_envio() -> None:
         ctrl.antes_de_enviar(_msg())
 
 
-def test_curar_crash_volta_a_operar() -> None:
-    ctrl = ControladorFalhas(SEMENTE, dormir=_sem_dormir)
-    ctrl.injetar_crash()
-    ctrl.curar_crash()
-    assert ctrl.antes_de_receber(_msg()) is True
-
-
 def test_pause_congela_uma_vez_e_resume() -> None:
     dormidas: list[float] = []
     ctrl = ControladorFalhas(SEMENTE, dormir=dormidas.append)

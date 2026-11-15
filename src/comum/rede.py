@@ -80,10 +80,10 @@ class EnvioConexaoRecusada:
 
 @dataclass(frozen=True)
 class EnvioIndisponivel:
-    """Destino alcançado mas indisponível no nível HTTP (5xx) ou erro de transporte.
+    """Resposta fora de 2xx ou erro de transporte.
 
-    Agrupa respostas 5xx e demais falhas de transporte do httpx que não são nem
-    timeout nem conexão recusada (por exemplo, erro de resolução de nome). O
+    Agrupa as respostas HTTP fora de 2xx e as falhas de transporte do httpx que não
+    são nem timeout nem conexão recusada (por exemplo, erro de resolução de nome). O
     `status` é o código HTTP quando houve resposta, senão `None`.
     """
 
@@ -124,15 +124,11 @@ class ClienteRede:
         retries: int = 2,
         transporte: _TransporteHTTP | None = None,
         relogio: Callable[[], float] = time.monotonic,
-        dormir: Callable[[float], None] = time.sleep,
-        espera_entre_tentativas: float = 0.0,
     ) -> None:
         if not isinstance(retries, int) or isinstance(retries, bool) or retries < 0:
             raise ValueError(f"retries deve ser inteiro >= 0; recebido {retries!r}")
         self._retries = retries
         self._relogio = relogio
-        self._dormir = dormir
-        self._espera = max(0.0, espera_entre_tentativas)
         self._proprio_transporte = transporte is None
         self._transporte: _TransporteHTTP = transporte or httpx.Client()
 
@@ -177,14 +173,9 @@ class ClienteRede:
             else:  # EnvioIndisponivel
                 ultimo_indisponivel = resultado
 
-            # Antes de reenviar, respeita o Deadline total: só espera se ainda
-            # há prazo e ainda há tentativa pela frente.
-            if n < self._retries:
-                restante = deadline - (self._relogio() - inicio)
-                if restante <= 0:
-                    break
-                if self._espera > 0:
-                    self._dormir(min(self._espera, restante))
+            # Sem prazo para outra tentativa, sai o último erro de transporte.
+            if n < self._retries and deadline - (self._relogio() - inicio) <= 0:
+                break
 
         if ultimo_recusado is not None and ultimo_indisponivel is None:
             return EnvioConexaoRecusada(tentativas=tentativas, detalhe=ultimo_recusado.detalhe)
@@ -210,7 +201,7 @@ class ClienteRede:
             # recusa explícita ("refused") é o sinal de Nó fora; o resto é
             # indisponibilidade de transporte.
             texto = str(erro).lower()
-            if "refused" in texto or "connection refused" in texto:
+            if "refused" in texto:
                 return EnvioConexaoRecusada(tentativas=1, detalhe=str(erro))
             return EnvioIndisponivel(tentativas=1, detalhe=str(erro))
         except httpx.HTTPError as erro:
@@ -218,14 +209,7 @@ class ClienteRede:
 
         if 200 <= resposta.status_code < 300:
             return EnvioOk(status=resposta.status_code, corpo=_json_seguro(resposta))
-        if 500 <= resposta.status_code < 600:
-            return EnvioIndisponivel(
-                tentativas=1,
-                detalhe=f"HTTP {resposta.status_code}",
-                status=resposta.status_code,
-            )
-        # 4xx (exceto nada reservado aqui) é tratado como indisponibilidade
-        # lógica: o destino respondeu, mas não aceitou a Mensagem.
+        # Fora de 2xx o destino respondeu, mas não aceitou a Mensagem.
         return EnvioIndisponivel(
             tentativas=1,
             detalhe=f"HTTP {resposta.status_code}",

@@ -25,19 +25,13 @@ reiniciado reporte a mesma Decisao de antes.
 
 from __future__ import annotations
 
-import os
 from typing import Any, Mapping, Optional
 
 from src.comum.log import LogEstruturado
 from src.comum.modelos import Mensagem, No
 from src.comum.rede import ClienteRede
 from src.doispc.executor import ExecutorAcoes
-from src.doispc.log_duravel import (
-    VOTO_NAO,
-    VOTO_SIM,
-    LogDuravel,
-    LogDuravelArquivo,
-)
+from src.doispc.log_duravel import VOTO_SIM, LogDuravel
 from src.doispc.maquina import (
     EstadoParticipante,
     participante_recebe,
@@ -67,7 +61,7 @@ class ServicoParticipante:
     ) -> None:
         self._eu = participante
         self._coordenador = coordenador
-        self._voto_desejado = VOTO_SIM if voto_desejado == VOTO_SIM else VOTO_NAO
+        self._voto_desejado = voto_desejado
         self._log_duravel = log_duravel
         self._log = log
         self._estados: dict[str, EstadoParticipante] = {}
@@ -151,43 +145,7 @@ class ServicoParticipante:
         }
 
 
-def _no_de_env(prefixo: str, padrao_porta: int) -> No:
-    """Lê a identidade de um Nó (id/host/porta) das variáveis de ambiente."""
-    return No(
-        id=int(os.environ[f"{prefixo}_ID"]),
-        host=os.environ.get(f"{prefixo}_HOST", "0.0.0.0"),
-        porta=int(os.environ.get(f"{prefixo}_PORTA", str(padrao_porta))),
-    )
-
-
-def criar_servico_de_env() -> ServicoParticipante:
-    """Monta um `ServicoParticipante` a partir do ambiente (usado pelo contêiner).
-
-    Variáveis esperadas: `PART_ID`, `PART_PORTA`, `COORD_ID`, `COORD_HOST`,
-    `COORD_PORTA`, `DOISPC_VOTO` (SIM/NAO), `DOISPC_DEADLINE`,
-    `DOISPC_LOG_DURAVEL` (caminho do arquivo), `DOISPC_RESULTS` (dir de log).
-    O voto NAO força o ABORT da transação.
-    """
-    eu = _no_de_env("PART", 8100)
-    coordenador = _no_de_env("COORD", 8000)
-    voto = VOTO_NAO if os.environ.get("DOISPC_VOTO", "SIM").upper() == VOTO_NAO else VOTO_SIM
-    deadline = float(os.environ.get("DOISPC_DEADLINE", "2.0"))
-    caminho_log = os.environ.get(
-        "DOISPC_LOG_DURAVEL", f"/dados/participante-{eu.id}.log"
-    )
-    log_duravel = LogDuravelArquivo(caminho_log)
-    cliente = ClienteRede()
-    return ServicoParticipante(
-        eu,
-        coordenador,
-        log_duravel=log_duravel,
-        cliente=cliente,
-        deadline=deadline,
-        voto_desejado=voto,
-    )
-
-
-def criar_app(servico: Optional[ServicoParticipante] = None, *, controlador=None):
+def criar_app(servico: ServicoParticipante, *, controlador=None):
     """Cria o app FastAPI do Participante em volta de um `ServicoParticipante`.
 
     Importa FastAPI localmente, mantendo a fronteira: importar este módulo não
@@ -204,9 +162,6 @@ def criar_app(servico: Optional[ServicoParticipante] = None, *, controlador=None
     from fastapi.responses import JSONResponse
 
     from src.comum.rede import CAMINHO_MENSAGEM
-
-    if servico is None:
-        servico = criar_servico_de_env()
 
     app = FastAPI()
 
@@ -240,10 +195,3 @@ def criar_app(servico: Optional[ServicoParticipante] = None, *, controlador=None
         registrar_endpoints_falha(app, controlador)
 
     return app
-
-
-# Objeto de app para o uvicorn do contêiner: `uvicorn src.doispc.participante:app`.
-# Criado preguiçosamente só quando o módulo roda como alvo do servidor, para que
-# importar o módulo em teste não exija as variáveis de ambiente.
-def _app_de_env():  # pragma: no cover - caminho de contêiner
-    return criar_app()

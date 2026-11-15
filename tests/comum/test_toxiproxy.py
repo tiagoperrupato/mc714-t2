@@ -21,7 +21,7 @@ import httpx
 import pytest
 
 from src.comum.toxiproxy import (
-    PORTA_2PC_COORD,
+    PORTA_2PC_BASE,
     ClienteToxiproxy,
     Proxy,
     ToxiproxyError,
@@ -168,7 +168,7 @@ def test_limpar_toxics_remove_todos() -> None:
     with _cliente(api) as cli:
         cli.criar_proxy(Proxy("anel-3", "0.0.0.0:16003", "no-anel-3:8000"))
         cli.latencia("anel-3", 300)
-        cli.banda("anel-3", 10)
+        cli.latencia("anel-3", 300, direcao="upstream")
         assert len(api.proxies["anel-3"]["toxics"]) == 2
         cli.limpar_toxics("anel-3")
     assert api.proxies["anel-3"]["toxics"] == []
@@ -177,16 +177,9 @@ def test_limpar_toxics_remove_todos() -> None:
 def test_erro_de_api_vira_toxiproxyerror() -> None:
     api = _ApiFake()
     with _cliente(api) as cli:
-        # Remover um proxy inexistente, sem silencioso, propaga como ToxiproxyError.
+        # O GET de um proxy inexistente devolve 404, que vira ToxiproxyError.
         with pytest.raises(ToxiproxyError):
-            cli.remover_proxy("nao-existe")
-
-
-def test_remover_proxy_silencioso_ignora_404() -> None:
-    api = _ApiFake()
-    with _cliente(api) as cli:
-        # Não deve levantar.
-        cli.remover_proxy("nao-existe", silencioso=True)
+            cli.limpar_toxics("nao-existe")
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +201,7 @@ def test_topologia_2pc_coordenador_e_participantes() -> None:
     nomes = [p.nome for p in proxies]
     assert nomes == ["2pc-coordenador", "2pc-participante-1", "2pc-participante-2", "2pc-participante-3"]
     coord = proxies[0]
-    assert coord.listen == f"0.0.0.0:{PORTA_2PC_COORD}"
+    assert coord.listen == f"0.0.0.0:{PORTA_2PC_BASE}"
     assert coord.upstream == "coordenador:8000"
     # Participante id 11 -> escuta 17011, upstream participante-1:8000.
     assert proxies[1].listen == "0.0.0.0:17011"

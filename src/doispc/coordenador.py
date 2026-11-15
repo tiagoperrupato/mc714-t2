@@ -13,7 +13,7 @@ ao Log_Duravel. O Coordenador:
 - se o Deadline de coleta de Votos estoura antes de todos votarem, chama
   `coordenador_decide_por_timeout`, que decide ABORT e difunde a Decisao;
 - retransmite a DECISAO a quem ainda não mandou o ACK, a cada
-  `intervalo_reenvio`, numa thread própria;
+  `INTERVALO_REENVIO`, numa thread própria;
 - na partida, `recuperar` relê o Log_Duravel, aborta o que estava em WAIT e
   difunde de novo o que estava decidido.
 
@@ -33,7 +33,7 @@ from src.comum.log import LogEstruturado
 from src.comum.modelos import Mensagem, No
 from src.comum.rede import ClienteRede
 from src.doispc.executor import ExecutorAcoes
-from src.doispc.log_duravel import LogDuravel, LogDuravelArquivo
+from src.doispc.log_duravel import LogDuravel
 from src.doispc.maquina import (
     Acao,
     Enviar,
@@ -46,7 +46,7 @@ from src.doispc.maquina import (
 )
 
 # Espera entre duas retransmissões da DECISAO para quem não mandou o ACK, em s.
-INTERVALO_REENVIO_PADRAO = 1.0
+INTERVALO_REENVIO = 1.0
 
 
 class ServicoCoordenador:
@@ -74,24 +74,14 @@ class ServicoCoordenador:
         cliente: ClienteRede,
         deadline_voto: float,
         deadline_decisao: float,
-        intervalo_reenvio: float = INTERVALO_REENVIO_PADRAO,
-        relogio=time.monotonic,
-        dormir=time.sleep,
         log: Optional[LogEstruturado] = None,
     ) -> None:
-        if intervalo_reenvio <= 0:
-            raise ValueError(
-                f"intervalo_reenvio deve ser > 0 s; recebido {intervalo_reenvio!r}"
-            )
         self._eu = coordenador
         self._participantes = dict(participantes)
         self._log_duravel = log_duravel
         self._cliente = cliente
         self._deadline_voto = deadline_voto
         self._deadline_decisao = deadline_decisao
-        self._intervalo_reenvio = intervalo_reenvio
-        self._relogio = relogio
-        self._dormir = dormir
         self._log = log
         self._estados: dict[str, EstadoCoordenador] = {}
         # Instante da próxima retransmissão de cada transação decidida sem todos os ACKs.
@@ -154,7 +144,7 @@ class ServicoCoordenador:
         publica a Decisao. A resposta sai sem atraso de sondagem, e é dela que
         depende a latência de commit medida pela bateria.
         """
-        limite = self._relogio() + self._deadline_voto
+        limite = time.monotonic() + self._deadline_voto
         with self._decidiu:
             while True:
                 estado = self._estados.get(transacao)
@@ -162,7 +152,7 @@ class ServicoCoordenador:
                     return None
                 if estado.decidido:
                     return estado.decisao
-                restante = limite - self._relogio()
+                restante = limite - time.monotonic()
                 if restante <= 0:
                     break
                 self._decidiu.wait(restante)
@@ -211,7 +201,7 @@ class ServicoCoordenador:
         if novo.concluido:
             self._reenvios.pop(transacao, None)
         elif novo.decidido:
-            self._reenvios.setdefault(transacao, self._relogio() + self._intervalo_reenvio)
+            self._reenvios.setdefault(transacao, time.monotonic() + INTERVALO_REENVIO)
         if novo.decidido:
             self._decidiu.notify_all()
 
@@ -235,9 +225,9 @@ class ServicoCoordenador:
 
     def _laco_reenvio(self) -> None:
         """Roda `_reenviar_vencidas` para sempre, na thread de retransmissão."""
-        espera = self._intervalo_reenvio
+        espera = INTERVALO_REENVIO
         while True:
-            self._dormir(espera)
+            time.sleep(espera)
             espera = self._reenviar_vencidas()
 
     def _reenviar_vencidas(self) -> float:
@@ -246,7 +236,7 @@ class ServicoCoordenador:
         Cada envio tem o prazo do Transporte. O ACK que tira o Participante da
         lista é a Mensagem do protocolo, que chega por `receber`, e não o 2xx.
         """
-        agora = self._relogio()
+        agora = time.monotonic()
         acoes: list[Enviar] = []
         with self._trava:
             for transacao, vence in self._reenvios.items():
@@ -260,11 +250,11 @@ class ServicoCoordenador:
                         destinos=[a.mensagem.destino for a in pendentes],
                     )
                 acoes.extend(pendentes)
-                self._reenvios[transacao] = agora + self._intervalo_reenvio
-            proxima = min(self._reenvios.values(), default=agora + self._intervalo_reenvio)
+                self._reenvios[transacao] = agora + INTERVALO_REENVIO
+            proxima = min(self._reenvios.values(), default=agora + INTERVALO_REENVIO)
         for acao in acoes:
             self._executor.enviar(acao)
-        return max(proxima - self._relogio(), 0.0)
+        return max(proxima - time.monotonic(), 0.0)
 
     def instantaneo(self) -> dict[str, Any]:
         """Resumo serializável da transação iniciada por último, para o endpoint `/estado`."""
@@ -277,15 +267,6 @@ class ServicoCoordenador:
             "decisao": estado.decisao if estado else None,
             "concluido": estado.concluido if estado else False,
         }
-
-
-def _no_de_env(prefixo: str, padrao_porta: int) -> No:
-    """Lê a identidade de um Nó (id/host/porta) das variáveis de ambiente."""
-    return No(
-        id=int(os.environ[f"{prefixo}_ID"]),
-        host=os.environ.get(f"{prefixo}_HOST", "0.0.0.0"),
-        porta=int(os.environ.get(f"{prefixo}_PORTA", str(padrao_porta))),
-    )
 
 
 def _participantes_de_env() -> dict[int, No]:
@@ -307,30 +288,7 @@ def _participantes_de_env() -> dict[int, No]:
     return participantes
 
 
-def criar_servico_de_env() -> ServicoCoordenador:
-    """Monta um `ServicoCoordenador` a partir do ambiente (usado pelo contêiner).
-
-    Variáveis esperadas: `COORD_ID`, `COORD_PORTA`, `DOISPC_PARTICIPANTES`,
-    `DOISPC_DEADLINE_VOTO`, `DOISPC_DEADLINE_DECISAO`, `DOISPC_LOG_DURAVEL`.
-    """
-    eu = _no_de_env("COORD", 8000)
-    participantes = _participantes_de_env()
-    deadline_voto = float(os.environ.get("DOISPC_DEADLINE_VOTO", "3.0"))
-    deadline_decisao = float(os.environ.get("DOISPC_DEADLINE_DECISAO", "2.0"))
-    caminho_log = os.environ.get("DOISPC_LOG_DURAVEL", "/dados/coordenador.log")
-    log_duravel = LogDuravelArquivo(caminho_log)
-    cliente = ClienteRede()
-    return ServicoCoordenador(
-        eu,
-        participantes,
-        log_duravel=log_duravel,
-        cliente=cliente,
-        deadline_voto=deadline_voto,
-        deadline_decisao=deadline_decisao,
-    )
-
-
-def criar_app(servico: Optional[ServicoCoordenador] = None, *, controlador=None):
+def criar_app(servico: ServicoCoordenador, *, controlador=None):
     """Cria o app FastAPI do Coordenador em volta de um `ServicoCoordenador`.
 
     Expõe `POST /mensagem` (VOTO/ACK), `POST /transacao` (inicia um commit)
@@ -348,9 +306,6 @@ def criar_app(servico: Optional[ServicoCoordenador] = None, *, controlador=None)
     from fastapi.responses import JSONResponse
 
     from src.comum.rede import CAMINHO_MENSAGEM
-
-    if servico is None:
-        servico = criar_servico_de_env()
 
     app = FastAPI()
 
@@ -395,7 +350,3 @@ def criar_app(servico: Optional[ServicoCoordenador] = None, *, controlador=None)
         registrar_endpoints_falha(app, controlador)
 
     return app
-
-
-def _app_de_env():  # pragma: no cover - caminho de contêiner
-    return criar_app()
