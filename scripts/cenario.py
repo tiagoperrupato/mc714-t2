@@ -28,6 +28,11 @@ Cenários do Anel:
         Idem, e então derruba o contêiner do Líder (Nó 5) e dispara nova
         eleição: os Nós vivos reelegem o maior id vivo (4).
 
+    python scripts/cenario.py anel reinicio
+        Como `falha`, e então reinicia o contêiner do 5 com `docker compose start`.
+        O 5 volta sem memória, sem Líder e sem rodadas, e uma terceira eleição o
+        reintegra: todos reportam o Líder 5.
+
 Cenários do 2PC:
 
     python scripts/cenario.py 2pc commit
@@ -39,7 +44,8 @@ Cenários do 2PC:
     python scripts/cenario.py 2pc crash-coord
         Todos votam SIM, e o processo do Coordenador morre logo depois de
         gravar a Decisao, antes de difundi-la (flag `DOISPC_CAIR_APOS_DECIDIR`).
-        O cenário mostra os Participantes em Estado_Em_Duvida,
+        O cenário mostra os Participantes em Estado_Em_Duvida e confere os logs
+        com o Coordenador fora, o que dá o aviso de dúvida dos três. Depois
         reinicia o contêiner e mostra todos decidindo COMMIT depois que o
         Coordenador relê o Log_Duravel e difunde a Decisao gravada.
 
@@ -79,6 +85,7 @@ from src.experimentos.conteineres import (  # noqa: E402
     coletar_logs,
     compose,
     decisoes,
+    derrubar_servico,
     docker_disponivel,
     eleger,
     esperar_conclusao,
@@ -87,6 +94,7 @@ from src.experimentos.conteineres import (  # noqa: E402
     http_json,
     override_2pc,
     reiniciar_coordenador,
+    reiniciar_servico,
 )
 
 RESULTS_PADRAO = _RAIZ / "results"
@@ -98,7 +106,7 @@ SEMENTE_PADRAO = 0
 # Os modos de cada algoritmo e os invariantes que cada um demonstra. Um deles sem caso
 # verificado nos logs do cenário o reprova, e por isso um cenário sem log não passa.
 MODOS: dict[str, dict[str, tuple[int, ...]]] = {
-    "anel": {"normal": (1, 2, 3), "falha": (1, 2, 3)},
+    "anel": {"normal": (1, 2, 3), "falha": (1, 2, 3), "reinicio": (1, 2, 3)},
     "2pc": {"commit": (4, 6), "abort": (4,), "crash-coord": (4, 5, 6)},
 }
 
@@ -132,6 +140,8 @@ def _cenario_anel(modo: str, arquivos: list[Path]) -> dict[str, Any]:
     - `falha`: depois dessa eleição, derruba o contêiner do Líder com
       `docker compose kill` e dispara outra. Ela salta o 5 e
       converge para o maior id vivo (4).
+    - `reinicio`: depois da reeleição, dá `start` no contêiner do 5, que volta sem
+      memória, e dispara a terceira eleição, que o reintegra como Líder (5).
 
     Cada eleição é uma rodada com id próprio, e os invariantes conferem cada uma
     contra os Nós vivos nela.
@@ -148,8 +158,8 @@ def _cenario_anel(modo: str, arquivos: list[Path]) -> dict[str, Any]:
         "tempo_convergencia_s": round(tempo, 4),
         "esperado": {"lideres_iniciais": dict.fromkeys(todos, 5)},
     }
-    if modo == "falha":
-        compose("kill", "no-anel-5", arquivos=arquivos, timeout=60)
+    if modo in ("falha", "reinicio"):
+        derrubar_servico("no-anel-5", arquivos)
         vivos = [i for i in todos if i != 5]
         lideres, tempo = eleger(bases, vivos, 4)
         registro.update(
@@ -160,6 +170,31 @@ def _cenario_anel(modo: str, arquivos: list[Path]) -> dict[str, Any]:
             }
         )
         registro["esperado"]["lideres_pos_falha"] = dict.fromkeys(vivos, 4)
+    if modo == "reinicio":
+        reiniciar_servico("no-anel-5", arquivos)
+        # Sem esperar o /saude, o 4 saltaria o 5 na terceira rodada, que elegeria o 4.
+        if not esperar_saude(bases[5], 30.0):
+            # A cauda do log vai na mensagem, porque o down do fim do cenário apaga o contêiner.
+            cauda = compose("logs", "--no-color", "--tail", "20", "no-anel-5", arquivos=arquivos).stdout
+            raise RuntimeError(
+                f"no-anel-5 não respondeu em {bases[5]}/saude 30 s depois do start. Rode de novo "
+                f"python scripts/cenario.py anel reinicio. Últimas linhas do no-anel-5:\n{cauda}"
+            )
+        estado5 = http_json(f"{bases[5]}/estado")
+        lideres, tempo = eleger(bases, todos, 5)
+        registro["falha_injetada"] += ", e docker compose start no-anel-5 depois da segunda"
+        registro.update(
+            {
+                "estado_5_apos_reinicio": {
+                    "lider": estado5["lider"],
+                    "rodadas_concluidas": estado5["rodadas_concluidas"],
+                },
+                "lideres_pos_reinicio": lideres,
+                "tempo_reintegracao_s": round(tempo, 4),
+            }
+        )
+        registro["esperado"]["estado_5_apos_reinicio"] = {"lider": None, "rodadas_concluidas": []}
+        registro["esperado"]["lideres_pos_reinicio"] = dict.fromkeys(todos, 5)
     return registro
 
 
@@ -175,8 +210,9 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
     `override_2pc`. A DECISAO sai da fila do Coordenador depois da resposta do
     `/transacao`, então o condutor espera cada Participante decidir, com prazo.
     Em `crash-coord` o `/transacao` não responde, porque o processo morre depois
-    de gravar a Decisao. O condutor registra os Participantes em dúvida, reinicia
-    o contêiner e mede o tempo até todos decidirem.
+    de gravar a Decisao. O condutor registra os Participantes em dúvida, verifica
+    os logs com o Coordenador fora, reinicia o contêiner e mede o tempo até todos
+    decidirem.
     """
     esperada = "ABORT" if modo == "abort" else "COMMIT"
     esperado: dict[str, Any] = {
@@ -209,6 +245,9 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
         if est.get("em_duvida")
     )
     print(f"[cenario] Coordenador caiu ({resposta.get('erro')}). Em dúvida: {em_duvida}", file=erro)
+    codigo_fora, relatorio_fora = _verificar_com_coordenador_fora(arquivos)
+    print("[cenario] verificação com o Coordenador fora:", file=erro)
+    print("\n".join(relatorio_fora), file=erro)
 
     recuperacao, finais = reiniciar_coordenador(arquivos)
     print(f"[cenario] Coordenador reiniciado. Em {recuperacao:.2f} s: {finais}", file=erro)
@@ -222,12 +261,32 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
         "falha_injetada": "processo do Coordenador morre depois de gravar a Decisao "
         "(DOISPC_CAIR_APOS_DECIDIR) e o contêiner é reiniciado",
         "participantes_em_duvida": em_duvida,
+        "verificacao_com_coordenador_fora": {"codigo": codigo_fora, "relatorio": relatorio_fora},
+        "avisos_com_coordenador_fora": sum("aviso:" in linha for linha in relatorio_fora),
         "decisao": estado_coord.get("decisao"),
         "concluido": estado_coord.get("concluido"),
         "tempo_recuperacao_s": round(recuperacao, 4),
         "decisoes_participantes": finais,
-        "esperado": esperado | {"participantes_em_duvida": sorted(PORTAS_PART), "concluido": True},
+        "esperado": esperado
+        | {
+            "participantes_em_duvida": sorted(PORTAS_PART),
+            "avisos_com_coordenador_fora": len(PORTAS_PART),
+            "concluido": True,
+        },
     }
+
+
+def _verificar_com_coordenador_fora(arquivos: list[Path]) -> tuple[int, list[str]]:
+    """Coleta os logs do 2PC com o Coordenador fora e roda os invariantes neles.
+
+    Os logs ficam fora de `results/`, para a verificação de lá não ler os mesmos eventos duas vezes.
+    O subdiretório tem nome fixo, para o relatório gravado no JSON não levar um nome sorteado.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        destino = Path(tmp) / "coordenador_fora_logs"
+        coletar_logs("2pc", SERVICOS_2PC, destino, arquivos)
+        linhas: list[str] = []
+        return verificar.verificar([destino], imprimir=linhas.append), linhas
 
 
 # --------------------------------------------------------------------------- #

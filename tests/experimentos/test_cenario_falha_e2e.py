@@ -13,9 +13,11 @@ Dois níveis, como no resto do projeto:
 
 - **Com Docker** (marcados `slow`): sobem cada cenário de falha de ponta a ponta
   sobre o compose, coletam os logs reais e conferem que `verificar.py` passa.
-  No `crash-coord`, o processo do Coordenador morre depois de decidir, os
-  Participantes ficam em dúvida, e o contêiner reiniciado os tira dela. Eles
-  PULAM de forma limpa sem Docker. Como subir vários stacks em paralelo pode
+  No `anel reinicio`, o contêiner do Líder cai e volta sem memória, e a terceira
+  eleição o reintegra. No `crash-coord`, o processo do Coordenador morre depois
+  de decidir, os Participantes ficam em dúvida, a verificação feita com o
+  Coordenador fora dá o aviso dos três, e o contêiner reiniciado os tira dela.
+  Eles PULAM de forma limpa sem Docker. Como subir vários stacks em paralelo pode
   estourar o `--wait`, estes testes devem rodar um de cada vez.
 """
 
@@ -187,6 +189,37 @@ def test_copia_de_log_que_falha_levanta_com_o_comando_de_limpeza(tmp_path: Path,
         conteineres.coletar_logs("anel", conteineres.SERVICOS_ANEL, tmp_path, [])
 
 
+def _compose_registrado(chamadas: list[tuple[str, ...]], falhar_em: str | None = None):
+    """Um `compose` falso que anota cada subcomando e falha só em `falhar_em`."""
+
+    def compose(*args, **_kw):
+        chamadas.append(args)
+        codigo = 1 if args[0] == falhar_em else 0
+        return subprocess.CompletedProcess(args, codigo, "", "erro do docker")
+
+    return compose
+
+
+def test_reiniciar_servico_espera_parar_antes_do_start(monkeypatch) -> None:
+    chamadas: list[tuple[str, ...]] = []
+    monkeypatch.setattr(conteineres, "compose", _compose_registrado(chamadas))
+    conteineres.reiniciar_servico("participante-1", [])
+    assert chamadas == [("wait", "participante-1"), ("start", "participante-1")]
+
+
+@pytest.mark.parametrize(
+    ("acao", "comando"),
+    [
+        (lambda: conteineres.reiniciar_servico("participante-1", []), "start"),
+        (lambda: conteineres.derrubar_servico("participante-1", []), "kill"),
+    ],
+)
+def test_falha_do_compose_vira_erro_acionavel(monkeypatch, acao, comando: str) -> None:
+    monkeypatch.setattr(conteineres, "compose", _compose_registrado([], falhar_em=comando))
+    with pytest.raises(RuntimeError, match=f"{comando} participante-1.*down -v --remove-orphans"):
+        acao()
+
+
 def _logs_de_commit(_algoritmo, _servicos, destino: Path, _arquivos) -> None:
     """Logs de um COMMIT com Voto SIM de todos, que verificam os invariantes 04 e 06."""
     escrever_jsonl(
@@ -290,6 +323,21 @@ def test_anel_falha_e2e_verifica(tmp_path: Path) -> None:
 
 @pytest.mark.slow
 @pularsem_docker
+def test_anel_reinicio_e2e_reintegra(tmp_path: Path) -> None:
+    """`anel reinicio`: o 5 volta sem memória e a terceira eleição o reintegra como Líder."""
+    codigo = cenario.executar_cenario("anel", "reinicio", tmp_path, semente=0)
+    assert codigo == 0
+    reg = _registro(tmp_path, "anel", "reinicio")
+    assert reg["lideres_pos_falha"] == {str(i): 4 for i in (1, 2, 3, 4)}
+    assert reg["estado_5_apos_reinicio"] == {"lider": None, "rodadas_concluidas": []}
+    assert reg["lideres_pos_reinicio"] == {str(i): 5 for i in range(1, 6)}
+    assert reg["desfecho"]["ok"] is True
+    assert reg["verificacao"]["ok"] is True
+    assert any("1. Unicidade" in l and "3 rodada(s)" in l for l in reg["verificacao"]["relatorio"])
+
+
+@pytest.mark.slow
+@pularsem_docker
 def test_2pc_commit_e2e_verifica(tmp_path: Path) -> None:
     """`2pc commit`: todos SIM → COMMIT em todos; atomicidade e durabilidade passam."""
     codigo = cenario.executar_cenario("2pc", "commit", tmp_path, semente=0)
@@ -322,6 +370,9 @@ def test_2pc_crash_coord_e2e_recupera(tmp_path: Path) -> None:
     reg = _registro(tmp_path, "2pc", "crash-coord")
     assert reg["semente"] == 0
     assert reg["participantes_em_duvida"] == [11, 12, 13]
+    # Com o Coordenador fora, os três estão em dúvida: três avisos e nenhuma reprovação.
+    assert reg["verificacao_com_coordenador_fora"]["codigo"] == 0
+    assert reg["avisos_com_coordenador_fora"] == 3
     assert reg["decisao"] == "COMMIT"
     assert reg["concluido"] is True
     assert set(reg["decisoes_participantes"].values()) == {"COMMIT"}

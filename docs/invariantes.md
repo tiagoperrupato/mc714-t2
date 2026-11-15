@@ -150,6 +150,6 @@ propriedade↔invariante por nome. Os invariantes 1 a 3 cobrem a *safety* e a
 durabilidade e a validade do 2PC. A terminação do 2PC é conferida pelo cenário,
 que conhece a falha injetada e sai 1 quando o desfecho difere do esperado. O
 Estado_Em_Duvida é a *liveness* bloqueante do 2PC, classificada como aviso. O
-cenário `2pc crash-coord` mostra o bloqueio com o Coordenador fora e o fim dele
-depois do reinício. Os cenários reproduzíveis que exercitam cada propriedade estão em
-`scripts/cenario.py` e são encadeados por `scripts/demo.py`.
+cenário `2pc crash-coord` verifica os logs com o Coordenador fora, com o aviso, e
+depois do reinício, sem ele. Os cenários reproduzíveis que exercitam cada propriedade estão em
+`scripts/cenario.py`, e `scripts/demo.py` encadeia o `anel falha` e o `2pc crash-coord`.

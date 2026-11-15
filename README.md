@@ -168,9 +168,10 @@ de travar.
 ```bash
 python scripts/cenario.py anel normal        # eleição converge para o maior id (5)
 python scripts/cenario.py anel falha         # mata o Líder (5) e reelege o maior vivo (4)
+python scripts/cenario.py anel reinicio      # mata o 5, reelege 4, reinicia o 5 e a eleição seguinte o reintegra
 python scripts/cenario.py 2pc commit         # todos votam SIM -> COMMIT atômico
 python scripts/cenario.py 2pc abort          # Participante 3 vota NAO -> ABORT atômico
-python scripts/cenario.py 2pc crash-coord    # Coordenador cai após decidir -> dúvida -> reinício -> COMMIT
+python scripts/cenario.py 2pc crash-coord    # Coordenador cai após decidir -> dúvida, com aviso na verificação -> reinício -> COMMIT
 ```
 
 As duas demos também sobem o compose:
@@ -379,8 +380,9 @@ python scripts/bateria.py --algoritmo anel         # (2) bateria do Anel (num_no
 python scripts/bateria.py --algoritmo 2pc          #     bateria do 2PC nos Nós reais, cerca de 10 min
 python scripts/analisar.py tudo                    # (3) tabelas e figuras de docs/
 python scripts/analisar.py conferir                # (4) docs contra os dados novos
-python scripts/cenario.py anel falha               # (5) cenário real + logs coletados
-python scripts/cenario.py 2pc crash-coord          #     (ambos verificam ao final)
+python scripts/cenario.py anel falha               # (5) cenários reais + logs coletados
+python scripts/cenario.py anel reinicio            #     (cada um verifica ao final)
+python scripts/cenario.py 2pc crash-coord
 python scripts/verificar.py                        # (6) invariantes sobre results/
 docker compose down -v --remove-orphans            # (7) teardown limpo, sem órfãos
 ```

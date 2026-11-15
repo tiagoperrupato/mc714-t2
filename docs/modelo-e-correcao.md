@@ -119,7 +119,7 @@ limitação: elas são sobre a ordem lógica dos eventos, que a emulação prese
   fechou a rodada.
 - **Relógio, persistência e reinício (M4).** O Anel é **sem estado durável**. Um
   Nó que reinicia volta sem memória de rodadas anteriores e participa da próxima
-  eleição, porque cada Nó zera as suspeitas (`mortos`) ao entrar numa rodada nova
+  eleição (cenário `anel reinicio`), porque cada Nó zera as suspeitas (`mortos`) ao entrar numa rodada nova
   e tira delas quem lhe manda Mensagem. Não há Log Durável no Anel. Sobre a
   rede, a eleição só começa por `POST /iniciar-eleicao`, chamado pelo cenário,
   pelo teste ou pelo operador, e na bateria em processo o runner abre a rodada.
@@ -270,8 +270,9 @@ sem variância amostral a absorver. A justificativa está em
   atomicidade sem um protocolo de terminação cooperativo, e não um defeito. O
   invariante o classifica como **aviso**: aparece no relatório, mas **não** muda
   o código de saída. Tratá-lo como reprovação transformaria uma
-  propriedade conhecida do 2PC num alarme falso. O aviso aparece nos logs
-  coletados com o Coordenador ainda fora e some depois que ele se recupera.
+  propriedade conhecida do 2PC num alarme falso. O cenário `2pc crash-coord`
+  confere os logs duas vezes. Com o Coordenador fora, a verificação dá o aviso
+  dos três Participantes, e depois do reinício o aviso some.
 
 ### Por que o Deadline e o write-ahead não são detalhe de estilo
 
@@ -302,9 +303,10 @@ aprovados são os que o modo exige em `MODOS`.
 | --- | --- | --- | --- |
 | `anel normal` | eleição sem falha converge para o maior id (5) | 01, 02, 03 | passam |
 | `anel falha` | elege 5, derruba o contêiner do 5 e reelege o maior vivo (4) | 01, 02, 03 | passam |
+| `anel reinicio` | elege 5, derruba o 5, reelege 4, reinicia o contêiner do 5, que volta sem memória, e a terceira eleição o reintegra como Líder | 01, 02, 03 | passam nas três rodadas |
 | `2pc commit` | todos SIM → COMMIT em todos | 04, 05, 06 | 04 e 06 passam, 05 em lacuna |
 | `2pc abort` | um NAO → ABORT atômico em todos | 04, 05, 06 | 04 passa, 05 e 06 em lacuna |
-| `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05, 06 | passam, todos em COMMIT depois do reinício |
+| `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05, 06 | passam, com o aviso de dúvida dos três na verificação feita com o Coordenador fora e todos em COMMIT depois do reinício |
 
 Em todos, `verificar.py` sai com código 0 e o desfecho observado é o esperado.
 `cenario.py` sai 1 se um invariante reprova, se um invariante exigido termina sem

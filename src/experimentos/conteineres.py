@@ -181,20 +181,35 @@ def esperar_conclusao(transacao: str | None = None, prazo: float = 10.0) -> dict
         time.sleep(SONDAGEM_S)
 
 
-def reiniciar_coordenador(arquivos: list[Path], prazo: float = 30.0) -> tuple[float, dict[int, Any]]:
-    """Reinicia o coordenador que caiu e mede o tempo até todos os participantes decidirem.
-
-    Logo depois do crash o Docker ainda pode ver o contêiner rodando, e um `start` nessa janela não
-    faz nada. Por isso o relógio só parte depois do `wait`, que volta quando ele parou.
-    """
-    compose("wait", "coordenador", arquivos=arquivos, timeout=60)
-    inicio = time.monotonic()
-    reinicio = compose("start", "coordenador", arquivos=arquivos, timeout=120)
-    if reinicio.returncode != 0:
+def _exigir(resultado: subprocess.CompletedProcess, comando: str) -> None:
+    """Levanta RuntimeError com a saída do Compose quando `comando` falhou."""
+    if resultado.returncode != 0:
         raise RuntimeError(
-            f"docker compose start coordenador falhou: {reinicio.stderr}. "
+            f"docker compose {comando} falhou: {resultado.stderr.strip()}. "
             "Derrube a pilha com docker compose down -v --remove-orphans e repita."
         )
+
+
+def derrubar_servico(servico: str, arquivos: list[Path]) -> None:
+    """Mata o processo do contêiner de `servico` com SIGKILL, como um crash."""
+    _exigir(compose("kill", servico, arquivos=arquivos, timeout=60), f"kill {servico}")
+
+
+def reiniciar_servico(servico: str, arquivos: list[Path]) -> float:
+    """Dá `start` no contêiner de `servico` que caiu e devolve o instante do `start` em `time.monotonic`.
+
+    Logo depois do crash o Docker ainda pode ver o contêiner rodando, e um `start` nessa janela não
+    faz nada. Por isso o `wait` vem antes, e volta quando ele parou.
+    """
+    compose("wait", servico, arquivos=arquivos, timeout=60)
+    inicio = time.monotonic()
+    _exigir(compose("start", servico, arquivos=arquivos, timeout=120), f"start {servico}")
+    return inicio
+
+
+def reiniciar_coordenador(arquivos: list[Path], prazo: float = 30.0) -> tuple[float, dict[int, Any]]:
+    """Reinicia o coordenador que caiu e mede do `start` até todos os participantes decidirem."""
+    inicio = reiniciar_servico("coordenador", arquivos)
     finais = decisoes(estados_participantes(esperar_decisao=True, timeout=prazo))
     return time.monotonic() - inicio, finais
 
