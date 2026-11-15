@@ -48,7 +48,6 @@ COLUNAS_ANEL: tuple[str, ...] = (
     "tempo_convergencia",
     "mensagens",
     "convergiu",
-    "nos_vivos",
 )
 
 COLUNAS_2PC_LATENCIA: tuple[str, ...] = (

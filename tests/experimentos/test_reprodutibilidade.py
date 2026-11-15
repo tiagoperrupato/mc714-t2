@@ -119,13 +119,13 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
     csv_anel = results / "bateria_anel_num_nos.csv"
     csv_latencia = results / "bateria_2pc_latencia_rede.csv"
     csv_recuperacao = results / "bateria_2pc_recuperacao.csv"
-    assert bateria.main(["--algoritmo", "anel", "--replicas", "2", "--saida", str(csv_anel)]) == 0
+    assert bateria.main(["--algoritmo", "anel", "--replicas", "2", "--results", str(results)]) == 0
     argv_2pc = ["--algoritmo", "2pc", "--replicas", "2", "--transacoes", "3", "--aquecimento", "1"]
     assert bateria.main([*argv_2pc, "--results", str(results)]) == 0
 
     # Determinismo por Semente: rodar de novo produz exatamente o mesmo CSV.
     conteudo_anel_1 = csv_anel.read_bytes()
-    assert bateria.main(["--algoritmo", "anel", "--replicas", "2", "--saida", str(csv_anel)]) == 0
+    assert bateria.main(["--algoritmo", "anel", "--replicas", "2", "--results", str(results)]) == 0
     assert csv_anel.read_bytes() == conteudo_anel_1
 
     linhas_anel = _ler_csv(csv_anel)

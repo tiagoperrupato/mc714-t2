@@ -23,12 +23,12 @@ from typing import Any, Mapping
 
 import pytest
 
+from scripts.bateria import _runner_anel
 from src.experimentos.bateria import (
     ItemReplica,
     executar_bateria,
     planejar_bateria,
 )
-from src.experimentos.runner_anel import executar_replica_anel
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ def test_csv_tem_colunas_esperadas_e_uma_linha_por_replica(tmp_path: Path) -> No
         parametro="num_nos", niveis=(3, 5, 7), replicas=2, semente_base=42
     )
     destino = tmp_path / "bateria.csv"
-    resultado = executar_bateria(
+    codigo = executar_bateria(
         itens,
         _runner_fake,
         destino,
@@ -95,7 +95,7 @@ def test_csv_tem_colunas_esperadas_e_uma_linha_por_replica(tmp_path: Path) -> No
         saida=io.StringIO(),
         erro=io.StringIO(),
     )
-    assert resultado.codigo_saida == 0
+    assert codigo == 0
     linhas = _ler_csv(destino)
     # Uma linha por Réplica.
     assert len(linhas) == len(itens) == 6
@@ -131,16 +131,16 @@ def test_replica_que_falha_e_registrada_e_bateria_prossegue(tmp_path: Path) -> N
         return {"metrica": item.semente}
 
     destino = tmp_path / "bateria.csv"
-    resultado = executar_bateria(
-        itens, runner_que_falha_no_meio, destino, saida=io.StringIO(), erro=io.StringIO()
+    erro = io.StringIO()
+    codigo = executar_bateria(
+        itens, runner_que_falha_no_meio, destino, saida=io.StringIO(), erro=erro
     )
-    # Prosseguiu: 3 planejadas, 1 falha registrada, 2 linhas gravadas.
-    assert len(resultado.falhas) == 1
-    assert resultado.falhas[0][0].indice == 1
+    # Prosseguiu: 3 planejadas, a falha registrada em stderr, 2 linhas gravadas.
+    assert "falha proposital" in erro.getvalue()
     linhas = _ler_csv(destino)
     assert len(linhas) == 2
     # Código de saída sinaliza a falha, sem abortar a bateria.
-    assert resultado.codigo_saida == 1
+    assert codigo == 1
 
 
 def test_runner_com_varias_linhas_grava_uma_por_elemento(tmp_path: Path) -> None:
@@ -172,15 +172,6 @@ def test_bateria_vazia_e_recusada(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Runners de produção em processo: determinismo por Semente
 # ---------------------------------------------------------------------------
-
-
-def _runner_anel(item: ItemReplica) -> Mapping[str, Any]:
-    r = executar_replica_anel(
-        num_nos=int(item.parametros["num_nos"]),
-        taxa_falhas=float(item.parametros["taxa_falhas"]),
-        semente=item.semente,
-    )
-    return {"tempo_convergencia": r.tempo_convergencia, "mensagens": r.mensagens}
 
 
 def test_bateria_anel_reproduz_o_mesmo_conjunto_com_semente_fixa(tmp_path: Path) -> None:

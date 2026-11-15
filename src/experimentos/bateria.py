@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from src.comum.config import SEMENTE_MAX, SEMENTE_MIN
 from src.experimentos.ambiente import coletar_ambiente
 
 # Uma Réplica planejada: os parâmetros que a identificam. `parametros` é o mapa
@@ -77,9 +78,9 @@ def planejar_bateria(
         )
     if replicas < 1:
         raise ValueError(f"replicas deve ser >= 1; recebido {replicas}")
-    if not (0 <= semente_base <= 2_147_483_647):
+    if not (SEMENTE_MIN <= semente_base <= SEMENTE_MAX):
         raise ValueError(
-            f"semente_base deve ser inteiro em [0, 2147483647]; recebido {semente_base}"
+            f"semente_base deve ser inteiro em [{SEMENTE_MIN}, {SEMENTE_MAX}]; recebido {semente_base}"
         )
     fixos = dict(fixos or {})
 
@@ -102,39 +103,25 @@ def planejar_bateria(
     return itens
 
 
-@dataclass(frozen=True)
-class ResultadoBateria:
-    """Desfecho de uma bateria: linhas gravadas, falhas e código de saída."""
-
-    linhas: list[dict[str, Any]]
-    falhas: list[tuple[ItemReplica, str]]
-    codigo_saida: int
-
-
 def executar_bateria(
     itens: Sequence[ItemReplica],
     runner: Runner,
     destino: Path,
     *,
-    colunas_meta: Sequence[str] = ("algoritmo", "parametro_variado"),
     meta: Mapping[str, Any] | None = None,
     ambiente_extra: Mapping[str, Any] | None = None,
     saida=sys.stdout,
     erro=sys.stderr,
-) -> ResultadoBateria:
-    """Executa as Réplicas em ordem e grava um CSV com as linhas que elas devolvem.
+) -> int:
+    """Executa as Réplicas em ordem, grava o CSV e devolve o código de saída.
 
-    A bateria é validada ANTES de tocar o arquivo
-    de saída (aqui, validando que há itens e que o planejamento é consistente),
-    de modo que um erro de configuração não destrua resultados anteriores.
-    Cada linha carrega a Semente e o ambiente. Uma Réplica que levanta exceção é registrada e a bateria segue;
-    o código de saída é 1 se houve qualquer falha, senão 0.
+    A bateria é validada antes de tocar o arquivo de saída, de modo que um erro de configuração não
+    destrua resultados anteriores. Cada linha carrega a Semente e o ambiente. Uma Réplica que levanta
+    exceção é registrada e a bateria segue, e o código de saída é 1 se houve qualquer falha, senão 0.
 
-    O CSV só é aberto para escrita DEPOIS de todas as Réplicas rodarem, para que
-    uma falha no meio não deixe o arquivo pela metade nem sobrescreva um resultado
-    bom com um parcial — a validação-antes-de-sobrescrever levada ao fim.
-    `ambiente_extra` são colunas `amb_*` que o host não sabe, como as versões do
-    Docker.
+    O CSV só é aberto para escrita depois de todas as Réplicas rodarem, para que uma falha no meio não
+    deixe o arquivo pela metade nem sobrescreva um resultado bom com um parcial. `ambiente_extra` são
+    colunas `amb_*` que o host não sabe, como as versões do Docker.
     """
     if not itens:
         raise ValueError("a bateria não tem Réplicas a executar")
@@ -155,9 +142,7 @@ def executar_bateria(
             print(f"[erro] falha na réplica {item.descricao}: {motivo}", file=erro)
             continue
         for metricas_linha in [metricas] if isinstance(metricas, Mapping) else metricas:
-            linha: dict[str, Any] = {}
-            for coluna in colunas_meta:
-                linha[coluna] = meta.get(coluna, "")
+            linha: dict[str, Any] = dict(meta)
             linha["indice"] = item.indice
             linha["nivel"] = item.nivel
             linha["k"] = item.k
@@ -179,8 +164,7 @@ def executar_bateria(
         f"-> {destino}",
         file=saida,
     )
-    codigo = 1 if falhas else 0
-    return ResultadoBateria(linhas=linhas, falhas=falhas, codigo_saida=codigo)
+    return 1 if falhas else 0
 
 
 def _gravar_csv(destino: Path, linhas: Sequence[Mapping[str, Any]], *, erro) -> None:

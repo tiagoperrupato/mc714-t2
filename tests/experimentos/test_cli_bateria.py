@@ -35,10 +35,9 @@ def _ler(caminho: Path) -> list[dict[str, str]]:
 
 def test_demo_anel_grava_csv_com_colunas_esperadas(tmp_path: Path) -> None:
     cli = _carregar_cli()
-    saida = tmp_path / "anel.csv"
-    codigo = cli.main(["--algoritmo", "anel", "--replicas", "2", "--saida", str(saida)])
+    codigo = cli.main(["--algoritmo", "anel", "--replicas", "2", "--results", str(tmp_path)])
     assert codigo == 0
-    linhas = _ler(saida)
+    linhas = _ler(tmp_path / "bateria_anel_num_nos.csv")
     # 3 níveis padrão x 2 réplicas = 6 linhas, uma por Réplica.
     assert len(linhas) == 6
     colunas = set(linhas[0].keys())
@@ -92,31 +91,6 @@ def test_2pc_sem_docker_sai_com_codigo_2_sem_gravar(tmp_path: Path, monkeypatch)
     monkeypatch.setattr(condutor_doispc, "preparar", sem_docker)
     assert cli.main(["--algoritmo", "2pc", "--results", str(tmp_path)]) == 2
     assert list(tmp_path.iterdir()) == []
-
-
-def test_saida_e_recusada_no_2pc() -> None:
-    cli = _carregar_cli()
-    with pytest.raises(SystemExit):
-        cli.main(["--algoritmo", "2pc", "--saida", "x.csv"])
-
-
-def test_variar_taxa_falhas_no_anel(tmp_path: Path) -> None:
-    cli = _carregar_cli()
-    saida = tmp_path / "anel_falhas.csv"
-    codigo = cli.main(
-        ["--algoritmo", "anel", "--variar", "taxa_falhas", "--replicas", "2", "--saida", str(saida)]
-    )
-    assert codigo == 0
-    linhas = _ler(saida)
-    niveis = sorted({l["taxa_falhas"] for l in linhas})
-    assert len(niveis) == 3
-
-
-def test_variar_incompativel_e_recusado() -> None:
-    cli = _carregar_cli()
-    # latencia_rede não se aplica ao anel.
-    with pytest.raises(SystemExit):
-        cli.main(["--algoritmo", "anel", "--variar", "latencia_rede"])
 
 
 def test_replicas_invalidas_recusadas() -> None:

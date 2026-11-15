@@ -2,7 +2,7 @@
 
 Provam que o runner dirige a Máquina_de_Estados pura corretamente e produz
 métricas determinísticas por Semente, sem rede nem Docker: a eleição converge
-para o maior id vivo e conta Mensagens, a mesma Semente reproduz as mesmas
+para o maior id e conta Mensagens, a mesma Semente reproduz as mesmas
 métricas, e uma taxa de falhas maior exige mais Mensagens e passos para
 convergir, sem quebrar a convergência.
 """
@@ -57,16 +57,6 @@ def test_anel_com_perda_converge_sempre_e_conta_a_perda(num_nos: int) -> None:
     # Sem perda são 2n - 1 Mensagens até a convergência. Cada perda soma uma.
     assert all(r.mensagens >= 2 * num_nos - 1 for r in replicas)
     assert any(r.mensagens > 2 * num_nos - 1 for r in replicas)
-
-
-def test_anel_converge_com_no_morto_pela_regra_de_salto() -> None:
-    r = executar_replica_anel(
-        num_nos=5, taxa_falhas=0.0, semente=3, nos_mortos=frozenset({5})
-    )
-    assert r.convergiu
-    # Com o 5 morto, o maior id vivo é 4.
-    assert r.lider == 4
-    assert r.nos_vivos == 4
 
 
 def test_anel_valida_parametros_antes_de_agir() -> None:

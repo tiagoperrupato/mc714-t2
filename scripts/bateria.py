@@ -12,9 +12,6 @@ Uso:
         `results/bateria_anel_num_nos.csv`, com as métricas Tempo_de_Convergencia e
         número de Mensagens.
 
-    python scripts/bateria.py --algoritmo anel --variar taxa_falhas
-        Varia a taxa de falhas do Anel (0.0, 0.1, 0.2).
-
     python scripts/bateria.py --algoritmo 2pc
         Varia a latência de rede do 2PC (0, 10, 25 e 50 ms em cada sentido). Grava
         `results/bateria_2pc_latencia_rede.csv`, uma linha por transação, e
@@ -39,7 +36,12 @@ _RAIZ = Path(__file__).resolve().parent.parent
 if str(_RAIZ) not in sys.path:
     sys.path.insert(0, str(_RAIZ))
 
-from src.analise.dados import BATERIA_2PC_LATENCIA, BATERIA_2PC_RECUPERACAO  # noqa: E402
+from src.analise.dados import (  # noqa: E402
+    BATERIA_2PC_LATENCIA,
+    BATERIA_2PC_RECUPERACAO,
+    BATERIA_ANEL_NOS,
+)
+from src.comum.config import SEMENTE_MAX, SEMENTE_MIN  # noqa: E402
 from src.experimentos import condutor_doispc  # noqa: E402
 from src.experimentos.bateria import (  # noqa: E402
     ItemReplica,
@@ -54,13 +56,11 @@ REPLICAS_PADRAO = 5
 
 # Níveis padrão por parâmetro variado. Sempre >= 3 níveis.
 NIVEIS_ANEL_NOS: tuple[int, ...] = (3, 5, 7)
-NIVEIS_ANEL_FALHAS: tuple[float, ...] = (0.0, 0.1, 0.2)
 # Atraso de ida em ms, aplicado em cada sentido de cada proxy do 2PC.
 NIVEIS_2PC_LATENCIA: tuple[int, ...] = (0, 10, 25, 50)
 
-# Parâmetros fixos quando o outro é o variado.
+# Perda fixa da bateria do Anel.
 TAXA_FALHAS_FIXA = 0.05
-NUM_NOS_FIXO = 5
 
 # Transações por Réplica do 2PC. As de aquecimento ficam no CSV, marcadas, e a
 # análise as descarta.
@@ -83,38 +83,23 @@ def _runner_anel(item: ItemReplica) -> Mapping[str, Any]:
         "mensagens": resultado.mensagens,
         "convergiu": int(resultado.convergiu),
         "lider": resultado.lider if resultado.lider is not None else "",
-        "nos_vivos": resultado.nos_vivos,
     }
 
 
-def _planejar_anel(variar: str, replicas: int, semente_base: int) -> list[ItemReplica]:
-    if variar == "num_nos":
-        return planejar_bateria(
-            parametro="num_nos",
-            niveis=NIVEIS_ANEL_NOS,
-            replicas=replicas,
-            semente_base=semente_base,
-            fixos={"taxa_falhas": TAXA_FALHAS_FIXA},
-        )
-    return planejar_bateria(
-        parametro="taxa_falhas",
-        niveis=NIVEIS_ANEL_FALHAS,
-        replicas=replicas,
-        semente_base=semente_base,
-        fixos={"num_nos": NUM_NOS_FIXO},
+def _executar_anel(args: argparse.Namespace) -> int:
+    itens = planejar_bateria(
+        parametro="num_nos",
+        niveis=NIVEIS_ANEL_NOS,
+        replicas=args.replicas,
+        semente_base=args.semente_base,
+        fixos={"taxa_falhas": TAXA_FALHAS_FIXA},
     )
-
-
-def _executar_anel(args: argparse.Namespace, variar: str) -> int:
-    itens = _planejar_anel(variar, args.replicas, args.semente_base)
-    destino = args.saida or (Path(args.results) / f"bateria_anel_{variar}.csv")
-    resultado = executar_bateria(
+    return executar_bateria(
         itens,
         _runner_anel,
-        Path(destino),
-        meta={"algoritmo": "anel", "parametro_variado": variar},
+        Path(args.results) / BATERIA_ANEL_NOS.name,
+        meta={"algoritmo": "anel", "parametro_variado": "num_nos"},
     )
-    return resultado.codigo_saida
 
 
 def _executar_2pc(args: argparse.Namespace) -> int:
@@ -164,7 +149,7 @@ def _executar_2pc(args: argparse.Namespace) -> int:
         ambiente_extra=ambiente_docker,
         saida=sys.stderr,
     )
-    return max(latencia.codigo_saida, recuperacao.codigo_saida)
+    return max(latencia, recuperacao)
 
 
 def _construir_parser() -> argparse.ArgumentParser:
@@ -178,12 +163,6 @@ def _construir_parser() -> argparse.ArgumentParser:
         required=True,
         choices=["anel", "2pc"],
         help="algoritmo a experimentar",
-    )
-    parser.add_argument(
-        "--variar",
-        default=None,
-        choices=["num_nos", "taxa_falhas", "latencia_rede"],
-        help="parâmetro variado (default: num_nos para anel, latencia_rede para 2pc)",
     )
     parser.add_argument(
         "--replicas",
@@ -216,25 +195,7 @@ def _construir_parser() -> argparse.ArgumentParser:
         default=RESULTS_PADRAO,
         help=f"diretório de saída (default: {RESULTS_PADRAO})",
     )
-    parser.add_argument(
-        "--saida",
-        type=Path,
-        default=None,
-        help="anel: caminho do CSV (default: results/bateria_anel_<variar>.csv)",
-    )
     return parser
-
-
-def _validar_variar(algoritmo: str, variar: str, parser: argparse.ArgumentParser) -> None:
-    validos = {
-        "anel": {"num_nos", "taxa_falhas"},
-        "2pc": {"latencia_rede"},
-    }
-    if variar not in validos[algoritmo]:
-        parser.error(
-            f"--variar {variar!r} não se aplica ao algoritmo {algoritmo!r}; "
-            f"válidos: {sorted(validos[algoritmo])}"
-        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -243,18 +204,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.replicas < 1:
         parser.error("o número de réplicas deve ser >= 1")
-    if not (0 <= args.semente_base <= 2_147_483_647):
-        parser.error("a semente base deve ser um inteiro em [0, 2147483647]")
+    if not (SEMENTE_MIN <= args.semente_base <= SEMENTE_MAX):
+        parser.error(f"a semente base deve ser um inteiro em [{SEMENTE_MIN}, {SEMENTE_MAX}]")
     if args.transacoes < 1 or args.aquecimento < 0:
         parser.error("--transacoes deve ser >= 1 e --aquecimento >= 0")
 
-    variar = args.variar or ("num_nos" if args.algoritmo == "anel" else "latencia_rede")
-    _validar_variar(args.algoritmo, variar, parser)
-
     if args.algoritmo == "anel":
-        return _executar_anel(args, variar)
-    if args.saida is not None:
-        parser.error("--saida não se aplica ao 2pc, que grava dois CSVs. Use --results.")
+        return _executar_anel(args)
     return _executar_2pc(args)
 
 

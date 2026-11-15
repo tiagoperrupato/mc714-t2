@@ -81,9 +81,8 @@ mede os Nós reais: cada Réplica sobe o compose com o Toxiproxy entre o
 Coordenador e os Participantes, aplica a latência do nível e derruba tudo no fim.
 
 ```bash
-python scripts/bateria.py --algoritmo anel                         # varia num_nos (3, 5, 7)
-python scripts/bateria.py --algoritmo anel --variar taxa_falhas    # varia (0.0, 0.1, 0.2)
-python scripts/bateria.py --algoritmo 2pc                          # varia latencia_rede (0, 10, 25, 50 ms), cerca de 10 min
+python scripts/bateria.py --algoritmo anel    # varia num_nos (3, 5, 7)
+python scripts/bateria.py --algoritmo 2pc     # varia latencia_rede (0, 10, 25, 50 ms), cerca de 10 min
 ```
 
 Para o Anel, as métricas são Tempo_de_Convergencia (em passos lógicos de entrega
@@ -96,13 +95,11 @@ Réplica que falha é registrada sem interromper o restante.
 | Opção | Padrão | Descrição |
 |:---|:---|:---|
 | `--algoritmo` | — (obrigatória) | `anel` ou `2pc` |
-| `--variar` | `num_nos` / `latencia_rede` | parâmetro variado: `num_nos` ou `taxa_falhas` no anel, `latencia_rede` no 2pc |
 | `--replicas` | 5 | Réplicas por nível |
 | `--semente-base` | 42 | Semente base das Réplicas |
 | `--transacoes` | 40 | 2pc: transações medidas por Réplica |
 | `--aquecimento` | 5 | 2pc: transações de aquecimento por Réplica, gravadas e marcadas |
 | `--results` | `results/` | diretório de saída |
-| `--saida` | `results/bateria_anel_<variar>.csv` | anel: caminho do CSV |
 
 A análise consome por padrão `results/bateria_anel_num_nos.csv`,
 `results/bateria_2pc_latencia_rede.csv` e `results/bateria_2pc_recuperacao.csv`.
@@ -298,15 +295,15 @@ versão, arquitetura, processador, número de CPUs, versão de Python e das
 dependências), o carimbo de reprodutibilidade descrito abaixo. As do 2PC trazem
 também as versões do Docker e do Compose e o Python da imagem.
 
-`bateria_anel_num_nos.csv` (e `bateria_anel_taxa_falhas.csv`):
+`bateria_anel_num_nos.csv`:
 
 | Coluna | Significado |
 |:-------|:------------|
 | `algoritmo`, `parametro_variado`, `semente` | identificam a Réplica |
-| `num_nos`, `taxa_falhas` | parâmetros da Réplica |
+| `num_nos`, `taxa_falhas` | parâmetros da Réplica, com a perda fixa em 0,05 |
 | `tempo_convergencia` | passos lógicos de entrega até a convergência |
 | `mensagens` | total de Mensagens entregues |
-| `convergiu`, `lider`, `nos_vivos` | resultado da eleição |
+| `convergiu`, `lider` | resultado da eleição |
 
 `bateria_2pc_latencia_rede.csv`, uma linha por transação:
 

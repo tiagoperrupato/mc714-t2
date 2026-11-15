@@ -1,27 +1,26 @@
 """Runner em processo de uma Réplica de Eleição em Anel, determinístico por Semente.
 
 Dirige a Máquina_de_Estados pura do Anel (`src.anel.maquina`) com um barramento
-de Mensagens em memória, sem rede nem contêiner. O barramento aplica a regra de
-salto do Anel quando um Nó alvo está morto e perde Mensagens com uma taxa de
-falhas derivada da Semente (stream `drop` de `Streams`), medindo:
+de Mensagens em memória, sem rede nem contêiner. O barramento perde Mensagens com
+uma taxa de falhas derivada da Semente (stream `drop` de `Streams`), medindo:
 
 - **Tempo_de_Convergencia**: aqui, um tempo lógico em "passos" de entrega de
-  Mensagem até todos os Nós vivos conhecerem o mesmo Líder. Medir em passos
+  Mensagem até todos os Nós conhecerem o mesmo Líder. Medir em passos
   lógicos (e não em segundos de relógio) é o que torna a Réplica reproduzível
   dígito a dígito entre máquinas. Relógios físicos não são a base da correção
   nem da comparação.
-- **Mensagens**: o total de Mensagens enviadas a Nós vivos até a convergência,
-  contando as perdidas.
+- **Mensagens**: o total de Mensagens enviadas até a convergência, contando as
+  perdidas.
 
 Modelo de falhas. `taxa_falhas` em [0, 1) é a probabilidade de uma Mensagem se
 perder, sorteada do stream `drop` semeado. O remetente a reenvia até ela chegar,
-como o Nó faz dentro do Deadline. `nos_mortos` marca Nós crash-stop, que nunca
-recebem, e só eles levam ao salto. A bateria conta passos, e não tempo, então
+como o Nó faz dentro do Deadline. Todos os Nós estão vivos. O salto por Nó morto
+está nos testes da Máquina e da rede. A bateria conta passos, e não tempo, então
 não modela o Deadline que acaba antes de um reenvio dar certo, a suspeita
 errada que os testes com rede cobrem.
 
-A pureza das Máquinas é preservada: o runner só orquestra `iniciar_eleicao`,
-`receber` e `com_sucessor_falho`, sem reimplementar eleição.
+A pureza das Máquinas é preservada: o runner só orquestra `iniciar_eleicao` e
+`receber`, sem reimplementar eleição.
 """
 
 from __future__ import annotations
@@ -30,143 +29,77 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Optional
 
-from src.anel.maquina import EstadoAnel, com_sucessor_falho, iniciar_eleicao, receber
+from src.anel.maquina import EstadoAnel, iniciar_eleicao, receber
 from src.comum.aleatoriedade import Streams
 from src.comum.modelos import Mensagem
 
 # Teto de passos de entrega antes de declarar não-convergência numa Réplica. É
-# folgado para qualquer anel pequeno sob falhas moderadas; estourá-lo indica uma
+# folgado para qualquer anel pequeno sob falhas moderadas. Estourá-lo indica uma
 # Réplica patológica (por exemplo, taxa de falhas alta demais) e é reportado como
 # falha de réplica pela bateria, que prossegue.
-MAX_PASSOS_PADRAO = 100_000
+MAX_PASSOS = 100_000
 
 
 @dataclass(frozen=True)
 class ResultadoAnel:
     """Métricas de uma Réplica do Anel.
 
-    `convergiu` indica se todos os Nós vivos chegaram ao mesmo Líder. `lider` é o
-    Líder eleito (o maior id vivo, quando convergiu). `tempo_convergencia` é o
-    número de passos lógicos de entrega até a convergência; `mensagens` é o total
-    de Mensagens entregues. `num_nos` e `taxa_falhas` reproduzem os parâmetros
-    variados da Réplica, para a análise cruzar métrica e configuração.
+    `convergiu` indica se todos os Nós chegaram ao mesmo Líder. `lider` é o
+    Líder eleito (o maior id, quando convergiu). `tempo_convergencia` é o
+    número de passos lógicos de entrega até a convergência, e `mensagens` o total
+    de Mensagens enviadas.
     """
 
     convergiu: bool
     lider: Optional[int]
     tempo_convergencia: int
     mensagens: int
-    num_nos: int
-    taxa_falhas: float
-    nos_vivos: int
 
 
-def _anel_de(num_nos: int) -> tuple[int, ...]:
-    """Topologia 1 -> 2 -> ... -> num_nos -> 1 (ids iguais à posição)."""
-    return tuple(range(1, num_nos + 1))
+def executar_replica_anel(*, num_nos: int, taxa_falhas: float, semente: int) -> ResultadoAnel:
+    """Executa uma Réplica de eleição no Anel 1 -> 2 -> ... -> num_nos -> 1, iniciada pelo Nó 1.
 
-
-def executar_replica_anel(
-    *,
-    num_nos: int,
-    taxa_falhas: float,
-    semente: int,
-    nos_mortos: frozenset[int] = frozenset(),
-    iniciador: int = 1,
-    max_passos: int = MAX_PASSOS_PADRAO,
-) -> ResultadoAnel:
-    """Executa uma Réplica de eleição no Anel e devolve suas métricas.
-
-    `num_nos` é o tamanho do Anel; `taxa_falhas` a probabilidade de descarte por
-    entrega; `semente` dirige o stream de drop (reproduzível); `nos_mortos` são
-    Nós crash-stop; `iniciador` é quem dispara a eleição. Levanta `ValueError`
-    para parâmetros fora de domínio, antes de qualquer efeito.
+    Levanta `ValueError` para parâmetros fora de domínio, antes de qualquer efeito.
     """
     if not isinstance(num_nos, int) or num_nos < 1:
         raise ValueError(f"num_nos deve ser inteiro >= 1; recebido {num_nos!r}")
     if not 0.0 <= taxa_falhas < 1.0:
         raise ValueError(f"taxa_falhas deve estar em [0, 1); recebido {taxa_falhas!r}")
-    anel = _anel_de(num_nos)
-    if iniciador not in anel:
-        raise ValueError(f"iniciador {iniciador!r} fora do anel {anel}")
-    for morto in nos_mortos:
-        if morto not in anel:
-            raise ValueError(f"nó morto {morto!r} fora do anel {anel}")
+    anel = tuple(range(1, num_nos + 1))
 
     streams = Streams(semente)
-    estados: dict[int, EstadoAnel] = {
-        i: EstadoAnel(no_id=i, anel=anel) for i in anel
-    }
-    vivos = frozenset(anel) - frozenset(nos_mortos)
-    nos_vivos = len(vivos)
+    estados: dict[int, EstadoAnel] = {i: EstadoAnel(no_id=i, anel=anel) for i in anel}
 
-    # Fila de entregas pendentes: cada item é a Mensagem a ser entregue ao seu
-    # `destino`. A ordem FIFO dá um escalonamento determinístico das entregas.
+    # Fila de entregas pendentes. A ordem FIFO dá um escalonamento determinístico.
     fila: deque[Mensagem] = deque()
-
-    # O iniciador dispara a eleição; se ele estiver morto, o primeiro vivo após
-    # ele assume o papel de iniciador, pois um Nó morto não inicia nada.
-    iniciador_efetivo = iniciador
-    if iniciador not in vivos:
-        iniciador_efetivo = _primeiro_vivo(anel, iniciador, vivos)
-    if iniciador_efetivo is None:
-        # Nenhum Nó vivo: não há eleição possível.
-        return ResultadoAnel(
-            convergiu=False,
-            lider=None,
-            tempo_convergencia=0,
-            mensagens=0,
-            num_nos=num_nos,
-            taxa_falhas=taxa_falhas,
-            nos_vivos=0,
-        )
-
-    estados[iniciador_efetivo], saida = iniciar_eleicao(
-        estados[iniciador_efetivo], rodada=f"{iniciador_efetivo}-1"
-    )
+    estados[1], saida = iniciar_eleicao(estados[1], rodada="1-1")
     fila.extend(saida)
 
     passos = 0
     mensagens = 0
-    while fila and passos < max_passos:
+    while fila and passos < MAX_PASSOS:
         passos += 1
         msg = fila.popleft()
-        destino = msg.destino
-        remetente = msg.origem
-
-        if destino not in vivos:
-            # O remetente aplica a regra de salto e reemite a MESMA Mensagem ao
-            # próximo vivo. A decisão é da Máquina pura.
-            estados[remetente], reemitidas = com_sucessor_falho(
-                estados[remetente], msg, destino
-            )
-            fila.extend(reemitidas)
-            continue
-
         mensagens += 1
-        if _descartar(streams, taxa_falhas):
+        if descartar(streams, taxa_falhas):
             fila.appendleft(msg)  # perdida: o remetente reenvia
             continue
-        estados[destino], saida = receber(estados[destino], msg)
+        estados[msg.destino], saida = receber(estados[msg.destino], msg)
         fila.extend(saida)
 
-        if _todos_convergiram(estados, vivos):
+        if todos_convergiram(estados, num_nos):
             break
 
-    convergiu = _todos_convergiram(estados, vivos)
-    lider = estados[next(iter(vivos))].lider if convergiu else None
+    convergiu = todos_convergiram(estados, num_nos)
     return ResultadoAnel(
         convergiu=convergiu,
-        lider=lider,
+        lider=num_nos if convergiu else None,
         tempo_convergencia=passos,
         mensagens=mensagens,
-        num_nos=num_nos,
-        taxa_falhas=taxa_falhas,
-        nos_vivos=nos_vivos,
     )
 
 
-def _descartar(streams: Streams, taxa: float) -> bool:
+def descartar(streams: Streams, taxa: float) -> bool:
     """Decide o descarte consumindo do stream `drop` (reproduzível por Semente).
 
     Só consome do stream quando há taxa > 0, para que uma taxa nula não desloque
@@ -177,22 +110,6 @@ def _descartar(streams: Streams, taxa: float) -> bool:
     return streams.drop.random() < taxa
 
 
-def _primeiro_vivo(anel: tuple[int, ...], a_partir_de: int, vivos: frozenset[int]) -> Optional[int]:
-    """Primeiro Nó vivo na ordem do Anel a partir de `a_partir_de` (inclusive)."""
-    n = len(anel)
-    inicio = anel.index(a_partir_de)
-    for passo in range(n):
-        candidato = anel[(inicio + passo) % n]
-        if candidato in vivos:
-            return candidato
-    return None
-
-
-def _todos_convergiram(estados: dict[int, EstadoAnel], vivos: frozenset[int]) -> bool:
-    """Verdadeiro quando todos os Nós vivos conhecem o mesmo Líder, o maior id vivo."""
-    if not vivos:
-        return False
-    lideres = {estados[i].lider for i in vivos}
-    if lideres != {max(vivos)}:
-        return False
-    return None not in lideres
+def todos_convergiram(estados: dict[int, EstadoAnel], lider: int) -> bool:
+    """Verdadeiro quando todos os Nós conhecem `lider` como Líder."""
+    return all(estado.lider == lider for estado in estados.values())

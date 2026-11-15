@@ -56,21 +56,21 @@ def _csv_anel(caminho: Path) -> None:
     """
     colunas = [
         "algoritmo", "parametro_variado", "semente", "num_nos", "taxa_falhas",
-        "tempo_convergencia", "mensagens", "convergiu", "nos_vivos",
+        "tempo_convergencia", "mensagens", "convergiu",
     ]
     linhas = [
         {"algoritmo": "anel", "parametro_variado": "num_nos", "semente": 1,
          "num_nos": 3, "taxa_falhas": 0.0, "tempo_convergencia": 4,
-         "mensagens": 3, "convergiu": 1, "nos_vivos": 3},
+         "mensagens": 3, "convergiu": 1},
         {"algoritmo": "anel", "parametro_variado": "num_nos", "semente": 2,
          "num_nos": 3, "taxa_falhas": 0.0, "tempo_convergencia": 6,
-         "mensagens": 3, "convergiu": 1, "nos_vivos": 3},
+         "mensagens": 3, "convergiu": 1},
         {"algoritmo": "anel", "parametro_variado": "num_nos", "semente": 3,
          "num_nos": 5, "taxa_falhas": 0.0, "tempo_convergencia": 8,
-         "mensagens": 5, "convergiu": 1, "nos_vivos": 5},
+         "mensagens": 5, "convergiu": 1},
         {"algoritmo": "anel", "parametro_variado": "num_nos", "semente": 4,
          "num_nos": 5, "taxa_falhas": 0.0, "tempo_convergencia": 12,
-         "mensagens": 5, "convergiu": 1, "nos_vivos": 5},
+         "mensagens": 5, "convergiu": 1},
     ]
     _escrever_csv(caminho, colunas, linhas)
 
