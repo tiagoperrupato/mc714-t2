@@ -36,6 +36,7 @@ Participante:
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from src.comum.config import ConfigInvalidaError, ConfigNo
@@ -116,55 +117,86 @@ def _abrir_log_e_controlador(
     return log, controlador
 
 
-def construir_coordenador() -> tuple[object, int]:
-    """Monta o Coordenador a partir do ambiente, validando antes de qualquer efeito."""
-    eu = _no_de_env("COORD", 8000)
+@dataclass(frozen=True)
+class AmbienteCoordenador:
+    """Coordenador lido do ambiente e validado, sem arquivo aberto."""
+
+    participantes: dict[int, No]
+    semente: int
+    deadline_voto: float
+    deadline_decisao: float
+    caminho_log: str
+    cair_apos_decidir: bool
+
+    def cenario(self) -> dict:
+        """Os campos do Coordenador no `inicio_replica`. Quem chama acrescenta o algoritmo."""
+        return {
+            "participantes": sorted(self.participantes),
+            "deadline_voto": self.deadline_voto,
+            "deadline_decisao": self.deadline_decisao,
+            "cair_apos_decidir": self.cair_apos_decidir,
+        }
+
+
+def ler_ambiente_coordenador(eu: No) -> AmbienteCoordenador:
+    """Lê e valida as variáveis do Coordenador `eu`, sem efeito colateral."""
     participantes = _mapa_de_nos("DOISPC_PARTICIPANTES")
     semente = int(os.environ.get("SEMENTE", "0"))
-    deadline_voto = float(os.environ.get("DOISPC_DEADLINE_VOTO", "3.0"))
     deadline_decisao = float(os.environ.get("DOISPC_DEADLINE_DECISAO", "2.0"))
-
-    config = ConfigNo(
+    ConfigNo(
         id=eu.id,
         algoritmo="2pc",
         porta=eu.porta,
         semente=semente,
         deadline=deadline_decisao,
         sucessores=tuple(sorted(participantes)),
+    ).validar()
+    return AmbienteCoordenador(
+        participantes=participantes,
+        semente=semente,
+        deadline_voto=float(os.environ.get("DOISPC_DEADLINE_VOTO", "3.0")),
+        deadline_decisao=deadline_decisao,
+        caminho_log=os.environ.get("DOISPC_LOG_DURAVEL", "/dados/coordenador.log"),
+        cair_apos_decidir=os.environ.get("DOISPC_CAIR_APOS_DECIDIR", "").strip().lower()
+        in ("1", "true", "sim", "yes"),
     )
-    config.validar()
 
-    cair_apos_decidir = os.environ.get("DOISPC_CAIR_APOS_DECIDIR", "").strip().lower() in (
-        "1", "true", "sim", "yes",
-    )
 
-    caminho_log = os.environ.get("DOISPC_LOG_DURAVEL", "/dados/coordenador.log")
-    log, controlador = _abrir_log_e_controlador(
-        "coordenador",
-        eu.id,
-        semente,
-        {
-            "algoritmo": "2pc",
-            "papel": "coordenador",
-            "participantes": sorted(participantes),
-            "deadline_voto": deadline_voto,
-            "deadline_decisao": deadline_decisao,
-            "cair_apos_decidir": cair_apos_decidir,
-        },
-    )
+def montar_coordenador(
+    eu: No, amb: AmbienteCoordenador, *, log: LogEstruturado, cliente: ClienteRede
+) -> ServicoCoordenador:
+    """Abre o Log_Duravel, cria o serviço e o recupera do log antes de servir."""
     log_duravel = (
-        _LogDuravelQueCai(caminho_log, log) if cair_apos_decidir else LogDuravelArquivo(caminho_log)
+        _LogDuravelQueCai(amb.caminho_log, log)
+        if amb.cair_apos_decidir
+        else LogDuravelArquivo(amb.caminho_log)
     )
     servico = ServicoCoordenador(
         eu,
-        participantes,
+        amb.participantes,
         log_duravel=log_duravel,
-        cliente=ClienteComFalhas(ClienteRede(), controlador),
-        deadline_voto=deadline_voto,
-        deadline_decisao=deadline_decisao,
+        cliente=cliente,
+        deadline_voto=amb.deadline_voto,
+        deadline_decisao=amb.deadline_decisao,
         log=log,
     )
     servico.recuperar()
+    return servico
+
+
+def construir_coordenador() -> tuple[object, int]:
+    """Monta o Coordenador a partir do ambiente, validando antes de qualquer efeito."""
+    eu = _no_de_env("COORD", 8000)
+    amb = ler_ambiente_coordenador(eu)
+    log, controlador = _abrir_log_e_controlador(
+        "coordenador",
+        eu.id,
+        amb.semente,
+        {"algoritmo": "2pc", "papel": "coordenador", **amb.cenario()},
+    )
+    servico = montar_coordenador(
+        eu, amb, log=log, cliente=ClienteComFalhas(ClienteRede(), controlador)
+    )
     return criar_app_coordenador(servico, controlador=controlador), eu.porta
 
 

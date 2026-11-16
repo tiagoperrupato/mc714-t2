@@ -268,8 +268,9 @@ invariantes.
 
 **A regra de dependência:** a Máquina_de_Estados pura nunca importa FastAPI nem
 httpx, e a camada de análise nunca sobe contêiner nem executa Réplica. O que
-amarra a lógica pura à rede são `src/anel/no.py`, `src/doispc/coordenador.py` e
-`src/doispc/participante.py`. O que orquestra experimentos é `src/experimentos/`.
+amarra a lógica pura à rede são `src/anel/no.py`, `src/doispc/coordenador.py`,
+`src/doispc/participante.py` e `src/integracao/`. O que orquestra experimentos é
+`src/experimentos/`.
 
 ```
 src/comum/         config (e leitura do Nó do ambiente), modelos,
@@ -280,6 +281,8 @@ src/comum/         config (e leitura do Nó do ambiente), modelos,
 src/anel/          maquina (pura), no (app FastAPI), __main__ (entrada do contêiner)
 src/doispc/        maquina (pura), log_duravel (write-ahead), coordenador,
                    participante, executor, __main__
+src/integracao/    candidato (Nó do Anel e Coordenador num processo, só o
+                   Líder aceita transação), __main__
 src/experimentos/  bateria (planeja e executa Réplicas), runner_anel (em
                    processo), condutor_doispc (Nós reais no compose),
                    conteineres (compose e sondagem HTTP), ambiente (carimbo de
