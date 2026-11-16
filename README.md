@@ -1,19 +1,21 @@
-# Eleição em Anel e Two-Phase Commit (MC714, Trabalho 2)
+# Eleição em Anel, Two-Phase Commit e Bully (MC714, Trabalho 2)
 
-Implementação dos dois algoritmos distribuídos do Trabalho 2 como **Nós
+Implementação dos algoritmos distribuídos do Trabalho 2 como **Nós
 independentes que conversam por HTTP/JSON sobre Docker Compose**: a **Eleição de
 Líder em Anel**, com cinco Nós formando o anel 1 → 2 → 3 → 4 → 5 → 1, e o
 **Two-Phase Commit (2PC)**, com um Coordenador e três Participantes, cada um com
-seu Log_Duravel. Os dois algoritmos sofrem falhas injetadas na aplicação (crash,
+seu Log_Duravel. Os dois sofrem falhas injetadas na aplicação (crash,
 pause, delay, drop) e na rede, pelo Toxiproxy (latência e partição), e cada
 execução registra a Semente e o ambiente para ser reproduzível. Na integração dos
 dois, o Líder de um anel de três candidatos coordena o 2PC, e quando ele cai o
-cliente elege outro, que assume as transações novas.
+cliente elege outro, que assume as transações novas. O terceiro algoritmo é a
+**eleição do valentão (Bully)**, com cinco Nós ligados todos com todos, e a
+bateria dele o compara com o Anel nas mesmas condições.
 
-O repositório entrega os dois algoritmos e a integração deles, a orquestração de
-experimentos que os exercita em processo e sobre o compose, a camada de análise
-que consome os CSVs coletados, os invariantes de correção sobre os logs dos Nós
-reais e as respostas de modelo e correção em [`docs/`](docs/).
+O repositório entrega os três algoritmos e a integração do Anel com o 2PC, a
+orquestração de experimentos que os exercita em processo e sobre o compose, a
+camada de análise que consome os CSVs coletados, os invariantes de correção sobre
+os logs dos Nós reais e as respostas de modelo e correção em [`docs/`](docs/).
 
 ## Índice
 
@@ -34,10 +36,10 @@ reais e as respostas de modelo e correção em [`docs/`](docs/).
 
 - **Python 3.11 ou superior** para as CLIs de orquestração, análise e verificação.
 - **Docker com Compose v2** para subir os Nós em contêiner. A análise, os
-  invariantes e a bateria do Anel rodam **sem Docker**. A bateria do 2PC, os
-  cenários e as demos sobre o compose (`scripts/cenario.py`, `scripts/demo.py`,
-  `scripts/demo_rede_toxiproxy.py`) e as falhas de rede de `scripts/rede.py` o
-  exigem.
+  invariantes e as baterias do Anel e do Bully rodam **sem Docker**. A bateria do
+  2PC, os cenários e as demos sobre o compose (`scripts/cenario.py`,
+  `scripts/demo.py`, `scripts/demo_rede_toxiproxy.py`) e as falhas de rede de
+  `scripts/rede.py` o exigem.
 - As dependências fixadas em `requirements.txt`:
 
 ```
@@ -53,8 +55,8 @@ pytest==8.3.4       testes
 `pydantic` entra como dependência transitiva do FastAPI, sem pin próprio.
 
 Nenhuma dependência implementa eleição nem commit atômico. FastAPI, uvicorn e
-httpx só transportam JSON, e a lógica dos dois algoritmos está em
-`src/anel/maquina.py` e `src/doispc/maquina.py`.
+httpx só transportam JSON, e a lógica dos algoritmos está em
+`src/anel/maquina.py`, `src/bully/maquina.py` e `src/doispc/maquina.py`.
 
 ## Instalação
 
@@ -146,9 +148,10 @@ lugar reprova, o que garante que nenhuma tabela de `docs/` seja digitada à mão
 
 Roda os invariantes de correção (safety e liveness) sobre os Logs_Estruturados e
 Logs_Duraveis que os Nós reais deixaram sob `results/`. Cada diretório `*_logs` é uma
-execução e é conferido sozinho, porque os invariantes do Anel tomam como vivos os Nós
-que aparecem no log dela. Um caminho dado na linha de comando também é conferido
-sozinho, a menos que contenha diretórios `*_logs`, e aí cada um deles é.
+execução e é conferido sozinho, porque os invariantes do Anel e o 09 do Bully tomam
+como vivos os Nós que aparecem no log dela. Um caminho dado na linha de comando
+também é conferido sozinho, a menos que contenha diretórios `*_logs`, e aí cada um
+deles é.
 
 ```bash
 python scripts/verificar.py                                   # cada diretório *_logs de results/
@@ -185,9 +188,13 @@ python scripts/cenario.py 2pc particao       # isola o Participante 11 -> ABORT 
 python scripts/cenario.py integracao normal   # Líder 3 do anel de candidatos -> 409 no candidato 1 -> COMMIT de c3-tx-n no 3
 python scripts/cenario.py integracao failover # 3 cai depois de decidir c3-tx-a -> cliente elege o 2 -> COMMIT de c2-tx-b -> 3 volta e difunde o COMMIT de c3-tx-a
 python scripts/cenario.py integracao failover-isolamento  # como o failover, com o 11 descartando tudo -> ABORT de c2-tx-b no prazo -> limpeza -> ABORT também no 11
+python scripts/cenario.py bully normal       # os cinco elegem o 5 ao subir -> eleição pedida ao 1 termina no OK do 5
+python scripts/cenario.py bully falha        # mata o 5 -> eleição pedida ao 1 elege o 4
+python scripts/cenario.py bully retorno      # como o falha, e religa o 5, que assume sem eleição pedida
 ```
 
-Os da integração sobem a pilha de `compose.integracao.yaml`, e os demais a de `compose.yaml`.
+Os da integração sobem a pilha de `compose.integracao.yaml`, os do Bully a de
+`compose.bully.yaml`, e os demais a de `compose.yaml`.
 
 As duas demos também sobem o compose:
 
@@ -325,12 +332,12 @@ src/doispc/        maquina (pura), log_duravel (write-ahead), coordenador,
                    participante, executor, __main__
 src/integracao/    candidato (Nó do Anel e Coordenador num processo, só o
                    Líder aceita transação), __main__
-src/experimentos/  bateria (planeja e executa Réplicas), runner_anel (em
-                   processo), condutor_doispc (Nós reais no compose),
-                   conteineres (compose e sondagem HTTP), ambiente (carimbo de
-                   hardware/SO/versões)
-src/analise/       dados, estatistica, formato, graficos, anel_exp, doispc_exp,
-                   invariantes
+src/experimentos/  bateria (planeja e executa Réplicas), runner_anel e
+                   runner_bully (em processo), condutor_doispc (Nós reais no
+                   compose), conteineres (compose e sondagem HTTP), ambiente
+                   (carimbo de hardware/SO/versões)
+src/analise/       dados, estatistica, formato, graficos, anel_exp, bully_exp,
+                   doispc_exp, invariantes
 scripts/           bateria, analisar, verificar, cenario, demo, rede e demo_rede_toxiproxy
 docs/              modelo e correção, invariantes, resultados, com dados/ e figuras/
 results/           dados brutos no git (CSVs, JSON e logs dos cenários), logs da bateria do 2PC fora dele
@@ -409,7 +416,9 @@ Os cenários sobre o compose coletam, por Nó, o Log_Estruturado (JSONL) e, no 2
 na integração, o Log_Duravel, em subdiretórios como `cenario_anel_falha_logs/`,
 `cenario_2pc_crash-coord_logs/` e `cenario_integracao_failover_logs/`, mais um `.json`
 com o registro do cenário, que inclui o relatório da verificação, e um `.txt` por Nó
-com o stdout do contêiner.
+com o stdout do contêiner. No Bully, o diretório de logs traz também o
+`condutor.jsonl`, com cada `kill` e `start` do condutor na ordem em que ele agiu, de
+onde o invariante 09 tira quem estava vivo ao fim.
 Os diretórios `*_logs` e o `.json` entram no git, e o stdout fica fora. São esses
 logs que `scripts/verificar.py` consome, um diretório por vez.
 
@@ -438,6 +447,7 @@ figuras** e deixa o compose limpo:
 ```bash
 docker compose build                               # (1) imagem única dos Nós
 python scripts/bateria.py --algoritmo anel         # (2) bateria do Anel (num_nos), em processo
+python scripts/bateria.py --algoritmo bully        #     bateria do Bully, nas condições do Anel, em processo
 python scripts/bateria.py --algoritmo 2pc          #     bateria do 2PC nos Nós reais, cerca de 10 min
 python scripts/analisar.py tudo                    # (3) tabelas e figuras de docs/
 python scripts/analisar.py conferir                # (4) docs contra os dados novos
@@ -452,15 +462,20 @@ python scripts/cenario.py 2pc particao
 python scripts/cenario.py integracao normal
 python scripts/cenario.py integracao failover
 python scripts/cenario.py integracao failover-isolamento
+python scripts/cenario.py bully normal
+python scripts/cenario.py bully falha
+python scripts/cenario.py bully retorno
 python scripts/verificar.py                        # (6) invariantes sobre results/
 docker compose down -v --remove-orphans            # (7) teardown limpo, sem órfãos
+docker compose -f compose.integracao.yaml down -v --remove-orphans
+docker compose -f compose.bully.yaml down -v --remove-orphans
 ```
 
-A bateria do Anel, a análise e a verificação rodam **sem Docker**. A bateria do
-2PC, os cenários e o teardown usam o compose. As tabelas de `docs/` são geradas
-pelo passo (3) e nada é digitado à mão. A bateria do Anel é determinística por
-Semente e reproduz o CSV versionado byte a byte. A do 2PC mede tempo de parede,
-que varia entre execuções. Uma bateria nova muda os números, o `git diff` mostra
+As baterias do Anel e do Bully, a análise e a verificação rodam **sem Docker**. A
+bateria do 2PC, os cenários e o teardown usam o compose. As tabelas de `docs/` são
+geradas pelo passo (3) e nada é digitado à mão. As baterias do Anel e do Bully são
+determinísticas por Semente e reproduzem os CSVs versionados byte a byte. A do 2PC
+mede tempo de parede, que varia entre execuções. Uma bateria nova muda os números, o `git diff` mostra
 a diferença nos CSVs, e o passo (4) aponta as tabelas do 2PC como defasadas até a
 saída do passo (3) ser colada de novo. `git checkout -- results/` volta aos dados
 publicados.
@@ -475,11 +490,13 @@ Em [`docs/`](docs/):
   cada algoritmo (modelo temporal, canais, falhas, hipóteses de relógio,
   persistência e reinício) e as propriedades de *safety* e *liveness*, cada uma
   ligada ao invariante que a testa.
-- [`docs/invariantes.md`](docs/invariantes.md): os sete invariantes, com a
+- [`docs/invariantes.md`](docs/invariantes.md): os nove invariantes, com a
   tolerância de cada um e a distinção entre reprovação, aviso e lacuna.
-- [`docs/resultados-anel.md`](docs/resultados-anel.md) e
+- [`docs/resultados-anel.md`](docs/resultados-anel.md),
+  [`docs/resultados-bully.md`](docs/resultados-bully.md) e
   [`docs/resultados-2pc.md`](docs/resultados-2pc.md): as tabelas e figuras da
-  análise, todas geradas por comando.
+  análise, todas geradas por comando. A do Bully traz também a comparação com o
+  Anel nas mesmas condições.
 - [`docs/relatorio/`](docs/relatorio/): o relatório IEEE, com o `.tex`, a classe
   IEEEtran e o PDF compilado.
 - [`docs/roteiro-video.md`](docs/roteiro-video.md): o roteiro do vídeo de
@@ -507,10 +524,10 @@ stacks de compose em paralelo podem conflitar no `--wait` e nas portas.
 Contêineres em uma única máquina são **Nós lógicos, não domínios de falha
 independentes**: compartilham kernel, relógio e recursos, então um crash
 simulado não é um crash físico, e latências medidas em segundos de relógio não
-são portáveis entre máquinas. A bateria do Anel mede tempo em **passos lógicos**
-de entrega, reproduzíveis dígito a dígito. A do 2PC mede **segundos de relógio**
-nos Nós reais, que só se comparam entre níveis de uma mesma máquina, e cada linha
-carimba o ambiente. A discussão completa dessa
+são portáveis entre máquinas. As baterias do Anel e do Bully medem tempo em
+**passos lógicos** de entrega, reproduzíveis dígito a dígito. A do 2PC mede
+**segundos de relógio** nos Nós reais, que só se comparam entre níveis de uma
+mesma máquina, e cada linha carimba o ambiente. A discussão completa dessa
 hipótese e do que ela implica para a correção está em
 [`docs/modelo-e-correcao.md`](docs/modelo-e-correcao.md).
 

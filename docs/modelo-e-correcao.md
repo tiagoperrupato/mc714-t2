@@ -1,10 +1,10 @@
 # Modelo do sistema e correção dos algoritmos
 
-Este documento fixa, por algoritmo e para a integração dos dois, o modelo sob o
-qual o Trabalho 2 raciocina: o modelo temporal, as propriedades dos canais, os
-tipos de falha e as hipóteses de relógio, persistência e reinício. Fixa também as
+Este documento fixa, para o Anel, o 2PC, a integração dos dois e o Bully, o
+modelo sob o qual o Trabalho 2 raciocina: o modelo temporal, as propriedades dos
+canais, os tipos de falha e as hipóteses de relógio, persistência e reinício. Fixa também as
 propriedades de *safety* e *liveness*, cada uma com o invariante que a testa sobre
-os logs (`invariante_01` a `invariante_07`, em
+os logs (`invariante_01` a `invariante_09`, em
 [`src/analise/invariantes.py`](../src/analise/invariantes.py)) ou, na terminação
 do 2PC e no failover da integração, com o cenário que a confere. A afirmação de
 correção se confere com
@@ -15,7 +15,7 @@ python scripts/verificar.py
 
 Este documento é escrito à mão e não é uma tabela gerada a partir de dados.
 
-## Modelo comum aos dois algoritmos
+## Modelo comum aos algoritmos
 
 **Canais (M2).** A comunicação é HTTP/JSON ponto a ponto, servida por FastAPI e feita
 por um cliente httpx (`src/comum/rede.py`). Os canais não são confiáveis. Uma
@@ -28,13 +28,18 @@ indisponível), nunca exceções silenciosas. É o Deadline que converte "não
 chegou" em uma decisão explícita: o salto no Anel, o ABORT por timeout no 2PC.
 
 **Relógios (M4).** Nenhum algoritmo depende de relógio físico, sincronizado ou
-não. A correção repousa na ordem causal de cada Nó e nos Deadlines. O `ts` do
-Log_Estruturado serve para ler o log, e nenhuma métrica o usa. Cada métrica é
-medida assim:
+não. A correção repousa na ordem causal de cada Nó e nos Deadlines. Os prazos do
+Bully são durações medidas por temporizador no próprio Nó, e nenhum Nó compara o
+seu relógio com o de outro. O `ts` do Log_Estruturado serve para ler o log, e
+nenhuma métrica o usa. Cada métrica é medida assim:
 
 - **Bateria do Anel** (`src/experimentos/runner_anel.py`): Tempo_de_Convergencia
   em passos lógicos de entrega e Mensagens contadas pelo runner em processo,
   ambos reproduzíveis dígito a dígito pela Semente.
+- **Bateria do Bully** (`src/experimentos/runner_bully.py`): as Mensagens contadas
+  pela regra do Anel e o tempo em saltos lógicos, a profundidade causal da entrega
+  que completa a convergência, também reproduzíveis pela Semente. Um prazo só
+  dispara com a fila de Mensagens vazia, o que modela o sistema síncrono.
 - **Bateria do 2PC** (`src/experimentos/condutor_doispc.py`): mede os Nós reais
   no compose, com o Toxiproxy entre o Coordenador e os Participantes, e o
   condutor mede com `time.monotonic`. A latência de commit vai do
@@ -52,9 +57,11 @@ medida assim:
   `POST /transacao` de `c3-tx-a` à resposta de `c2-tx-b` e inclui a reeleição, e
   `tempo_recuperacao_tx_a_s` vai do `start` do candidato 3 até os três
   Participantes reportarem a Decisao de `c3-tx-a`, a mesma definição da
-  recuperação do 2PC. O condutor consulta `/estado` a cada 10 ms, que é a
-  resolução de cada tempo que termina numa resposta de `/estado`, nos cenários e
-  na bateria.
+  recuperação do 2PC. No Bully, `tempo_convergencia_s` e `tempo_reeleicao_s` vão
+  do pedido de eleição ao Nó 1 até todos os vivos estarem ociosos com o Líder
+  esperado, e `tempo_retomada_s` vai do `start` do 5 até os cinco ociosos com
+  ele. O condutor consulta `/estado` a cada 10 ms, que é a resolução de cada
+  tempo que termina numa resposta de `/estado`, nos cenários e na bateria.
 
 **Falhas (modelo comum).** As falhas entram por duas camadas, e cada Cenário
 registra no log a **Semente** que o conduziu.
@@ -73,11 +80,13 @@ registra no log a **Semente** que o conduziu.
   Nó do Anel ou um Participante, porque eles só enviam em resposta a uma
   Mensagem recebida. O Nó do Anel repassa o que recebeu, e o Participante vota
   depois do PREPARE e confirma depois da DECISAO. O que o Coordenador envia por
-  conta própria passa pelo proxy do Participante e é cortado junto.
+  conta própria passa pelo proxy do Participante e é cortado junto. O Bully não
+  passa pelo Toxiproxy, e os cenários dele tiram um Nó da rede pelo crash do
+  contêiner.
 
-A perda de Mensagens entra pela aplicação (*drop*) e pela bateria do Anel, e não
-pelo Toxiproxy. O *crash* fica na aplicação, porque modela a morte do processo,
-que o Toxiproxy não representa.
+A perda de Mensagens entra pela aplicação (*drop*) e pelas baterias do Anel e do
+Bully, e não pelo Toxiproxy. O *crash* fica na aplicação, porque modela a morte
+do processo, que o Toxiproxy não representa.
 
 **Limitação do ambiente.** Os contêineres rodam numa única
 máquina. Eles são **Nós lógicos**, mas **não domínios de falha independentes**:
@@ -387,6 +396,88 @@ as quebra:
 
 ---
 
+## Eleição do valentão (Bully)
+
+### Modelo
+
+- **Algoritmo.** A eleição do valentão de Garcia-Molina, sobre a Máquina_de_Estados pura de
+  `src/bully/maquina.py`, que recebe os prazos como eventos e não conhece relógio. Quem convoca
+  manda ELEICAO a cada id maior. Cada maior responde OK e convoca também, e quem não recebe OK
+  no prazo assume e manda COORDENADOR a todos os outros.
+- **Variante.** Duas regras separam a variante da clássica.
+  - *O OK leva o Líder em exercício.* O Líder ocioso que recebe ELEICAO de um menor responde
+    só OK, com o próprio id, e quem recebe esse OK o aceita. Na clássica ele reabre a eleição a
+    cada ELEICAO atrasada, e numa entrega FIFO o pior caso passa de n² − 1 para
+    n² − 1 + (n − 1)(n − 2) Mensagens. Com a regra, o pior caso fica em n² − 1 exato, o que a
+    bateria confere em [`resultados-bully.md`](resultados-bully.md).
+  - *Um COORDENADOR de id menor é rejeitado.* Quem o recebe não o aceita e convoca. Assim o
+    menor que assumiu por suspeita errada perde a liderança para o maior vivo, sem esperar
+    outro pedido de eleição.
+- **Épocas.** Cada convocação abre uma época nova no Nó, que vai na ELEICAO, no OK e no prazo
+  que ela pede. Um OK ou um prazo de época velha é ignorado, então o prazo de uma eleição já
+  superada não faz o Nó assumir.
+- **Quem convoca.** Todo Nó ao subir, inclusive ao voltar de um crash, depois de o servidor
+  aceitar conexões. Também quem recebe ELEICAO de um menor sem ser o Líder em exercício, quem
+  rejeita um COORDENADOR menor, quem estoura o prazo de COORDENADOR e quem recebe
+  `POST /iniciar-eleicao`. A detecção da queda do Líder fica fora do algoritmo. Nos cenários, é
+  o condutor que pede a eleição ao Nó 1, como no `anel falha`.
+- **Temporal (M1).** Síncrono, a hipótese sob a qual o Bully é correto. Com D o `DEADLINE`, o
+  prazo de uma entrega com três tentativas, o Nó exige `PRAZO_OK` > 2D, porque a ELEICAO leva
+  até D para chegar e o OK até D para voltar. Exige também `PRAZO_COORDENADOR` >
+  `PRAZO_OK` + 2D, porque o vencedor recebe a ELEICAO em até D, pode esperar o próprio prazo de
+  OK e manda o COORDENADOR em até D. No compose, D = 1 s, `PRAZO_OK` = 2,5 s e
+  `PRAZO_COORDENADOR` = 5 s, e o Nó recusa subir com valores que violem as desigualdades.
+- **Canais (M2).** Todos com todos. Cada Nó tem uma fila de saída por destino, então as
+  entregas a um Nó morto, que esgotam o Deadline, não atrasam as Mensagens aos vivos, e cada
+  Mensagem a um vivo leva no máximo um Deadline, como as desigualdades supõem. O OK é uma
+  Mensagem do protocolo, enviada depois de o Nó processar a ELEICAO, e não a resposta HTTP.
+  Uma entrega que esgota o Deadline só vai ao log (`bully_envio_falhou`), porque o prazo da
+  máquina já cobre o silêncio do destino.
+- **Falhas (M3).** *Crash-stop* e *crash-recovery* de qualquer Nó, o Líder incluído, e perda
+  de Mensagem, que o reenvio dentro do Deadline recupera. A detecção é por prazo e pode errar:
+  um atraso ou uma pausa acima do prazo de OK faz um Nó assumir com um maior vivo, a semântica
+  *fail-noisy* dos outros algoritmos.
+- **Persistência e reinício (M4).** Sem estado durável. O Nó que volta não lembra Líder nem
+  época, convoca ao subir e, se é o maior vivo, assume na hora.
+- **Nós (M7).** Cinco Nós em `compose.bully.yaml`, como no Anel, e 3, 5 e 7 na bateria em
+  processo, nas condições da bateria do Anel. Com cinco, a queda do maior ainda deixa quatro
+  para eleger o 4.
+
+### Propriedades (M5) e como são verificadas (M6)
+
+| Propriedade | Tipo | Verificação |
+| --- | --- | --- |
+| Nenhum Nó aceita Líder de id menor que o seu | *safety* | **`invariante_08_lider_nao_menor`** |
+| Ao fim, todo Nó vivo tem como Líder o maior id vivo | *liveness* | **`invariante_09_vivos_no_maior_id`**, prazo de 30 s |
+
+- **Líder não menor** (`invariante_08_lider_nao_menor`): cada `bully_lider` do log é um
+  aceite, e o id aceito tem de ser maior ou igual ao de quem aceita. As duas regras da variante
+  fazem a propriedade valer em toda execução, inclusive com suspeita errada, porque um OK só é
+  aceito com Líder maior e um COORDENADOR menor é rejeitado.
+- **Vivos no maior id vivo** (`invariante_09_vivos_no_maior_id`): os vivos ao fim são os Nós
+  com evento `bully_*` menos os que o condutor derrubou e não religou, lidos do
+  `condutor.jsonl`, uma fonte independente dos logs dos Nós. O último `bully_lider` de cada vivo
+  tem de ser o maior id vivo. O cenário espera os vivos ociosos com esse Líder por até 30 s
+  antes de coletar os logs, e essa espera é o prazo da *liveness*. A propriedade vale sob o
+  modelo síncrono. Se o COORDENADOR de um menor chega a um Nó depois do anúncio do maior, por
+  um atraso acima dos prazos, esse Nó termina no menor e o 09 reprova, como o 01 do Anel diante
+  de um erro de detecção.
+- **Dois Líderes transitórios.** Nenhum dos dois reprova uma execução correta. No retorno do
+  maior, entre o 5 assumir e o COORDENADOR dele chegar ao 4, os dois se têm como Líder, e cada
+  um só aceitou a si mesmo. Na suspeita errada, um atraso ou uma pausa estoura o prazo de OK de
+  um Nó k abaixo do maior vivo m. O k assume, e só os Nós abaixo dele o aceitam. O m recebe o
+  COORDENADOR do k, rejeita, convoca e vence. O 08 confere cada aceite contra o id de quem
+  aceita, e o 09 só o último aceite de cada vivo.
+- **Retorno, contra o Anel.** No `bully retorno`, o 5 volta sem estado, convoca ao subir, não
+  tem id acima e assume. O COORDENADOR dele chega a todos, e o 4 o aceita porque 5 > 4, sem
+  que ninguém peça eleição. No `anel reinicio`, o 5 só volta a liderar na terceira eleição, que
+  o condutor pede.
+
+Tolerância: **zero** nos dois, pelas mesmas razões do Anel. A justificativa está em
+[`docs/invariantes.md`](invariantes.md).
+
+---
+
 ## Cenários que exercitam cada propriedade
 
 Cada cenário reproduzível (`scripts/cenario.py`) grava os logs dos Nós em
@@ -408,6 +499,9 @@ aprovados são os que o modo exige em `MODOS`.
 | `integracao normal` | elege o candidato 3, o 1 recusa a transação com 409 e aponta o 3, que comita `c3-tx-n` em todos | 01 a 07 | 01 a 04, 06 e 07 passam, 05 em lacuna |
 | `integracao failover` | o candidato 3 cai depois de gravar o COMMIT de `c3-tx-a`, o cliente elege o 2, que comita `c2-tx-b` com `c3-tx-a` em dúvida, e o 3 volta, difunde o COMMIT e a eleição seguinte o reintegra como Líder | 01 a 07 | passam nas três rodadas e nas duas transações, o 05 com a recuperação do candidato 3 |
 | `integracao failover-isolamento` | como o `integracao failover`, com o Participante 11 descartando toda Mensagem durante `c2-tx-b`, que aborta no prazo de Votos, e a retransmissão leva o ABORT ao 11 depois da limpeza | 01 a 07 | passam nas três rodadas e nas duas transações, o 05 com a recuperação do candidato 3, `c2-tx-b` em ABORT e `c3-tx-a` em COMMIT nos três |
+| `bully normal` | os cinco elegem o 5 ao subir, e a eleição pedida ao Nó 1 termina no OK do 5, que leva o Líder em exercício | 08, 09 | passam, com os cinco no 5 |
+| `bully falha` | os cinco elegem o 5 ao subir, o contêiner do 5 cai, e a eleição pedida ao Nó 1 elege o 4 | 08, 09 | passam, com o 5 fora dos vivos pelo `condutor.jsonl` e os quatro no 4 |
+| `bully retorno` | como o `bully falha`, e o 5 religado convoca ao subir e assume, sem eleição pedida | 08, 09 | passam, com o 5 de volta aos vivos pelo `condutor.jsonl` e os cinco no 5 |
 
 Em todos, `verificar.py` sai com código 0 e o desfecho observado é o esperado.
 `cenario.py` sai 1 se um invariante reprova, se um invariante exigido termina sem
@@ -415,7 +509,8 @@ caso verificado ou se o desfecho difere do esperado. No `2pc crash-coord`, o 05
 confere a `recuperacao` do Coordenador reiniciado contra a Decisao do log dele, e
 no `2pc crash-coord-part` também a segunda `recuperacao` do 11. No
 `integracao failover` e no `integracao failover-isolamento`, ele confere a `recuperacao` de
-`c3-tx-a` no candidato 3.
+`c3-tx-a` no candidato 3. Nos três cenários do Bully, do 01 ao 07 ficam em lacuna, e nos demais
+o 08 e o 09 ficam em lacuna, porque os eventos do Bully levam o prefixo `bully_`.
 
 ## Falhas do modelo e onde são demonstradas
 
@@ -441,3 +536,7 @@ processo ou servidos localmente.
 | Integração | crash do Líder que coordena, depois de decidir | cenário `integracao failover` | 01 a 07, `c2-tx-b` em COMMIT com `c3-tx-a` em dúvida, e `c3-tx-a` em COMMIT depois do reinício do 3 |
 | Integração | Participante que descarta toda Mensagem recebida (drop de aplicação com p = 1) durante o failover | cenário `integracao failover-isolamento` | 01 a 07, `c2-tx-b` em ABORT no prazo de Votos, e o ABORT no 11 pela retransmissão depois da limpeza |
 | Integração | candidato que não responde numa eleição e volta crendo ser o Líder, com dois Líderes | `test_dois_lideres_comitam_com_prefixos_distintos_e_nenhum_invariante_reprova` | 01 a 03 nas duas rodadas, e 04, 06 e 07 nas dez transações dos dois Líderes |
+| Bully | crash-stop do Líder | cenário `bully falha`, `test_cinco_nos_elegem_o_5_reelegem_o_4_e_voltam_ao_5` | 08 e 09 nos logs, com os quatro vivos no 4 |
+| Bully | reinício do maior id sem estado | cenário `bully retorno`, o mesmo teste | 08 e 09, com os cinco no 5 sem eleição pedida |
+| Bully | suspeita errada, com um menor que assume | `test_coordenador_menor_e_rejeitado_e_o_maior_retoma_a_lideranca`, `test_bully_lider_nao_menor_passa_com_auto_aceite_e_os_lideres_transitorios` | o maior rejeita o COORDENADOR menor e retoma a liderança, e o 08 passa com os dois Líderes transitórios |
+| Bully | perda e duplicata de Mensagem | bateria com p = 0,05, `test_todo_vivo_termina_no_maior_id_vivo_sem_aceitar_lider_menor` | mensagens contra (n² − 1)/(1 − p) em [`resultados-bully.md`](resultados-bully.md), e todo vivo no maior id vivo em 500 Sementes |

@@ -1,6 +1,6 @@
 # Invariantes de correção
 
-Sete propriedades que os logs dos Nós precisam satisfazer para que os dois algoritmos estejam
+Nove propriedades que os logs dos Nós precisam satisfazer para que os três algoritmos estejam
 corretos. Os invariantes não conferem médias estatísticas de uma bateria. Eles verificam *safety* e
 *liveness* sobre eventos discretos dos Logs_Estruturados e dos Logs_Duraveis que os Nós reais
 deixam sob `results/`.
@@ -10,9 +10,9 @@ python scripts/verificar.py
 ```
 
 O comando confere cada diretório `*_logs` de `results/` sozinho, porque cada um é uma
-execução e os invariantes do Anel tomam como vivos os Nós que aparecem no log dela. Sai 0
-quando nenhum invariante reprova em nenhum diretório, mesmo com avisos ou sem log algum, e 1
-quando algum invariante reprova em algum deles. A implementação está em
+execução, e os invariantes do Anel e o 9 do Bully tomam como vivos os Nós que aparecem no log
+dela. Sai 0 quando nenhum invariante reprova em nenhum diretório, mesmo com avisos ou sem log
+algum, e 1 quando algum invariante reprova em algum deles. A implementação está em
 [`src/analise/invariantes.py`](../src/analise/invariantes.py), com um invariante por função.
 
 ## Reprova, aviso e lacuna
@@ -24,8 +24,9 @@ projeto, e não exigência do enunciado.
 **Reprova.** Uma propriedade foi violada: dois Líderes na mesma rodada, um Nó vivo que não
 conheceu o Líder da rodada, um Líder que não é o maior id vivo, COMMIT e ABORT coexistindo numa
 transação, uma Decisao que reverteu após reinício, um COMMIT sem o Voto SIM de todos os
-Participantes, ou uma transação com dois Coordenadores. Reprovar é a única coisa que muda o
-código de saída do comando para 1.
+Participantes, uma transação com dois Coordenadores, um Nó do Bully que aceita Líder de id menor
+que o seu, ou um Nó vivo do Bully que termina sem o maior id vivo como Líder. Reprovar é a única
+coisa que muda o código de saída do comando para 1.
 
 **Aviso.** Um fenômeno esperado do algoritmo, que *não* é defeito. O único caso é o Participante
 que gravou Voto SIM e não tem Decisao durável, o Estado_Em_Duvida, qualquer que seja a causa. Ele
@@ -35,13 +36,14 @@ comportamento correto do 2PC, o preço da atomicidade sem um protocolo de termin
 aparece no relatório sem alterar o código de saída. Tratá-lo como reprovação transformaria uma
 propriedade conhecida do 2PC num alarme falso.
 
-**Lacuna.** Nenhum caso a verificar para aquele invariante. Ou só há logs do Anel, e os
-invariantes do 2PC não têm transação alguma, ou o caso que o invariante confere não aconteceu:
-sem reinício não há `recuperacao` com Decisao para o invariante 5, e sem COMMIT não há validade a
-conferir no 6. A lacuna aparece à parte e, sozinha, não reprova. Quem roda só um cenário do Anel
-não recebe reprovação pelos invariantes do 2PC que não exercitou. Cada cenário, porém, exige os
-invariantes que demonstra (`MODOS` em `scripts/cenario.py`), e uma lacuna num deles reprova o
-cenário. Assim um cenário sem log nenhum não passa.
+**Lacuna.** Nenhum caso a verificar para aquele invariante. Ou os logs são de outro algoritmo,
+ou o caso que o invariante confere não aconteceu. Num diretório do Anel, os invariantes do 2PC e
+do Bully não têm caso. Num do Bully, os do Anel e do 2PC também não, porque todo evento do Bully
+leva o prefixo `bully_`. Sem reinício não há `recuperacao` com Decisao para o invariante 5, e sem
+COMMIT não há validade a conferir no 6. A lacuna aparece à parte e, sozinha, não reprova. Quem
+roda só um cenário do Anel não recebe reprovação pelos invariantes do 2PC que não exercitou. Cada
+cenário, porém, exige os invariantes que demonstra (`MODOS` em `scripts/cenario.py`), e uma
+lacuna num deles reprova o cenário. Assim um cenário sem log nenhum não passa.
 
 ## Como as tolerâncias são escolhidas
 
@@ -50,8 +52,9 @@ predicados exatos sobre objetos discretos, como um Líder ou uma Decisao, e não
 de uma execução finita.
 
 **A tolerância natural é zero.** Unicidade do Líder, convergência, "maior id
-vivo", atomicidade, não-reversão e Coordenador único são igualdades entre inteiros
-ou entre rótulos (`COMMIT`/`ABORT`). Não há variância amostral a absorver: ou a igualdade vale, ou
+vivo", atomicidade, não-reversão, Coordenador único, Líder não menor e "vivos no
+maior id vivo" são igualdades ou comparações entre inteiros, ou igualdades entre
+rótulos (`COMMIT`/`ABORT`). Não há variância amostral a absorver: ou a igualdade vale, ou
 há um defeito. Fixar uma folga positiva aqui só mascararia erros, então a folga é
 exatamente zero.
 
@@ -71,7 +74,7 @@ menos os saltados naquela rodada. Um Nó saltado numa rodada pode estar vivo na
 seguinte. Um Nó vivo saltado por engano conta como morto naquela rodada, e por
 isso o Líder certo dela é o maior id entre os não saltados.
 
-## Os sete invariantes
+## Os nove invariantes
 
 ### 1. Unicidade do Líder por rodada (Anel, *safety*)
 
@@ -164,19 +167,45 @@ produz os dois Líderes em processo e confere o 07 nas dez transações deles. O
 cenário `integracao failover` o confere em `c3-tx-a`, coordenada pelo 3, e em
 `c2-tx-b`, que o 2 coordena enquanto o 3 está fora.
 
+### 8. Líder não menor que o Nó (Bully, *safety*)
+
+Nenhum Nó do Bully aceita Líder de id menor que o seu. O Nó grava um evento `bully_lider` sempre
+que o Líder dele muda, e cada um é um aceite. O id aceito tem de ser maior ou igual ao de quem
+aceita, e o Nó que assume aceita a si mesmo, o que conta como igual. Os dois Líderes
+transitórios passam. No retorno do maior, ele e o Líder que ele substitui só aceitaram a si
+mesmos. O menor que assume por suspeita errada só é aceito pelos Nós abaixo dele, e o maior vivo
+rejeita o anúncio dele. Um aceite de id menor reprova. Tolerância: zero.
+
+### 9. Vivos no maior id vivo (Bully, *liveness*)
+
+Ao fim do cenário, todo Nó vivo tem como Líder o maior id vivo. Os vivos são os Nós com algum
+evento `bully_*` menos os que o condutor derrubou e não religou. O condutor grava cada `kill` e
+`start` em `condutor.jsonl`, no diretório de logs do cenário, na ordem em que agiu. É a fonte de
+quem estava vivo, independente dos logs dos Nós, que não registram a própria morte. O último
+`bully_lider` de cada vivo tem de ser o maior id vivo, e um vivo sem aceite também reprova.
+Tolerância: zero.
+
+Como vale o último aceite, o 9 exige um diretório por cenário, porque juntar os três cenários do
+Bully juntaria os últimos aceites. O prazo da *liveness* é a espera do cenário, que coleta os
+logs depois de ver os vivos ociosos com o Líder esperado, ou depois de 30 s. A propriedade vale
+sob o modelo síncrono do Bully. Um COORDENADOR de um menor que chega a um Nó depois do anúncio
+do maior, por um atraso acima dos prazos, faz o 9 reprovar, como o 1 diante de um erro de
+detecção no Anel.
+
 ## Ligação com o modelo de correção
 
 Cada invariante testa uma propriedade declarada em
 [`docs/modelo-e-correcao.md`](modelo-e-correcao.md), que faz a ligação
 propriedade↔invariante por nome. Os invariantes 1 a 3 cobrem a *safety* e a
-*liveness* da Eleição em Anel, e os invariantes 4 a 7 cobrem a atomicidade, a
-durabilidade, a validade e o Coordenador único do 2PC. A terminação do 2PC é
-conferida pelo cenário, que conhece a falha injetada e sai 1 quando o desfecho difere do esperado. O
-Estado_Em_Duvida é a *liveness* bloqueante do 2PC, classificada como aviso. O
-cenário `2pc crash-coord` verifica os logs com o Coordenador fora, com o aviso, e
-depois do reinício, sem ele. O `2pc crash-coord-part` faz o mesmo com o
+*liveness* da Eleição em Anel, os invariantes 4 a 7 cobrem a atomicidade, a
+durabilidade, a validade e o Coordenador único do 2PC, e os invariantes 8 e 9
+cobrem a *safety* e a *liveness* do Bully. A terminação do 2PC é conferida pelo
+cenário, que conhece a falha injetada e sai 1 quando o desfecho difere do
+esperado. O Estado_Em_Duvida é a *liveness* bloqueante do 2PC, classificada como
+aviso. O cenário `2pc crash-coord` verifica os logs com o Coordenador fora, com o
+aviso, e depois do reinício, sem ele. O `2pc crash-coord-part` faz o mesmo com o
 Participante 11 reiniciado em dúvida antes da verificação com o Coordenador fora.
 Na integração, os invariantes 1 a 3 conferem as rodadas dos candidatos, e os 4 a 7
-as transações que eles coordenam. Os cenários reproduzíveis que exercitam cada
-propriedade estão em `scripts/cenario.py`, e `scripts/demo.py` encadeia o
-`anel falha` e o `2pc crash-coord`.
+as transações que eles coordenam. Os três cenários do Bully exigem o 8 e o 9. Os
+cenários reproduzíveis que exercitam cada propriedade estão em `scripts/cenario.py`,
+e `scripts/demo.py` encadeia o `anel falha` e o `2pc crash-coord`.
