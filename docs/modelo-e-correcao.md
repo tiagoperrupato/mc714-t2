@@ -4,7 +4,7 @@ Este documento fixa, por algoritmo, o modelo sob o qual o Trabalho 2 raciocina:
 o modelo temporal, as propriedades dos canais, os tipos de falha e as hipóteses
 de relógio, persistência e reinício. Fixa também as propriedades de *safety* e
 *liveness* de cada algoritmo, cada uma com o invariante que a testa sobre os
-logs (`invariante_01` a `invariante_06`, em
+logs (`invariante_01` a `invariante_07`, em
 [`src/analise/invariantes.py`](../src/analise/invariantes.py)) ou, na terminação
 do 2PC, com o cenário que a confere. A afirmação de correção se confere com
 
@@ -236,6 +236,7 @@ sem variância amostral a absorver. A justificativa está em
 | Atomicidade: nenhum COMMIT enquanto outro ABORT na mesma transação | *safety* | **`invariante_04_atomicidade`** |
 | Durabilidade: a Decisao não reverte após reinício | *safety* | **`invariante_05_durabilidade`** |
 | Validade: COMMIT só com o Voto SIM de todos os Participantes | *safety* | **`invariante_06_validade`** |
+| Coordenador único: cada transação tem um só Coordenador | *safety* | **`invariante_07_coordenador_unico`** |
 | Terminação sem falha: todos decidem, COMMIT com todos SIM e ABORT com um NAO | *liveness* | `cenario.py 2pc commit` e `2pc abort`, prazo de 10 s |
 | Terminação com o Coordenador de volta: todo Participante decide | *liveness* | `cenario.py 2pc crash-coord`, prazo de 30 s |
 | Terminação com o Coordenador de volta depois do crash de um Participante em dúvida: todo Participante decide | *liveness* | `cenario.py 2pc crash-coord-part`, prazo de 30 s |
@@ -262,6 +263,9 @@ sem variância amostral a absorver. A justificativa está em
   COMMIT que não esperou um deles também reprova. ABORT é sempre válido. Sem a
   validade, um sistema que sempre aborta, ou que confirma sem ouvir todos,
   passaria na atomicidade.
+- **Coordenador único** (`invariante_07_coordenador_unico`): os ids que gravaram
+  INICIO, emitiram `inicia_transacao` ou foram a `origem` de um PREPARE ou DECISAO
+  recebido são os Coordenadores da transação, e mais de um reprova.
 - **Terminação** (`scripts/cenario.py`): o cenário registra o desfecho esperado
   ao lado do observado e sai 1 quando eles diferem. No `2pc commit` e no
   `2pc abort`, cada Participante tem de decidir até 10 s depois da resposta do
@@ -315,11 +319,11 @@ aprovados são os que o modo exige em `MODOS`.
 | `anel normal` | eleição sem falha converge para o maior id (5) | 01, 02, 03 | passam |
 | `anel falha` | elege 5, derruba o contêiner do 5 e reelege o maior vivo (4) | 01, 02, 03 | passam |
 | `anel reinicio` | elege 5, derruba o 5, reelege 4, reinicia o contêiner do 5, que volta sem memória, e a terceira eleição o reintegra como Líder | 01, 02, 03 | passam nas três rodadas |
-| `2pc commit` | todos SIM → COMMIT em todos | 04, 05, 06 | 04 e 06 passam, 05 em lacuna |
-| `2pc abort` | um NAO → ABORT atômico em todos | 04, 05, 06 | 04 passa, 05 e 06 em lacuna |
-| `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05, 06 | passam, com o aviso de dúvida dos três na verificação feita com o Coordenador fora e todos em COMMIT depois do reinício |
-| `2pc crash-coord-part` | o Coordenador cai depois de gravar a Decisao, o Participante 11 cai e volta em dúvida, o Coordenador volta e todos decidem COMMIT, e o 11 cai e volta com a Decisao | 04, 05, 06 | passam, o 05 com a recuperação do Coordenador e a segunda do 11, e com o aviso de dúvida dos três na verificação feita com o Coordenador fora |
-| `2pc particao` | corta a rota até o Participante 11, o Coordenador aborta no prazo de Votos, e depois da cura a retransmissão leva o ABORT ao 11 | 04, 05, 06 | 04 passa, 05 e 06 em lacuna, ABORT em todos e transação concluída |
+| `2pc commit` | todos SIM → COMMIT em todos | 04, 05, 06, 07 | 04, 06 e 07 passam, 05 em lacuna |
+| `2pc abort` | um NAO → ABORT atômico em todos | 04, 05, 06, 07 | 04 e 07 passam, 05 e 06 em lacuna |
+| `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05, 06, 07 | passam, com o aviso de dúvida dos três na verificação feita com o Coordenador fora e todos em COMMIT depois do reinício |
+| `2pc crash-coord-part` | o Coordenador cai depois de gravar a Decisao, o Participante 11 cai e volta em dúvida, o Coordenador volta e todos decidem COMMIT, e o 11 cai e volta com a Decisao | 04, 05, 06, 07 | passam, o 05 com a recuperação do Coordenador e a segunda do 11, e com o aviso de dúvida dos três na verificação feita com o Coordenador fora |
+| `2pc particao` | corta a rota até o Participante 11, o Coordenador aborta no prazo de Votos, e depois da cura a retransmissão leva o ABORT ao 11 | 04, 05, 06, 07 | 04 e 07 passam, 05 e 06 em lacuna, ABORT em todos e transação concluída |
 
 Em todos, `verificar.py` sai com código 0 e o desfecho observado é o esperado.
 `cenario.py` sai 1 se um invariante reprova, se um invariante exigido termina sem
@@ -340,11 +344,11 @@ processo ou servidos localmente.
 | Anel | partição de entrada do Líder | `test_particao_do_lider_reelege_o_maior_vivo` e `scripts/demo_rede_toxiproxy.py`, pelo Toxiproxy | 01 a 03 nos logs do teste |
 | Anel | suspeita errada de um Nó lento ou pausado | `test_pause_no_5_nao_gera_dois_lideres`, e a demo de rede com latência acima do Deadline | 01 a 03 no teste, e na demo o 2 suspeita do 3, que responde em `/saude` |
 | Anel | perda de Mensagem | bateria com p = 0,05, `test_reenvia_dentro_do_deadline_antes_de_saltar` | mensagens contra (2n − 1)/(1 − p) em [`resultados-anel.md`](resultados-anel.md) |
-| 2PC | crash do Coordenador depois de decidir | cenário `2pc crash-coord`, bateria de recuperação, `test_coordenador_reiniciado_depois_de_decidir_entrega_a_decisao` | 04 a 06, com o aviso de dúvida na verificação feita com o Coordenador fora |
+| 2PC | crash do Coordenador depois de decidir | cenário `2pc crash-coord`, bateria de recuperação, `test_coordenador_reiniciado_depois_de_decidir_entrega_a_decisao` | 04 a 07, com o aviso de dúvida na verificação feita com o Coordenador fora |
 | 2PC | crash do Coordenador em WAIT | `test_coordenador_reiniciado_em_wait_aborta`, `test_coordenador_reiniciado_antes_de_decidir_aborta` | ABORT gravado e difundido depois do reinício |
 | 2PC | Participante fora | `test_timeout_de_votos_leva_a_abort`, `test_id_repetido_devolve_a_decisao_gravada` | ABORT no prazo de Votos |
 | 2PC | crash do Participante em dúvida com o Coordenador fora | cenário `2pc crash-coord-part`, `test_participante_reiniciado_em_duvida_decide_quando_o_coordenador_volta` | o 11 volta em dúvida pelo próprio log, todos decidem COMMIT, e o 05 confere a recuperação do Coordenador e a segunda do 11 |
 | 2PC | reinício do Participante com o log | `test_participante_recupera_decisao_apos_reinicio`, `test_recuperacao_apos_reinicio_rele_do_arquivo`, em memória e em arquivo | a mesma Decisao depois de reler o log |
-| 2PC | partição entre o Coordenador e um Participante | cenário `2pc particao` | 04 e ABORT em todos depois da cura |
+| 2PC | partição entre o Coordenador e um Participante | cenário `2pc particao` | 04, 07 e ABORT em todos depois da cura |
 | 2PC | Participante lento, que o timeout trata como falho | `test_voto_depois_do_abort_sai_da_duvida_pela_retransmissao` | o Voto atrasado não muda o ABORT, e a retransmissão tira o Participante da dúvida |
 | 2PC | DECISAO perdida | `test_decisao_perdida_chega_pela_retransmissao` | a retransmissão entrega a Decisao |

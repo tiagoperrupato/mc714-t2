@@ -129,7 +129,7 @@ python scripts/cenario.py 2pc crash-coord
 ```bash
 python scripts/verificar.py results/cenario_2pc_crash-coord_logs
 ```
-  mostrando os invariantes 04 a 06 aprovados e código de saída 0.
+  mostrando os invariantes 04 a 07 aprovados e código de saída 0.
 
 ---
 

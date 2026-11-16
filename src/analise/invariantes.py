@@ -27,6 +27,8 @@ Anel
      vira **aviso**, não reprovação.
   6. **Validade** (*safety*): COMMIT só quando todos os Participantes votaram
      SIM. REPROVA.
+  7. **Coordenador único** (*safety*): cada transação tem um só Coordenador.
+     REPROVA.
 
 Este módulo lê os logs estruturados (JSONL) e os Logs_Duraveis só com a
 biblioteca padrão (`json`), sem a carga de CSVs de `src.analise.dados`, e não
@@ -51,9 +53,11 @@ from src.doispc.log_duravel import (
     DECISAO_ABORT,
     DECISAO_COMMIT,
     FASE_DECISAO,
+    FASE_INICIO,
     FASE_VOTO,
     VOTO_SIM,
 )
+from src.doispc.maquina import MSG_DECISAO, MSG_PREPARE
 
 # --------------------------------------------------------------------------- #
 # Tipos de evento, espelhando os produtores dos logs.
@@ -69,6 +73,7 @@ EV_SUCESSOR_FALHO = "sucessor_falho"
 # coordenador.py/participante.py).
 EV_RECUPERACAO = "recuperacao"
 EV_INICIA_TRANSACAO = "inicia_transacao"
+EV_RECEBE = "recebe"
 
 # Recorte do relatório: lista no máximo algumas ocorrências por
 # invariante, para o relatório caber na tela.
@@ -660,6 +665,53 @@ def invariante_06_validade(d: Dados) -> Veredito:
     )
 
 
+def _coordenadores_por_transacao(d: Dados) -> dict[str, set[int]]:
+    """Mapeia transação -> ids que agiram como Coordenador dela.
+
+    Só o Coordenador grava INICIO e emite `inicia_transacao`, e todo PREPARE ou DECISAO que um
+    Participante recebe traz o Coordenador na `origem`. O `recebe` de Voto e ACK fica de fora,
+    porque ali a origem é um Participante.
+    """
+    coordenadores: dict[str, set[int]] = {}
+    for e in d.duraveis:
+        if e.fase == FASE_INICIO:
+            coordenadores.setdefault(e.transacao, set()).add(e.no)
+    for ev in d.eventos:
+        transacao = ev.campos.get("transacao")
+        if transacao is None:
+            continue
+        if ev.tipo == EV_INICIA_TRANSACAO:
+            coordenador = ev.no
+        elif (
+            ev.tipo == EV_RECEBE
+            and ev.campos.get("msg_tipo") in (MSG_PREPARE, MSG_DECISAO)
+            and ev.campos.get("origem") is not None
+        ):
+            coordenador = int(ev.campos["origem"])
+        else:
+            continue
+        coordenadores.setdefault(str(transacao), set()).add(coordenador)
+    return coordenadores
+
+
+def invariante_07_coordenador_unico(d: Dados) -> Veredito:
+    """Cada transação tem um único Coordenador (safety). REPROVA.
+
+    Dois Coordenadores na mesma transação mandam PREPARE e DECISAO independentes aos mesmos
+    Participantes, e a atomicidade passa a depender de qual DECISAO chega primeiro. Tolerância zero.
+    """
+    coordenadores = _coordenadores_por_transacao(d)
+    falhas = [
+        f"transação {transacao}: Coordenadores {sorted(ids)}"
+        for transacao, ids in sorted(coordenadores.items())
+        if len(ids) > 1
+    ]
+    return veredito(
+        7, "Coordenador único por transação do 2PC", len(coordenadores), falhas,
+        f"as {len(coordenadores)} transação(ões) tiveram um único Coordenador",
+    )
+
+
 # Os invariantes, na ordem em que o relatório os apresenta.
 INVARIANTES = (
     invariante_01_lider_unico,
@@ -668,6 +720,7 @@ INVARIANTES = (
     invariante_04_atomicidade,
     invariante_05_durabilidade,
     invariante_06_validade,
+    invariante_07_coordenador_unico,
 )
 
 

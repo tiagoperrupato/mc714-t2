@@ -413,7 +413,7 @@ Em [`docs/`](docs/):
   cada algoritmo (modelo temporal, canais, falhas, hipóteses de relógio,
   persistência e reinício) e as propriedades de *safety* e *liveness*, cada uma
   ligada ao invariante que a testa.
-- [`docs/invariantes.md`](docs/invariantes.md): os seis invariantes, com a
+- [`docs/invariantes.md`](docs/invariantes.md): os sete invariantes, com a
   tolerância de cada um e a distinção entre reprovação, aviso e lacuna.
 - [`docs/resultados-anel.md`](docs/resultados-anel.md) e
   [`docs/resultados-2pc.md`](docs/resultados-2pc.md): as tabelas e figuras da

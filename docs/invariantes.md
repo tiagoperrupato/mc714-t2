@@ -1,6 +1,6 @@
 # Invariantes de correção
 
-Seis propriedades que os logs dos Nós precisam satisfazer para que os dois algoritmos estejam
+Sete propriedades que os logs dos Nós precisam satisfazer para que os dois algoritmos estejam
 corretos. Os invariantes não conferem médias estatísticas de uma bateria. Eles verificam *safety* e
 *liveness* sobre eventos discretos dos Logs_Estruturados e dos Logs_Duraveis que os Nós reais
 deixam sob `results/`.
@@ -23,8 +23,9 @@ projeto, e não exigência do enunciado.
 
 **Reprova.** Uma propriedade foi violada: dois Líderes na mesma rodada, um Nó vivo que não
 conheceu o Líder da rodada, um Líder que não é o maior id vivo, COMMIT e ABORT coexistindo numa
-transação, uma Decisao que reverteu após reinício, ou um COMMIT sem o Voto SIM de todos os
-Participantes. Reprovar é a única coisa que muda o código de saída do comando para 1.
+transação, uma Decisao que reverteu após reinício, um COMMIT sem o Voto SIM de todos os
+Participantes, ou uma transação com dois Coordenadores. Reprovar é a única coisa que muda o
+código de saída do comando para 1.
 
 **Aviso.** Um fenômeno esperado do algoritmo, que *não* é defeito. O único caso é o Participante
 que gravou Voto SIM e não tem Decisao durável, o Estado_Em_Duvida, qualquer que seja a causa. Ele
@@ -49,8 +50,8 @@ predicados exatos sobre objetos discretos, como um Líder ou uma Decisao, e não
 de uma execução finita.
 
 **A tolerância natural é zero.** Unicidade do Líder, convergência, "maior id
-vivo", atomicidade e não-reversão são igualdades entre inteiros ou entre rótulos
-(`COMMIT`/`ABORT`). Não há variância amostral a absorver: ou a igualdade vale, ou
+vivo", atomicidade, não-reversão e Coordenador único são igualdades entre inteiros
+ou entre rótulos (`COMMIT`/`ABORT`). Não há variância amostral a absorver: ou a igualdade vale, ou
 há um defeito. Fixar uma folga positiva aqui só mascararia erros, então a folga é
 exatamente zero.
 
@@ -70,7 +71,7 @@ menos os saltados naquela rodada. Um Nó saltado numa rodada pode estar vivo na
 seguinte. Um Nó vivo saltado por engano conta como morto naquela rodada, e por
 isso o Líder certo dela é o maior id entre os não saltados.
 
-## Os seis invariantes
+## Os sete invariantes
 
 ### 1. Unicidade do Líder por rodada (Anel, *safety*)
 
@@ -144,14 +145,24 @@ NAO e um Participante que não votou reprovam igualmente. ABORT é sempre válid
 não conta como caso. A atomicidade sozinha aprovaria um sistema que sempre
 aborta, ou que confirma sem ouvir todos. Tolerância: zero.
 
+### 7. Coordenador único por transação do 2PC (*safety*)
+
+Cada transação tem um só Coordenador. Os ids que agiram como Coordenador de uma
+transação vêm de três sinais: a entrada INICIO do Log_Duravel, que só o
+Coordenador grava, o evento `inicia_transacao` e a `origem` de todo PREPARE ou
+DECISAO que um Participante recebe. O `recebe` de Voto e ACK fica de fora, porque
+ali a origem é um Participante. Mais de um id na mesma transação reprova, já que
+dois Coordenadores difundem Decisoes independentes e a atomicidade passaria a
+depender de qual delas chega primeiro. Tolerância: zero.
+
 ## Ligação com o modelo de correção
 
 Cada invariante testa uma propriedade declarada em
 [`docs/modelo-e-correcao.md`](modelo-e-correcao.md), que faz a ligação
 propriedade↔invariante por nome. Os invariantes 1 a 3 cobrem a *safety* e a
-*liveness* da Eleição em Anel, e os invariantes 4 a 6 cobrem a atomicidade, a
-durabilidade e a validade do 2PC. A terminação do 2PC é conferida pelo cenário,
-que conhece a falha injetada e sai 1 quando o desfecho difere do esperado. O
+*liveness* da Eleição em Anel, e os invariantes 4 a 7 cobrem a atomicidade, a
+durabilidade, a validade e o Coordenador único do 2PC. A terminação do 2PC é
+conferida pelo cenário, que conhece a falha injetada e sai 1 quando o desfecho difere do esperado. O
 Estado_Em_Duvida é a *liveness* bloqueante do 2PC, classificada como aviso. O
 cenário `2pc crash-coord` verifica os logs com o Coordenador fora, com o aviso, e
 depois do reinício, sem ele. O `2pc crash-coord-part` faz o mesmo com o

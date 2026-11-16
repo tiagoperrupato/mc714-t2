@@ -320,6 +320,75 @@ def test_2pc_validade_nao_confere_abort() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# 2PC, invariante 7: coordenador único por transação.
+# --------------------------------------------------------------------------- #
+
+
+def _recebe(no: int, msg_tipo: str, origem: int, transacao: str = "c3-tx-a") -> dict:
+    """Evento `recebe` de uma Mensagem do 2PC, como `coordenador.py` e `participante.py` gravam."""
+    return _ev(no, "recebe", msg_tipo=msg_tipo, origem=origem, transacao=transacao)
+
+
+def test_2pc_coordenador_unico_passa_com_inicio_e_prepare_do_mesmo_id() -> None:
+    duraveis = [_entrada_duravel("c3-tx-a", "inicio", "WAIT", 3)]
+    v = inv.invariante_07_coordenador_unico(_dados([_recebe(11, "prepare", 3)], duraveis))
+    assert v.ok, v.falhas
+    assert v.verificados == 1
+
+
+def test_2pc_coordenador_unico_reprova_inicio_de_dois_ids() -> None:
+    duraveis = [_entrada_duravel("c3-tx-a", "inicio", "WAIT", no) for no in (2, 3)]
+    v = inv.invariante_07_coordenador_unico(_dados([], duraveis))
+    assert not v.ok
+    assert v.falhas == ("transação c3-tx-a: Coordenadores [2, 3]",)
+
+
+def test_2pc_coordenador_unico_reprova_prepare_de_outra_origem() -> None:
+    duraveis = [_entrada_duravel("c3-tx-a", "inicio", "WAIT", 3)]
+    v = inv.invariante_07_coordenador_unico(_dados([_recebe(11, "prepare", 2)], duraveis))
+    assert not v.ok
+    assert v.falhas == ("transação c3-tx-a: Coordenadores [2, 3]",)
+
+
+@pytest.mark.parametrize(
+    "segundo",
+    [
+        _ev(2, "inicia_transacao", transacao="c3-tx-a", participantes=[11]),
+        _recebe(11, "decisao", 2),
+    ],
+    ids=["inicia_transacao", "decisao"],
+)
+def test_2pc_coordenador_unico_reprova_segundo_coordenador_pelos_eventos(segundo: dict) -> None:
+    duraveis = [_entrada_duravel("c3-tx-a", "inicio", "WAIT", 3)]
+    v = inv.invariante_07_coordenador_unico(_dados([segundo], duraveis))
+    assert not v.ok
+    assert v.falhas == ("transação c3-tx-a: Coordenadores [2, 3]",)
+
+
+def test_2pc_coordenador_unico_ignora_recebe_sem_origem() -> None:
+    eventos = [_ev(11, "recebe", msg_tipo="prepare", transacao="c3-tx-a")]
+    duraveis = [_entrada_duravel("c3-tx-a", "inicio", "WAIT", 3)]
+    v = inv.invariante_07_coordenador_unico(_dados(eventos, duraveis))
+    assert v.ok, v.falhas
+    assert v.verificados == 1
+
+
+def test_2pc_coordenador_unico_ignora_voto_e_ack() -> None:
+    # No `recebe` de Voto e ACK a origem é o Participante, não o Coordenador.
+    eventos = [_recebe(3, "voto", 11), _recebe(3, "ack", 12)]
+    duraveis = [_entrada_duravel("c3-tx-a", "inicio", "WAIT", 3)]
+    v = inv.invariante_07_coordenador_unico(_dados(eventos, duraveis))
+    assert v.ok, v.falhas
+    assert v.verificados == 1
+
+
+def test_2pc_coordenador_unico_sem_2pc_fica_em_lacuna() -> None:
+    v = inv.invariante_07_coordenador_unico(_dados([_recebeu_lider(1, rodada="r1", lider=5)]))
+    assert v.verificados == 0
+    assert not v.falhas
+
+
+# --------------------------------------------------------------------------- #
 # Relatório e código de saída.
 # --------------------------------------------------------------------------- #
 

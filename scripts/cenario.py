@@ -124,11 +124,11 @@ SEMENTE_PADRAO = 0
 MODOS: dict[str, dict[str, tuple[int, ...]]] = {
     "anel": {"normal": (1, 2, 3), "falha": (1, 2, 3), "reinicio": (1, 2, 3)},
     "2pc": {
-        "commit": (4, 6),
-        "abort": (4,),
-        "crash-coord": (4, 5, 6),
-        "crash-coord-part": (4, 5, 6),
-        "particao": (4,),
+        "commit": (4, 6, 7),
+        "abort": (4, 7),
+        "crash-coord": (4, 5, 6, 7),
+        "crash-coord-part": (4, 5, 6, 7),
+        "particao": (4, 7),
     },
 }
 

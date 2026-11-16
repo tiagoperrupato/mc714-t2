@@ -342,10 +342,13 @@ def test_crash_coord_part_diverge_quando_o_11_volta_fora_da_duvida(monkeypatch) 
 
 
 def _logs_de_commit(_algoritmo, _servicos, destino: Path, _arquivos) -> None:
-    """Logs de um COMMIT com Voto SIM de todos, que verificam os invariantes 04 e 06."""
+    """Logs de um COMMIT com Voto SIM de todos, que verificam os invariantes 04, 06 e 07."""
     escrever_jsonl(
         destino / "coordenador" / "coordenador.log",
-        [{"transacao": "tx1", "fase": "decisao", "valor": "COMMIT", "no": 1}],
+        [
+            {"transacao": "tx1", "fase": "inicio", "valor": "WAIT", "no": 1},
+            {"transacao": "tx1", "fase": "decisao", "valor": "COMMIT", "no": 1},
+        ],
     )
     for pid in (11, 12, 13):
         escrever_jsonl(
