@@ -1,19 +1,9 @@
-"""CLI de análise do T2: lê os CSVs da bateria e produz as tabelas e figuras de `docs/`.
+"""CLI de análise do T2: lê os CSVs das baterias e produz as tabelas e figuras de `docs/`.
 
-Não executa Réplica nem sobe contêiner: cada subcomando lê os
-CSVs de `results/`, imprime a tabela markdown pronta para colar e grava a figura
-correspondente. O subcomando `conferir` reprova, com código diferente de zero,
-quando uma tabela de `docs/` fica defasada em relação aos dados atuais.
-
-Subcomandos:
-
-    anel              convergência do Anel × número de Nós (tabela + figura)
-    anel-complexidade mensagens do Anel medidas contra 2n − 1, com e sem perda
-    2pc-latencia      latência de commit do 2PC × latência de rede (p50/p95/p99)
-    2pc-complexidade  mensagens e latência do 2PC medidas contra 4N e 2N atrasos de ida
-    2pc-recuperacao   tempo de recuperação após o crash do Coordenador × latência de rede
-    conferir          confere se as tabelas de docs/ batem com os dados atuais
-    tudo              executa todos os subcomandos acima
+Não executa Réplica nem sobe contêiner. Cada linha de `TABELAS` é um subcomando, que imprime a
+tabela markdown pronta para colar e grava o CSV consolidado e, quando há, a figura. `conferir`
+sai 1 quando uma tabela de `docs/` fica defasada em relação aos dados atuais, e `tudo` roda todos,
+com o `conferir` por último. `python scripts/analisar.py --help` lista os subcomandos.
 
 A conferência é literal: cada bloco é regerado e o texto exato precisa aparecer
 no documento. Um dígito fora do lugar reprova, o que garante que nenhuma tabela
@@ -23,9 +13,13 @@ de `docs/` seja digitada à mão.
 from __future__ import annotations
 
 import argparse
+import functools
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Optional
+
+import pandas as pd
 
 # Torna `src` importável quando o script roda de qualquer diretório.
 _RAIZ = Path(__file__).resolve().parent.parent
@@ -35,30 +29,134 @@ if str(_RAIZ) not in sys.path:
 from src.analise import anel_exp, dados, doispc_exp  # noqa: E402
 from src.analise.dados import DadosError  # noqa: E402
 
-# Comandos citados no rodapé das tabelas e na mensagem da conferência.
-COMANDOS: dict[str, str] = {
-    "anel": "python scripts/analisar.py anel",
-    "anel-complexidade": "python scripts/analisar.py anel-complexidade",
-    "2pc-latencia": "python scripts/analisar.py 2pc-latencia",
-    "2pc-complexidade": "python scripts/analisar.py 2pc-complexidade",
-    "2pc-recuperacao": "python scripts/analisar.py 2pc-recuperacao",
-}
-
-# Documentos onde cada tabela é colada.
+# Documentos onde as tabelas são coladas.
 DOC_ANEL = dados.DIR_DOCS / "resultados-anel.md"
 DOC_2PC = dados.DIR_DOCS / "resultados-2pc.md"
 
-# Figuras versionadas.
-FIG_ANEL = dados.DIR_FIGURAS / "anel_convergencia.png"
-FIG_2PC_LATENCIA = dados.DIR_FIGURAS / "doispc_latencia.png"
-FIG_2PC_RECUPERACAO = dados.DIR_FIGURAS / "doispc_recuperacao.png"
 
-# CSVs de análise, versionados junto dos documentos que as citam.
-CSV_ANEL = dados.DIR_DADOS / "anel_convergencia.csv"
-CSV_ANEL_COMPLEXIDADE = dados.DIR_DADOS / "anel_complexidade.csv"
-CSV_2PC_LATENCIA = dados.DIR_DADOS / "doispc_latencia.csv"
-CSV_2PC_COMPLEXIDADE = dados.DIR_DADOS / "doispc_complexidade.csv"
-CSV_2PC_RECUPERACAO = dados.DIR_DADOS / "doispc_recuperacao.csv"
+@dataclass(frozen=True)
+class Entrada:
+    """CSV de uma bateria: a opção que o aponta, o carregador e o aviso de tabela vazia."""
+
+    argumento: str
+    padrao: Path
+    ajuda: str
+    carregar: Callable[[Path], pd.DataFrame]
+    vazia: str
+    bateria: str
+
+    @property
+    def opcao(self) -> str:
+        return "--" + self.argumento.replace("_", "-")
+
+
+_ENTRADAS: dict[str, Entrada] = {
+    "anel": Entrada(
+        argumento="anel_nos",
+        padrao=dados.BATERIA_ANEL_NOS,
+        ajuda="CSV da bateria do Anel por número de Nós",
+        carregar=dados.carregar_anel,
+        vazia="nenhuma configuração do Anel com réplicas convergidas",
+        bateria="python scripts/bateria.py --algoritmo anel",
+    ),
+    "2pc-latencia": Entrada(
+        argumento="doispc_latencia",
+        padrao=dados.BATERIA_2PC_LATENCIA,
+        ajuda="CSV de latência do 2PC, uma linha por transação",
+        carregar=dados.carregar_2pc_latencia,
+        vazia="nenhuma transação do 2PC com COMMIT fora do aquecimento",
+        bateria="python scripts/bateria.py --algoritmo 2pc",
+    ),
+    "2pc-recuperacao": Entrada(
+        argumento="doispc_recuperacao",
+        padrao=dados.BATERIA_2PC_RECUPERACAO,
+        ajuda="CSV de recuperação do 2PC, uma linha por crash do Coordenador",
+        carregar=dados.carregar_2pc_recuperacao,
+        vazia="nenhuma recuperação do 2PC terminada em COMMIT",
+        bateria="python scripts/bateria.py --algoritmo 2pc",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class Tabela:
+    """Uma tabela de `docs/` e o subcomando que a gera.
+
+    `consolidar` recebe um dataframe por item de `entradas`, na mesma ordem. `nome` é o radical do
+    CSV consolidado e da figura.
+    """
+
+    comando: str
+    ajuda: str
+    documento: Path
+    rotulo: str
+    entradas: tuple[str, ...]
+    consolidar: Callable[..., pd.DataFrame]
+    markdown: Callable[[pd.DataFrame, str, list[str]], str]
+    nome: str
+    figura: Optional[Callable[[pd.DataFrame, Path], None]]
+
+
+TABELAS: tuple[Tabela, ...] = (
+    Tabela(
+        comando="anel",
+        ajuda="convergência do Anel × número de Nós",
+        documento=DOC_ANEL,
+        rotulo="convergência do Anel",
+        entradas=("anel",),
+        consolidar=anel_exp.consolidar,
+        markdown=anel_exp.como_markdown,
+        nome="anel_convergencia",
+        figura=anel_exp.gerar_grafico,
+    ),
+    Tabela(
+        comando="anel-complexidade",
+        ajuda="mensagens do Anel medidas contra 2n − 1, com e sem perda",
+        documento=DOC_ANEL,
+        rotulo="mensagens do Anel × esperado",
+        entradas=("anel",),
+        consolidar=anel_exp.consolidar,
+        markdown=anel_exp.complexidade_como_markdown,
+        nome="anel_complexidade",
+        figura=None,
+    ),
+    Tabela(
+        comando="2pc-latencia",
+        ajuda="latência de commit do 2PC × latência de rede (p50/p95/p99)",
+        documento=DOC_2PC,
+        rotulo="latência de commit",
+        entradas=("2pc-latencia",),
+        consolidar=doispc_exp.consolidar_latencia,
+        markdown=doispc_exp.latencia_como_markdown,
+        nome="doispc_latencia",
+        figura=doispc_exp.gerar_grafico_latencia,
+    ),
+    Tabela(
+        comando="2pc-complexidade",
+        ajuda="mensagens e latência do 2PC medidas contra 4N e 2N atrasos de ida",
+        documento=DOC_2PC,
+        rotulo="mensagens e latência × esperado",
+        entradas=("2pc-latencia",),
+        consolidar=doispc_exp.consolidar_complexidade,
+        markdown=doispc_exp.complexidade_como_markdown,
+        nome="doispc_complexidade",
+        figura=None,
+    ),
+    Tabela(
+        comando="2pc-recuperacao",
+        ajuda="tempo de recuperação do 2PC após o crash do Coordenador × latência de rede",
+        documento=DOC_2PC,
+        rotulo="tempo de recuperação",
+        entradas=("2pc-recuperacao",),
+        consolidar=doispc_exp.consolidar_recuperacao,
+        markdown=doispc_exp.recuperacao_como_markdown,
+        nome="doispc_recuperacao",
+        figura=doispc_exp.gerar_grafico_recuperacao,
+    ),
+)
+
+# Comandos citados no rodapé das tabelas e na mensagem da conferência.
+COMANDOS: dict[str, str] = {t.comando: f"python scripts/analisar.py {t.comando}" for t in TABELAS}
 
 
 @dataclass(frozen=True)
@@ -128,41 +226,25 @@ def relatar(resultados: list[Resultado]) -> bool:
     return True
 
 
-def _fontes(*caminhos: Path) -> list[str]:
-    """Arquivos de dados citados no rodapé das tabelas, relativos à raiz."""
-    return [dados.relativo(c) for c in caminhos]
+def _consolidar(tabela: Tabela, dfs: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    return tabela.consolidar(*(dfs[e] for e in tabela.entradas))
 
 
-def _gravar_csv(tabela, destino: Path, rotulo: str) -> None:
-    """Grava um CSV de análise e anuncia o caminho em stderr."""
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    tabela.to_csv(destino, index=False)
-    print(f"{rotulo} gravado em: {dados.relativo(destino)}", file=sys.stderr)
+def _markdown(tabela: Tabela, consolidada: pd.DataFrame, args) -> str:
+    """A tabela com o rodapé que cita o comando e os CSVs de onde ela saiu."""
+    fontes = [dados.relativo(getattr(args, _ENTRADAS[e].argumento)) for e in tabela.entradas]
+    return tabela.markdown(consolidada, COMANDOS[tabela.comando], fontes)
 
 
 def _opcoes_comuns() -> argparse.ArgumentParser:
     comum = argparse.ArgumentParser(add_help=False)
-    comum.add_argument(
-        "--anel-nos",
-        type=Path,
-        default=dados.BATERIA_ANEL_NOS,
-        help=f"CSV da bateria do Anel por número de Nós "
-        f"(padrão: {dados.relativo(dados.BATERIA_ANEL_NOS)})",
-    )
-    comum.add_argument(
-        "--doispc-latencia",
-        type=Path,
-        default=dados.BATERIA_2PC_LATENCIA,
-        help=f"CSV de latência do 2PC, uma linha por transação "
-        f"(padrão: {dados.relativo(dados.BATERIA_2PC_LATENCIA)})",
-    )
-    comum.add_argument(
-        "--doispc-recuperacao",
-        type=Path,
-        default=dados.BATERIA_2PC_RECUPERACAO,
-        help=f"CSV de recuperação do 2PC, uma linha por crash do Coordenador "
-        f"(padrão: {dados.relativo(dados.BATERIA_2PC_RECUPERACAO)})",
-    )
+    for entrada in _ENTRADAS.values():
+        comum.add_argument(
+            entrada.opcao,
+            type=Path,
+            default=entrada.padrao,
+            help=f"{entrada.ajuda} (padrão: {dados.relativo(entrada.padrao)})",
+        )
     comum.add_argument(
         "--dir-dados",
         type=Path,
@@ -185,29 +267,8 @@ def _construir_parser() -> argparse.ArgumentParser:
     )
     comum = _opcoes_comuns()
     sub = parser.add_subparsers(dest="comando", required=True, metavar="comando")
-    sub.add_parser(
-        "anel", parents=[comum], help="convergência do Anel × número de Nós"
-    )
-    sub.add_parser(
-        "anel-complexidade",
-        parents=[comum],
-        help="mensagens do Anel medidas contra 2n − 1, com e sem perda",
-    )
-    sub.add_parser(
-        "2pc-latencia",
-        parents=[comum],
-        help="latência de commit do 2PC × latência de rede (p50/p95/p99)",
-    )
-    sub.add_parser(
-        "2pc-complexidade",
-        parents=[comum],
-        help="mensagens e latência do 2PC medidas contra 4N e 2N atrasos de ida",
-    )
-    sub.add_parser(
-        "2pc-recuperacao",
-        parents=[comum],
-        help="tempo de recuperação do 2PC após o crash do Coordenador × latência de rede",
-    )
+    for tabela in TABELAS:
+        sub.add_parser(tabela.comando, parents=[comum], help=tabela.ajuda)
     sub.add_parser(
         "conferir",
         parents=[comum],
@@ -217,167 +278,43 @@ def _construir_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _carregar(args) -> dict:
-    """Carrega os CSVs que a análise consome, em dataframes indexados pelo subcomando."""
-    return {
-        "anel": dados.carregar_anel(args.anel_nos),
-        "2pc-latencia": dados.carregar_2pc_latencia(args.doispc_latencia),
-        "2pc-recuperacao": dados.carregar_2pc_recuperacao(args.doispc_recuperacao),
-    }
-
-
-def _executar_anel(dfs, args) -> int:
-    tabela = anel_exp.consolidar(dfs["anel"])
-    if tabela.empty:
+def _executar(tabela: Tabela, dfs: dict[str, pd.DataFrame], args) -> int:
+    """Imprime a tabela e grava o CSV e a figura. Devolve 1 se não há o que consolidar."""
+    consolidada = _consolidar(tabela, dfs)
+    if consolidada.empty:
+        entradas = [_ENTRADAS[e] for e in tabela.entradas]
         print(
-            "erro: nenhuma configuração do Anel com réplicas convergidas para "
-            "consolidar. Rode a bateria: python scripts/bateria.py --algoritmo anel",
+            f"erro: {' ou '.join(e.vazia for e in entradas)} para consolidar. "
+            f"Rode a bateria: {' e '.join(e.bateria for e in entradas)}",
             file=sys.stderr,
         )
         return 1
-    print(anel_exp.como_markdown(tabela, COMANDOS["anel"], _fontes(args.anel_nos)))
-    _gravar_csv(tabela, args.dir_dados / CSV_ANEL.name, "Convergência do Anel")
-    destino = args.dir_figuras / FIG_ANEL.name
-    anel_exp.gerar_grafico(tabela, destino)
-    print(f"Figura gravada em: {dados.relativo(destino)}", file=sys.stderr)
+    print(_markdown(tabela, consolidada, args))
+    destino = args.dir_dados / f"{tabela.nome}.csv"
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    consolidada.to_csv(destino, index=False)
+    print(f"CSV gravado em: {dados.relativo(destino)}", file=sys.stderr)
+    if tabela.figura is not None:
+        destino = args.dir_figuras / f"{tabela.nome}.png"
+        tabela.figura(consolidada, destino)
+        print(f"Figura gravada em: {dados.relativo(destino)}", file=sys.stderr)
     return 0
 
 
-def _executar_anel_complexidade(dfs, args) -> int:
-    tabela = anel_exp.consolidar(dfs["anel"])
-    if tabela.empty:
-        print(
-            "erro: nenhuma configuração do Anel com réplicas convergidas para "
-            "comparar. Rode a bateria: python scripts/bateria.py --algoritmo anel",
-            file=sys.stderr,
-        )
-        return 1
-    print(
-        anel_exp.complexidade_como_markdown(
-            tabela, COMANDOS["anel-complexidade"], _fontes(args.anel_nos)
-        )
-    )
-    _gravar_csv(tabela, args.dir_dados / CSV_ANEL_COMPLEXIDADE.name, "Complexidade do Anel")
-    return 0
-
-
-def _executar_2pc_complexidade(dfs, args) -> int:
-    tabela = doispc_exp.consolidar_complexidade(dfs["2pc-latencia"])
-    if tabela.empty:
-        print(
-            "erro: nenhuma transação do 2PC com COMMIT fora do aquecimento para "
-            "comparar. Rode a bateria: python scripts/bateria.py --algoritmo 2pc",
-            file=sys.stderr,
-        )
-        return 1
-    print(
-        doispc_exp.complexidade_como_markdown(
-            tabela, COMANDOS["2pc-complexidade"], _fontes(args.doispc_latencia)
-        )
-    )
-    _gravar_csv(tabela, args.dir_dados / CSV_2PC_COMPLEXIDADE.name, "Complexidade do 2PC")
-    return 0
-
-
-def _executar_2pc_latencia(dfs, args) -> int:
-    tabela = doispc_exp.consolidar_latencia(dfs["2pc-latencia"])
-    if tabela.empty:
-        print(
-            "erro: nenhuma transação do 2PC com COMMIT fora do aquecimento para "
-            "consolidar. Rode a bateria: python scripts/bateria.py --algoritmo 2pc",
-            file=sys.stderr,
-        )
-        return 1
-    print(
-        doispc_exp.latencia_como_markdown(
-            tabela, COMANDOS["2pc-latencia"], _fontes(args.doispc_latencia)
-        )
-    )
-    _gravar_csv(tabela, args.dir_dados / CSV_2PC_LATENCIA.name, "Latência de commit do 2PC")
-    destino = args.dir_figuras / FIG_2PC_LATENCIA.name
-    doispc_exp.gerar_grafico_latencia(tabela, destino)
-    print(f"Figura gravada em: {dados.relativo(destino)}", file=sys.stderr)
-    return 0
-
-
-def _executar_2pc_recuperacao(dfs, args) -> int:
-    tabela = doispc_exp.consolidar_recuperacao(dfs["2pc-recuperacao"])
-    if tabela.empty:
-        print(
-            "erro: nenhuma recuperação do 2PC terminada em COMMIT para consolidar. "
-            "Rode a bateria: python scripts/bateria.py --algoritmo 2pc",
-            file=sys.stderr,
-        )
-        return 1
-    print(
-        doispc_exp.recuperacao_como_markdown(
-            tabela, COMANDOS["2pc-recuperacao"], _fontes(args.doispc_recuperacao)
-        )
-    )
-    _gravar_csv(
-        tabela, args.dir_dados / CSV_2PC_RECUPERACAO.name, "Recuperação do 2PC"
-    )
-    destino = args.dir_figuras / FIG_2PC_RECUPERACAO.name
-    doispc_exp.gerar_grafico_recuperacao(tabela, destino)
-    print(f"Figura gravada em: {dados.relativo(destino)}", file=sys.stderr)
-    return 0
-
-
-def _blocos_conferiveis(dfs, args) -> list[Bloco]:
-    """Os blocos esperados em cada documento. Toda tabela nova de `docs/` entra aqui."""
+def _blocos_conferiveis(dfs: dict[str, pd.DataFrame], args) -> list[Bloco]:
+    """O bloco que cada tabela de `TABELAS` espera encontrar no seu documento."""
     return [
         Bloco(
-            documento=DOC_ANEL,
-            rotulo="convergência do Anel",
-            texto=anel_exp.como_markdown(
-                anel_exp.consolidar(dfs["anel"]), COMANDOS["anel"], _fontes(args.anel_nos)
-            ),
-            comando=COMANDOS["anel"],
-        ),
-        Bloco(
-            documento=DOC_ANEL,
-            rotulo="mensagens do Anel × esperado",
-            texto=anel_exp.complexidade_como_markdown(
-                anel_exp.consolidar(dfs["anel"]),
-                COMANDOS["anel-complexidade"],
-                _fontes(args.anel_nos),
-            ),
-            comando=COMANDOS["anel-complexidade"],
-        ),
-        Bloco(
-            documento=DOC_2PC,
-            rotulo="mensagens e latência × esperado",
-            texto=doispc_exp.complexidade_como_markdown(
-                doispc_exp.consolidar_complexidade(dfs["2pc-latencia"]),
-                COMANDOS["2pc-complexidade"],
-                _fontes(args.doispc_latencia),
-            ),
-            comando=COMANDOS["2pc-complexidade"],
-        ),
-        Bloco(
-            documento=DOC_2PC,
-            rotulo="latência de commit",
-            texto=doispc_exp.latencia_como_markdown(
-                doispc_exp.consolidar_latencia(dfs["2pc-latencia"]),
-                COMANDOS["2pc-latencia"],
-                _fontes(args.doispc_latencia),
-            ),
-            comando=COMANDOS["2pc-latencia"],
-        ),
-        Bloco(
-            documento=DOC_2PC,
-            rotulo="tempo de recuperação",
-            texto=doispc_exp.recuperacao_como_markdown(
-                doispc_exp.consolidar_recuperacao(dfs["2pc-recuperacao"]),
-                COMANDOS["2pc-recuperacao"],
-                _fontes(args.doispc_recuperacao),
-            ),
-            comando=COMANDOS["2pc-recuperacao"],
-        ),
+            documento=tabela.documento,
+            rotulo=tabela.rotulo,
+            texto=_markdown(tabela, _consolidar(tabela, dfs), args),
+            comando=COMANDOS[tabela.comando],
+        )
+        for tabela in TABELAS
     ]
 
 
-def _executar_conferir(dfs, args) -> int:
+def _executar_conferir(dfs: dict[str, pd.DataFrame], args) -> int:
     return 0 if relatar([conferir_bloco(b) for b in _blocos_conferiveis(dfs, args)]) else 1
 
 
@@ -386,27 +323,24 @@ def main(argv: list[str] | None = None) -> int:
     args = _construir_parser().parse_args(argv)
 
     try:
-        dfs = _carregar(args)
+        dfs = {
+            nome: entrada.carregar(getattr(args, entrada.argumento))
+            for nome, entrada in _ENTRADAS.items()
+        }
     except DadosError as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 1
 
-    acoes = {
-        "anel": _executar_anel,
-        "anel-complexidade": _executar_anel_complexidade,
-        "2pc-latencia": _executar_2pc_latencia,
-        "2pc-complexidade": _executar_2pc_complexidade,
-        "2pc-recuperacao": _executar_2pc_recuperacao,
-        "conferir": _executar_conferir,
-    }
-    if args.comando == "tudo":
-        for nome, acao in acoes.items():
-            codigo = acao(dfs, args)
-            if codigo != 0:
-                print(f"erro: subcomando '{nome}' falhou.", file=sys.stderr)
-                return codigo
-        return 0
-    return acoes[args.comando](dfs, args)
+    acoes = {t.comando: functools.partial(_executar, t) for t in TABELAS}
+    acoes["conferir"] = _executar_conferir
+    if args.comando != "tudo":
+        return acoes[args.comando](dfs, args)
+    for nome, acao in acoes.items():
+        codigo = acao(dfs, args)
+        if codigo != 0:
+            print(f"erro: subcomando '{nome}' falhou.", file=sys.stderr)
+            return codigo
+    return 0
 
 
 if __name__ == "__main__":

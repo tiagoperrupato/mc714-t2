@@ -31,16 +31,22 @@ def inteiro(valor) -> str:
 
 def tabela_markdown(
     linhas: list[dict[str, str]],
-    colunas: list[str],
     colunas_texto: list[str],
+    comando: str,
+    fontes: list[str],
 ) -> str:
-    """Tabela markdown alinhada, a partir de células já formatadas como texto.
+    """Tabela markdown alinhada, de células já formatadas como texto, seguida do rodapé.
 
-    `colunas_texto` vão à esquerda e as demais à direita.
+    As colunas saem da primeira linha. `colunas_texto` vão à esquerda e as demais à direita.
     """
+    return _corpo(linhas, colunas_texto) + "\n\n" + _rodape(comando, fontes)
+
+
+def _corpo(linhas: list[dict[str, str]], colunas_texto: list[str]) -> str:
     if not linhas:
         return "_(sem linhas)_"
 
+    colunas = list(linhas[0])
     esquerda = set(colunas_texto)
     largura = {
         c: max(len(c), *(len(str(linha.get(c, ""))) for linha in linhas))
@@ -72,7 +78,7 @@ def tabela_markdown(
     return "\n".join([cabecalho, separador, *corpo])
 
 
-def rodape_reproducao(comando: str, fontes: list[str]) -> str:
+def _rodape(comando: str, fontes: list[str]) -> str:
     """Rodapé com o comando que regenera a tabela e os arquivos de onde ela saiu."""
     lista = ", ".join(f"`{f}`" for f in fontes)
     return (

@@ -12,6 +12,7 @@ reexecutar Réplica), geram as tabelas da análise e verificam que:
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -227,11 +228,14 @@ def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
     anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs = _preparar(tmp_path)
     comuns = _args_comuns(anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs)
 
-    # Aponta os caminhos dos documentos para o tmp (eles são constantes de módulo).
+    # Aponta o documento de cada tabela para o tmp, com o mesmo nome.
     doc_anel = tmp_path / "resultados-anel.md"
     doc_2pc = tmp_path / "resultados-2pc.md"
-    monkeypatch.setattr(cli, "DOC_ANEL", doc_anel)
-    monkeypatch.setattr(cli, "DOC_2PC", doc_2pc)
+    monkeypatch.setattr(
+        cli,
+        "TABELAS",
+        tuple(replace(t, documento=tmp_path / t.documento.name) for t in cli.TABELAS),
+    )
 
     df_anel = dados.carregar_anel(anel_csv)
 

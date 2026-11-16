@@ -114,12 +114,7 @@ def latencia_como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[str]
         }
         for _, r in tabela.iterrows()
     ]
-    colunas = list(linhas[0]) if linhas else []
-    return (
-        formato.tabela_markdown(linhas, colunas, colunas_texto=["Latência de rede (ms)"])
-        + "\n\n"
-        + formato.rodape_reproducao(comando, fontes)
-    )
+    return formato.tabela_markdown(linhas, ["Latência de rede (ms)"], comando, fontes)
 
 
 def complexidade_como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[str]) -> str:
@@ -137,12 +132,7 @@ def complexidade_como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[
         }
         for _, r in tabela.iterrows()
     ]
-    colunas = list(linhas[0]) if linhas else []
-    return (
-        formato.tabela_markdown(linhas, colunas, colunas_texto=["Latência de rede (ms)"])
-        + "\n\n"
-        + formato.rodape_reproducao(comando, fontes)
-    )
+    return formato.tabela_markdown(linhas, ["Latência de rede (ms)"], comando, fontes)
 
 
 def recuperacao_como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[str]) -> str:
@@ -159,12 +149,7 @@ def recuperacao_como_markdown(tabela: pd.DataFrame, comando: str, fontes: list[s
         }
         for _, r in tabela.iterrows()
     ]
-    colunas = list(linhas[0]) if linhas else []
-    return (
-        formato.tabela_markdown(linhas, colunas, colunas_texto=["Latência de rede (ms)"])
-        + "\n\n"
-        + formato.rodape_reproducao(comando, fontes)
-    )
+    return formato.tabela_markdown(linhas, ["Latência de rede (ms)"], comando, fontes)
 
 
 def gerar_grafico_latencia(tabela: pd.DataFrame, destino) -> None:
