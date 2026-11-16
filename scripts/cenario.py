@@ -81,6 +81,23 @@ Cenários da integração, em que o Líder do Anel de três candidatos coordena 
         decide ABORT no prazo de Votos. Depois da limpeza, a retransmissão da
         DECISAO leva o ABORT ao 11, que nunca votou, e o 3 volta como no failover.
 
+Cenários do Bully, com cinco Nós ligados todos com todos (compose.bully.yaml). Cada Nó convoca
+uma eleição ao subir, e os três modos começam esperando os cinco com o Líder 5:
+
+    python scripts/cenario.py bully normal
+        Pede uma eleição ao Nó 1, que termina no OK do 5, porque o OK leva o Líder em
+        exercício.
+
+    python scripts/cenario.py bully falha
+        Derruba o contêiner do 5 e pede uma eleição ao Nó 1. Os vivos elegem o 4.
+
+    python scripts/cenario.py bully retorno
+        Como `falha`, e então religa o 5, que volta sem estado, convoca ao subir e assume. Os
+        outros o aceitam sem que ninguém peça eleição.
+
+O condutor grava cada kill e start dos cenários do Bully em `condutor.jsonl`, no diretório de
+logs, e o invariante 09 lê dali quem estava vivo ao fim.
+
 Requer Docker com Compose v2. Sem Docker, o script falha com uma mensagem clara
 e código de saída 2, em vez de travar.
 
@@ -107,19 +124,24 @@ if str(_RAIZ) not in sys.path:
     sys.path.insert(0, str(_RAIZ))
 
 from scripts import verificar  # noqa: E402
+from src.analise.invariantes import ACAO_KILL, ACAO_START, EV_CONDUTOR  # noqa: E402
+from src.comum.log import LogEstruturado  # noqa: E402
 from src.comum.toxiproxy import ClienteToxiproxy, nome_proxy_participante, proxies_2pc  # noqa: E402
 from src.experimentos.ambiente import coletar_ambiente  # noqa: E402
 from src.experimentos.conteineres import (  # noqa: E402
     BASE_COORD,
     COMPOSE,
+    COMPOSE_BULLY,
     COMPOSE_INTEGRACAO,
     COMPOSE_TOXIPROXY,
     PORTAS_ANEL,
+    PORTAS_BULLY,
     PORTAS_CANDIDATO,
     PORTAS_PART,
     PORTAS_PART_INTEGRACAO,
     SERVICOS_2PC,
     SERVICOS_ANEL,
+    SERVICOS_BULLY,
     SERVICOS_INTEGRACAO,
     coletar_logs,
     compose,
@@ -127,6 +149,7 @@ from src.experimentos.conteineres import (  # noqa: E402
     derrubar_servico,
     docker_disponivel,
     eleger,
+    esperar_bully,
     esperar_conclusao,
     esperar_saudavel,
     esperar_saude,
@@ -161,22 +184,20 @@ MODOS: dict[str, dict[str, tuple[int, ...]]] = {
         "failover": (1, 2, 3, 4, 5, 6, 7),
         "failover-isolamento": (1, 2, 3, 4, 5, 6, 7),
     },
+    "bully": {"normal": (8, 9), "falha": (8, 9), "retorno": (8, 9)},
 }
 
 
 # --------------------------------------------------------------------------- #
-# Override do Anel (semente)
+# Override da Semente do Anel e do Bully
 # --------------------------------------------------------------------------- #
 
 
-def _override_anel(semente: int) -> str:
-    """Override que fixa a Semente dos cinco Nós do Anel para o cenário."""
-    sem = str(semente)
+def _override_semente(servicos: list[str], semente: int) -> str:
+    """Override que fixa a Semente de cada um dos `servicos` para o cenário."""
     linhas = ["services:"]
-    for i in range(1, 6):
-        linhas.append(f"  no-anel-{i}:")
-        linhas.append("    environment:")
-        linhas.append(f'      SEMENTE: "{sem}"')
+    for servico in servicos:
+        linhas += [f"  {servico}:", "    environment:", f'      SEMENTE: "{semente}"']
     return "\n".join(linhas) + "\n"
 
 
@@ -670,6 +691,80 @@ def _cenario_integracao(modo: str, arquivos: list[Path], erro) -> dict[str, Any]
 
 
 # --------------------------------------------------------------------------- #
+# Cenários do Bully
+# --------------------------------------------------------------------------- #
+
+
+def _cenario_bully(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
+    """Conduz um cenário do Bully sobre o compose dele e devolve as métricas observadas.
+
+    A detecção da queda do Líder não faz parte do algoritmo, então é o condutor que pede a eleição
+    ao Nó 1 depois de derrubar o 5. Cada `kill` e `start` entra em `eventos_condutor`, na ordem.
+    Cada passo imprime uma linha `[cenario]` em `erro`.
+    """
+    bases = {i: f"http://127.0.0.1:{porta}" for i, porta in PORTAS_BULLY.items()}
+    todos = list(PORTAS_BULLY)
+    eventos: list[dict[str, Any]] = []
+    lideres = esperar_bully(bases, todos, 5, 30.0)
+    print(f"[cenario] eleições da subida: Líderes {lideres}", file=erro)
+    registro: dict[str, Any] = {
+        "cenario": f"bully_{modo}",
+        "algoritmo": "bully",
+        "modo": modo,
+        "lideres_apos_subida": lideres,
+        "eventos_condutor": eventos,
+        "esperado": {"lideres_apos_subida": dict.fromkeys(todos, 5)},
+    }
+    if modo == "normal":
+        lideres, tempo = eleger(bases, todos, 5, esperar=esperar_bully)
+        print(f"[cenario] eleição pedida ao 1: Líderes {lideres} em {tempo:.2f} s", file=erro)
+        registro |= {"lideres_iniciais": lideres, "tempo_convergencia_s": round(tempo, 4)}
+        registro["esperado"]["lideres_iniciais"] = dict.fromkeys(todos, 5)
+        return registro
+
+    derrubar_servico("no-bully-5", arquivos)
+    eventos.append({"acao": ACAO_KILL, "alvo": 5})
+    vivos = [i for i in todos if i != 5]
+    lideres, tempo = eleger(bases, vivos, 4, esperar=esperar_bully)
+    print(
+        f"[cenario] 5 derrubado e eleição pedida ao 1: Líderes {lideres} em {tempo:.2f} s",
+        file=erro,
+    )
+    registro |= {
+        "falha_injetada": "docker compose kill no-bully-5 depois da subida, e eleição pedida ao 1",
+        "lideres_pos_falha": lideres,
+        "tempo_reeleicao_s": round(tempo, 4),
+    }
+    registro["esperado"]["lideres_pos_falha"] = dict.fromkeys(vivos, 4)
+    if modo == "falha":
+        return registro
+
+    inicio = reiniciar_servico("no-bully-5", arquivos)
+    eventos.append({"acao": ACAO_START, "alvo": 5})
+    _exigir_saude("no-bully-5", bases[5], "bully retorno", arquivos)
+    lideres = esperar_bully(bases, todos, 5, 30.0)
+    tempo = time.monotonic() - inicio
+    print(
+        f"[cenario] 5 religado, sem eleição pedida: Líderes {lideres} em {tempo:.2f} s", file=erro
+    )
+    registro["falha_injetada"] += ", e docker compose start no-bully-5 sem pedir eleição"
+    registro |= {"lideres_pos_retorno": lideres, "tempo_retomada_s": round(tempo, 4)}
+    registro["esperado"]["lideres_pos_retorno"] = dict.fromkeys(todos, 5)
+    return registro
+
+
+def _gravar_condutor(eventos: list[dict[str, Any]], logs_dir: Path) -> None:
+    """Grava cada ação do condutor em `logs_dir/condutor.jsonl`, na ordem em que ele agiu.
+
+    O `ts` de cada linha é o da gravação, depois do cenário. Só a ordem das linhas conta.
+    """
+    with (logs_dir / "condutor.jsonl").open("w", encoding="utf-8") as fluxo:
+        log = LogEstruturado(0, fluxo)
+        for evento in eventos:
+            log.evento(EV_CONDUTOR, **evento)
+
+
+# --------------------------------------------------------------------------- #
 # Coleta dos logs reais (JSONL estruturado + Log_Duravel) de dentro dos Nós
 # --------------------------------------------------------------------------- #
 
@@ -746,8 +841,12 @@ def executar_cenario(
     particao = (algoritmo, modo) == ("2pc", "particao")
     if algoritmo == "anel":
         nos, compose_base = SERVICOS_ANEL, [COMPOSE]
-        override_texto = _override_anel(semente)
+        override_texto = _override_semente(SERVICOS_ANEL, semente)
         conduzir = lambda arquivos: _cenario_anel(modo, arquivos)  # noqa: E731
+    elif algoritmo == "bully":
+        nos, compose_base = SERVICOS_BULLY, [COMPOSE_BULLY]
+        override_texto = _override_semente(SERVICOS_BULLY, semente)
+        conduzir = lambda arquivos: _cenario_bully(modo, arquivos, erro)  # noqa: E731
     elif algoritmo == "2pc":
         nos, compose_base = SERVICOS_2PC, [COMPOSE, COMPOSE_TOXIPROXY] if particao else [COMPOSE]
         override_texto = override_2pc(modo, semente)
@@ -792,6 +891,8 @@ def executar_cenario(
             if logs_dir.exists():
                 shutil.rmtree(logs_dir)
             coletar_logs(algoritmo, nos, logs_dir, arquivos)
+            if "eventos_condutor" in registro:
+                _gravar_condutor(registro["eventos_condutor"], logs_dir)
             _coletar_stdout(servicos, base / f"cenario_{rotulo_arq}_stdout", arquivos)
 
             # Roda os invariantes sobre os logs coletados deste cenário.

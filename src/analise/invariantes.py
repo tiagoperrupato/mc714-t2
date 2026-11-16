@@ -30,6 +30,12 @@ Anel
   7. **Coordenador único** (*safety*): cada transação tem um só Coordenador.
      REPROVA.
 
+Bully
+  8. **Líder não menor** (*safety*): nenhum Nó aceita Líder de id menor que o
+     seu. REPROVA.
+  9. **Vivos no maior id vivo** (*liveness*): ao fim do cenário, todo Nó vivo
+     tem como Líder o maior id vivo. REPROVA.
+
 Este módulo lê os logs estruturados (JSONL) e os Logs_Duraveis só com a
 biblioteca padrão (`json`), sem a carga de CSVs de `src.analise.dados`, e não
 executa Réplica nem sobe contêiner.
@@ -74,6 +80,14 @@ EV_SUCESSOR_FALHO = "sucessor_falho"
 EV_RECUPERACAO = "recuperacao"
 EV_INICIA_TRANSACAO = "inicia_transacao"
 EV_RECEBE = "recebe"
+
+# Eventos do Bully (ver src/bully/no.py), todos com o prefixo, e as ações que o condutor dos
+# cenários grava em `condutor.jsonl` (ver scripts/cenario.py).
+PREFIXO_BULLY = "bully_"
+EV_BULLY_LIDER = "bully_lider"
+EV_CONDUTOR = "condutor"
+ACAO_KILL = "kill"
+ACAO_START = "start"
 
 # Recorte do relatório: lista no máximo algumas ocorrências por
 # invariante, para o relatório caber na tela.
@@ -712,6 +726,78 @@ def invariante_07_coordenador_unico(d: Dados) -> Veredito:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Invariantes do Bully.
+# --------------------------------------------------------------------------- #
+
+
+def _nos_do_bully(eventos: Sequence[EventoLog]) -> frozenset[int]:
+    """Os ids que emitiram algum evento do Bully. Os eventos são de um cenário só."""
+    return frozenset(ev.no for ev in eventos if ev.tipo.startswith(PREFIXO_BULLY))
+
+
+def _mortos_ao_fim(eventos: Sequence[EventoLog]) -> frozenset[int]:
+    """Os Nós que o condutor derrubou e não religou, pelas ações do `condutor.jsonl` em ordem."""
+    mortos: set[int] = set()
+    for ev in eventos:
+        if ev.tipo != EV_CONDUTOR:
+            continue
+        alvo = int(ev.campos["alvo"])
+        if ev.campos.get("acao") == ACAO_KILL:
+            mortos.add(alvo)
+        elif ev.campos.get("acao") == ACAO_START:
+            mortos.discard(alvo)
+    return frozenset(mortos)
+
+
+def invariante_08_lider_nao_menor(d: Dados) -> Veredito:
+    """Nenhum Nó do Bully aceita Líder de id menor que o seu (safety). REPROVA.
+
+    Cada `bully_lider` é um aceite, e o Nó que assume aceita a si mesmo. Os dois Líderes
+    transitórios passam: o maior que volta e o Líder que ele substitui só aceitaram a si mesmos, e
+    o menor que assume por suspeita errada só é aceito pelos de baixo. Tolerância zero.
+    """
+    aceites = [ev for ev in d.eventos if ev.tipo == EV_BULLY_LIDER]
+    falhas = [
+        f"nó {ev.no} aceitou o Líder {ev.campos.get('lider')}"
+        for ev in aceites
+        if not (isinstance(ev.campos.get("lider"), int) and ev.campos["lider"] >= ev.no)
+    ]
+    return veredito(
+        8, "Líder não menor que o Nó (Bully)", len(aceites), falhas,
+        f"os {len(aceites)} aceite(s) de Líder são de id maior ou igual ao de quem aceita",
+    )
+
+
+def invariante_09_vivos_no_maior_id(d: Dados) -> Veredito:
+    """Ao fim, todo Nó vivo do Bully tem como Líder o maior id vivo (liveness). REPROVA.
+
+    Vivos são os Nós com evento `bully_*` menos os que o condutor derrubou e não religou, uma fonte
+    independente dos logs dos Nós. Vale o último `bully_lider` de cada vivo, então o diretório tem
+    de ser de um cenário só, coletado depois de o condutor esperar todos ociosos. Essa espera, de
+    até 30 s, é o prazo da liveness. Um vivo sem aceite também reprova.
+    """
+    vivos = _nos_do_bully(d.eventos) - _mortos_ao_fim(d.eventos)
+    ultimo: dict[int, Any] = {}
+    for ev in d.eventos:
+        if ev.tipo == EV_BULLY_LIDER:
+            ultimo[ev.no] = ev.campos.get("lider")
+    maior = max(vivos, default=None)
+    falhas: list[str] = []
+    for no in sorted(vivos):
+        if no not in ultimo:
+            falhas.append(f"nó {no} está vivo e nunca aceitou Líder")
+        elif ultimo[no] != maior:
+            falhas.append(
+                f"nó {no} terminou com o Líder {ultimo[no]}, mas o maior id vivo é {maior} "
+                f"(vivos {sorted(vivos)})"
+            )
+    return veredito(
+        9, "Vivos no maior id vivo (Bully)", len(vivos), falhas,
+        f"os {len(vivos)} Nó(s) vivo(s) terminam com o Líder {maior}, o maior id vivo",
+    )
+
+
 # Os invariantes, na ordem em que o relatório os apresenta.
 INVARIANTES = (
     invariante_01_lider_unico,
@@ -721,6 +807,8 @@ INVARIANTES = (
     invariante_05_durabilidade,
     invariante_06_validade,
     invariante_07_coordenador_unico,
+    invariante_08_lider_nao_menor,
+    invariante_09_vivos_no_maior_id,
 )
 
 

@@ -17,10 +17,13 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from src.bully.maquina import FASE_OCIOSA
+
 RAIZ = Path(__file__).resolve().parents[2]
 COMPOSE = RAIZ / "compose.yaml"
 COMPOSE_TOXIPROXY = RAIZ / "compose.toxiproxy.yaml"
 COMPOSE_INTEGRACAO = RAIZ / "compose.integracao.yaml"
+COMPOSE_BULLY = RAIZ / "compose.bully.yaml"
 
 SERVICOS_ANEL = [f"no-anel-{i}" for i in range(1, 6)]
 PORTAS_ANEL = {i: 8000 + i for i in range(1, 6)}  # 8001..8005
@@ -33,6 +36,9 @@ BASE_COORD = f"http://127.0.0.1:{PORTA_COORD}"
 SERVICOS_INTEGRACAO = [f"{papel}-{i}" for papel in ("participante", "candidato") for i in (1, 2, 3)]
 PORTAS_CANDIDATO = {1: 8021, 2: 8022, 3: 8023}
 PORTAS_PART_INTEGRACAO = {11: 8031, 12: 8032, 13: 8033}
+
+SERVICOS_BULLY = [f"no-bully-{i}" for i in range(1, 6)]
+PORTAS_BULLY = {i: 8040 + i for i in range(1, 6)}  # 8041..8045
 
 # Imagem que o compose constrói, usada para ler o Python de dentro dela.
 IMAGEM = "mc714-t2:latest"
@@ -157,15 +163,41 @@ def esperar_lider(bases: dict[int, str], ids, esperado: int, timeout: float) -> 
     return lideres
 
 
-def eleger(bases: dict[int, str], ids: list[int], esperado: int) -> tuple[dict[int, Any], float]:
+def esperar_bully(bases: dict[int, str], ids, esperado: int, timeout: float) -> dict[int, Any]:
+    """Espera os Nós `ids` do Bully ociosos com o Líder `esperado` e devolve o que cada um reporta.
+
+    Um Nó que ainda está numa eleição reporta a fase no lugar do Líder, para que o fim do prazo não
+    passe por convergência.
+    """
+    limite = time.monotonic() + timeout
+    lideres: dict[int, Any] = {}
+    while time.monotonic() < limite:
+        try:
+            estados = {i: http_json(f"{bases[i]}/estado") for i in ids}
+        except (urllib.error.URLError, OSError):
+            time.sleep(SONDAGEM_S)
+            continue
+        lideres = {
+            i: e["lider"] if e["fase"] == FASE_OCIOSA else e["fase"] for i, e in estados.items()
+        }
+        if all(v == esperado for v in lideres.values()):
+            break
+        time.sleep(SONDAGEM_S)
+    return lideres
+
+
+def eleger(
+    bases: dict[int, str], ids: list[int], esperado: int, *, esperar=esperar_lider
+) -> tuple[dict[int, Any], float]:
     """Dispara uma eleição no Nó 1 e espera os `ids` reportarem `esperado`.
 
     Devolve o Líder que cada um reporta e o tempo até todos reportarem `esperado`,
-    ou até o prazo de 30 s.
+    ou até o prazo de 30 s. O Bully passa `esperar_bully`. O POST só responde depois de o Nó 1
+    trocar de estado, então a espera não confunde o estado de antes com a convergência.
     """
     inicio = time.monotonic()
     http_json(f"{bases[1]}/iniciar-eleicao", metodo="POST")
-    lideres = esperar_lider(bases, ids, esperado, 30.0)
+    lideres = esperar(bases, ids, esperado, 30.0)
     return lideres, time.monotonic() - inicio
 
 
@@ -288,12 +320,12 @@ def copiar_de_container(servico: str, origem: str, destino: Path, arquivos: list
 def coletar_logs(algoritmo: str, servicos: list[str], destino: Path, arquivos: list[Path]) -> None:
     """Copia o log estruturado e o Log_Duravel de cada nó para `destino/<servico>`.
 
-    No anel o log estruturado fica em `/app/results`. No 2PC e na integração o volume `/dados`
-    guarda o Log_Duravel e, em `/dados/logs`, o log estruturado, e uma cópia de `/dados` traz cada
-    arquivo uma vez.
+    No anel e no Bully o log estruturado fica em `/app/results`. No 2PC e na integração o volume
+    `/dados` guarda o Log_Duravel e, em `/dados/logs`, o log estruturado, e uma cópia de `/dados`
+    traz cada arquivo uma vez.
     """
     destino.mkdir(parents=True, exist_ok=True)
-    origem = "/app/results/." if algoritmo == "anel" else "/dados/."
+    origem = "/app/results/." if algoritmo in ("anel", "bully") else "/dados/."
     for servico in servicos:
         copiar_de_container(servico, origem, destino / servico, arquivos)
 

@@ -112,11 +112,12 @@ def test_override_2pc_particao_todos_votam_sim() -> None:
     assert 'DOISPC_CAIR_APOS_DECIDIR: "false"' in txt
 
 
-def test_override_anel_fixa_semente_nos_cinco_nos() -> None:
-    txt = cenario._override_anel(42)
+@pytest.mark.parametrize("servicos", [conteineres.SERVICOS_ANEL, conteineres.SERVICOS_BULLY])
+def test_override_fixa_a_semente_nos_cinco_nos(servicos: list[str]) -> None:
+    txt = cenario._override_semente(servicos, 42)
     assert txt.count('SEMENTE: "42"') == 5
-    for i in range(1, 6):
-        assert f"no-anel-{i}:" in txt
+    for servico in servicos:
+        assert f"  {servico}:\n" in txt
 
 
 # --------------------------------------------------------------------------- #

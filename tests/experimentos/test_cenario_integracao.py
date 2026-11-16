@@ -18,7 +18,7 @@ import pytest
 from scripts import cenario
 from src.analise import invariantes as inv
 from src.experimentos import conteineres
-from tests.apoio import ServidorLocal, compose_cli_disponivel, porta_livre
+from tests.apoio import ServidorLocal, compose_cli_disponivel, porta_livre, recursos_do_compose
 
 # --------------------------------------------------------------------------- #
 # Sem Docker: modos e override.
@@ -156,33 +156,10 @@ def test_sondagens_pedem_o_estado_da_transacao(monkeypatch) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _config(arquivo: Path) -> dict:
-    r = subprocess.run(
-        ["docker", "compose", "-f", str(arquivo), "config", "--format", "json"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        cwd=str(conteineres.RAIZ),
-    )
-    assert r.returncode == 0, f"docker compose config de {arquivo.name} falhou: {r.stderr}"
-    return json.loads(r.stdout)
-
-
-def _recursos(cfg: dict) -> dict[str, set[str]]:
-    servicos = cfg["services"].values()
-    return {
-        "projeto": {cfg["name"]},
-        "portas": {str(p["published"]) for s in servicos for p in s.get("ports", [])},
-        "contêineres": {s["container_name"] for s in servicos},
-        "volumes": {v["name"] for v in cfg.get("volumes", {}).values()},
-        "redes": {r["name"] for r in cfg.get("networks", {}).values()},
-    }
-
-
 @pytest.mark.skipif(not compose_cli_disponivel(), reason="Docker Compose CLI indisponível")
 def test_pilha_da_integracao_nao_colide_com_a_principal() -> None:
-    principal = _recursos(_config(conteineres.COMPOSE))
-    integracao = _recursos(_config(conteineres.COMPOSE_INTEGRACAO))
+    principal = recursos_do_compose(conteineres.COMPOSE)
+    integracao = recursos_do_compose(conteineres.COMPOSE_INTEGRACAO)
     assert integracao["projeto"] == {"mc714-t2-integracao"}
     for recurso, nomes in integracao.items():
         assert nomes, f"a integração não declara {recurso}"

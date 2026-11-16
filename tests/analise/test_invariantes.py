@@ -389,6 +389,82 @@ def test_2pc_coordenador_unico_sem_2pc_fica_em_lacuna() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Bully, invariantes 8 e 9: Líder não menor e vivos no maior id vivo.
+# --------------------------------------------------------------------------- #
+
+
+def _aceite(no: int, lider: int) -> dict:
+    """Evento `bully_lider` como `src/bully/no.py` grava."""
+    return _ev(no, "bully_lider", lider=lider, anterior=None, epoca=1, gatilho="coordenador")
+
+
+def _condutor(acao: str, alvo: int) -> dict:
+    """Linha do `condutor.jsonl` que `scripts/cenario.py` grava."""
+    return _ev(0, "condutor", acao=acao, alvo=alvo)
+
+
+SUBIDA = [_aceite(no, 5) for no in (1, 2, 3, 4, 5)]
+FALHA = [*SUBIDA, _condutor("kill", 5), *(_aceite(no, 4) for no in (1, 2, 3, 4))]
+RETORNO = [*FALHA, _condutor("start", 5), *(_aceite(no, 5) for no in (5, 1, 2, 3, 4))]
+
+
+def test_bully_lider_nao_menor_passa_com_auto_aceite_e_os_lideres_transitorios() -> None:
+    # O 3 assume por suspeita errada e só os de baixo o aceitam. Depois o 5 volta e se aceita
+    # antes de o 4, que também se aceitou, receber o anúncio dele.
+    eventos = [
+        *SUBIDA,
+        _aceite(3, 3), _aceite(1, 3), _aceite(2, 3),
+        *(_aceite(no, 5) for no in (1, 2, 3)),
+        _aceite(4, 4), _aceite(5, 5), _aceite(4, 5),
+    ]
+    v = inv.invariante_08_lider_nao_menor(_dados(eventos))
+    assert v.ok and v.verificados == len(eventos)
+
+
+def test_bully_lider_nao_menor_reprova_quando_o_4_aceita_o_3() -> None:
+    v = inv.invariante_08_lider_nao_menor(_dados([*SUBIDA, _aceite(4, 3)]))
+    assert not v.ok
+    assert v.falhas == ("nó 4 aceitou o Líder 3",)
+
+
+@pytest.mark.parametrize(
+    ("eventos", "vivos"), [(SUBIDA, 5), (FALHA, 4), (RETORNO, 5)], ids=["normal", "falha", "retorno"]
+)
+def test_bully_vivos_no_maior_id_passa_e_ignora_o_morto(eventos, vivos: int) -> None:
+    # Na falha, o último aceite do 5 morto é o 5, e ele não conta.
+    v = inv.invariante_09_vivos_no_maior_id(_dados(eventos))
+    assert v.ok and v.verificados == vivos
+
+
+def test_bully_vivos_no_maior_id_reprova_vivo_no_4_depois_de_o_5_voltar() -> None:
+    eventos = [e for e in RETORNO if e != _aceite(4, 5)]
+    v = inv.invariante_09_vivos_no_maior_id(_dados(eventos))
+    assert not v.ok
+    assert v.falhas[0].startswith("nó 4 terminou com o Líder 4, mas o maior id vivo é 5")
+
+
+def test_bully_vivos_no_maior_id_reprova_vivo_sem_aceite() -> None:
+    eventos = [_ev(1, "bully_iniciou", epoca=1, gatilho="inicio"), *SUBIDA[1:]]
+    v = inv.invariante_09_vivos_no_maior_id(_dados(eventos))
+    assert not v.ok
+    assert v.falhas == ("nó 1 está vivo e nunca aceitou Líder",)
+
+
+def test_logs_do_bully_deixam_os_do_anel_e_do_2pc_em_lacuna() -> None:
+    recebeu = _ev(4, "bully_recebeu", msg_tipo="coordenador", origem=5, corpo={"lider": 5})
+    vereditos = inv.verificar_todos(_dados([recebeu, *RETORNO]))
+    assert [v.numero for v in vereditos if v.verificados == 0] == [1, 2, 3, 4, 5, 6, 7]
+    assert all(v.ok for v in vereditos if v.numero in (8, 9))
+
+
+def test_logs_do_anel_e_do_2pc_deixam_os_do_bully_em_lacuna() -> None:
+    eventos = [_recebeu_lider(no, rodada="r1", lider=5) for no in (1, 2, 3, 4, 5)]
+    duraveis = [_entrada_duravel("tx1", "decisao", "ABORT", 1)]
+    for v in inv.verificar_todos(_dados(eventos, duraveis)):
+        assert (v.verificados == 0) is (v.numero in (5, 6, 7, 8, 9)), v
+
+
+# --------------------------------------------------------------------------- #
 # Relatório e código de saída.
 # --------------------------------------------------------------------------- #
 

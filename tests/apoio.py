@@ -71,6 +71,27 @@ def compose_cli_disponivel() -> bool:
     return r.returncode == 0
 
 
+def recursos_do_compose(arquivo: Path) -> dict[str, set[str]]:
+    """Projeto, portas publicadas, contêineres, volumes e redes que `arquivo` declara."""
+    saida = subprocess.run(
+        ["docker", "compose", "-f", str(arquivo), "config", "--format", "json"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=str(arquivo.parent),
+    )
+    assert saida.returncode == 0, f"docker compose config de {arquivo.name} falhou: {saida.stderr}"
+    cfg = json.loads(saida.stdout)
+    servicos = cfg["services"].values()
+    return {
+        "projeto": {cfg["name"]},
+        "portas": {str(p["published"]) for s in servicos for p in s.get("ports", [])},
+        "contêineres": {s["container_name"] for s in servicos},
+        "volumes": {v["name"] for v in cfg.get("volumes", {}).values()},
+        "redes": {rede["name"] for rede in cfg.get("networks", {}).values()},
+    }
+
+
 def escrever_jsonl(caminho: Path, registros: Iterable[Mapping]) -> None:
     caminho.parent.mkdir(parents=True, exist_ok=True)
     with caminho.open("w", encoding="utf-8") as fluxo:
