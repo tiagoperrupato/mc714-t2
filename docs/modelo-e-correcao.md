@@ -104,7 +104,7 @@ limitação: elas são sobre a ordem lógica dos eventos, que a emulação prese
   é com essa hipótese que o Deadline detecta um Sucessor que não responde. Sem o
   Deadline, uma partição travaria a circulação. Com ele, o Nó tenta entregar ao
   Sucessor até três vezes dentro do Deadline, uma a cada terço dele, e só então
-  salta para o próximo Nó vivo (`src/anel/no.py`, regra de salto em
+  salta para o próximo Nó vivo (`entregar` em `src/comum/rede.py`, regra de salto em
   `src/anel/maquina.py`). Cada tentativa pode usar todo o prazo que resta, então
   uma resposta lenta ainda chega antes do salto.
 - **Canais (M2).** Unidirecionais na ordem do Anel: cada Nó só fala com seu Sucessor.

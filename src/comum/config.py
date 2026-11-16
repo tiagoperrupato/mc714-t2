@@ -10,6 +10,8 @@ parâmetro inválido encerre o Nó sem produzir efeito de rede ou de arquivo.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Mapping
 
 # A Semente é um inteiro não negativo com teto no maior inteiro de 32 bits com
 # sinal, estável entre plataformas.
@@ -146,3 +148,96 @@ def _exigir_int(nome: str, valor, valido, dominio: str) -> None:
     """Variante de `_exigir` para parâmetros estritamente inteiros."""
     _exigir(nome, valor, valido, dominio, tipos=(int,))
 
+
+@dataclass(frozen=True)
+class NoDoAmbiente:
+    """Nó do Anel lido do ambiente: config validada, ordem do Anel, URL de cada id e pasta do log."""
+
+    config: ConfigNo
+    ids: tuple[int, ...]
+    urls: Mapping[int, str]
+    log_dir: Path
+
+
+def ler_ids(variavel: str, bruto: str | None) -> tuple[int, ...]:
+    """Parseia "1,2,3,4,5" numa tupla de ids distintos."""
+    if not bruto:
+        raise ConfigInvalidaError(variavel, bruto, "lista de ids separada por vírgula")
+    try:
+        ids = tuple(int(parte.strip()) for parte in bruto.split(",") if parte.strip())
+    except ValueError as erro:
+        raise ConfigInvalidaError(variavel, bruto, "inteiros separados por vírgula") from erro
+    if len(ids) < 1:
+        raise ConfigInvalidaError(variavel, bruto, "ao menos um id")
+    if len(set(ids)) != len(ids):
+        raise ConfigInvalidaError(variavel, bruto, "ids distintos")
+    return ids
+
+
+def ler_urls(variavel: str, bruto: str | None) -> dict[int, str]:
+    """Parseia "1=http://a:8000,2=http://b:8000" num mapa id -> url base."""
+    if not bruto:
+        raise ConfigInvalidaError(variavel, bruto, "mapa id=url separado por vírgula")
+    mapa: dict[int, str] = {}
+    for item in bruto.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ConfigInvalidaError(variavel, item, "cada item no formato id=url")
+        chave, url = item.split("=", 1)
+        try:
+            no_id = int(chave.strip())
+        except ValueError as erro:
+            raise ConfigInvalidaError(variavel, chave, "id inteiro antes do '='") from erro
+        url = url.strip()
+        if not url:
+            raise ConfigInvalidaError(variavel, item, "url não vazia após o '='")
+        mapa[no_id] = url
+    if not mapa:
+        raise ConfigInvalidaError(variavel, bruto, "ao menos um mapeamento id=url")
+    return mapa
+
+
+def ler_no_do_ambiente(ambiente: Mapping[str, str]) -> NoDoAmbiente:
+    """Lê e valida um Nó do Anel, sem efeito colateral.
+
+    `NO_ID` é obrigatória, assim como `ANEL`, a ordem cíclica dos ids ("1,2,3"),
+    e `URLS`, o mapa id=url base que cobre todos os ids do Anel, o próprio
+    incluído. `PORTA` (8000), `SEMENTE` (0), `DEADLINE` (1.0), `RETRIES` (2) e
+    `LOG_DIR` ("results") têm padrão.
+    """
+    no_id = _ler_numero(ambiente, "NO_ID", int, None)
+    ids = ler_ids("ANEL", ambiente.get("ANEL"))
+    urls = ler_urls("URLS", ambiente.get("URLS"))
+    config = ConfigNo(
+        id=no_id,
+        algoritmo="anel",
+        porta=_ler_numero(ambiente, "PORTA", int, "8000"),
+        semente=_ler_numero(ambiente, "SEMENTE", int, "0"),
+        deadline=_ler_numero(ambiente, "DEADLINE", float, "1.0"),
+        retries=_ler_numero(ambiente, "RETRIES", int, "2"),
+        sucessores=tuple(i for i in ids if i != no_id),
+    )
+    config.validar()
+
+    if no_id not in ids:
+        raise ConfigInvalidaError("NO_ID", no_id, f"id presente em ANEL {ids}")
+    faltando = [i for i in ids if i not in urls]
+    if faltando:
+        raise ConfigInvalidaError(
+            "URLS", urls, f"deve cobrir todos os ids do ANEL, faltam {faltando}"
+        )
+    return NoDoAmbiente(
+        config=config, ids=ids, urls=urls, log_dir=Path(ambiente.get("LOG_DIR", "results"))
+    )
+
+
+def _ler_numero(ambiente: Mapping[str, str], variavel: str, tipo: type, padrao: str | None):
+    """Converte `ambiente[variavel]` com `tipo`, e sem padrão a variável é obrigatória."""
+    bruto = ambiente.get(variavel, padrao)
+    try:
+        return tipo(bruto)
+    except (TypeError, ValueError) as erro:
+        dominio = "inteiro" if tipo is int else "número real"
+        raise ConfigInvalidaError(variavel, bruto, dominio) from erro

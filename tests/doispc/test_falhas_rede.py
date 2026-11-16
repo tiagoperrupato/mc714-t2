@@ -244,3 +244,36 @@ def test_crash_total_do_coordenador_via_controlador_bloqueia_decisao(tmp_path: P
 
         for pid in PART_IDS:
             assert parts.servicos[pid].estado is None, (pid, parts.servicos[pid].estado)
+
+
+@pytest.mark.parametrize("papel", ["coordenador", "participante"])
+def test_mensagem_recebida_em_crash_devolve_503(tmp_path: Path, papel: str) -> None:
+    """O `/mensagem` dos dois papéis passa pelo controlador, e um Nó em crash responde 503."""
+    import httpx
+
+    coord = No(COORD_ID, "127.0.0.1", porta_livre())
+    part = No(PART_IDS[0], "127.0.0.1", porta_livre())
+    log_duravel = LogDuravelArquivo(tmp_path / f"{papel}.log")
+    controlador = ControladorFalhas(2026)
+    if papel == "coordenador":
+        eu, origem = coord, part
+        servico = ServicoCoordenador(
+            coord, {part.id: part}, log_duravel=log_duravel, cliente=ClienteRede(),
+            deadline_voto=1.0, deadline_decisao=1.0,
+        )
+        app = criar_app_coord(servico, controlador=controlador)
+    else:
+        eu, origem = part, coord
+        servico = ServicoParticipante(
+            part, coord, log_duravel=log_duravel, cliente=ClienteRede(), deadline=1.0,
+            voto_desejado=VOTO_SIM,
+        )
+        app = criar_app_part(servico, controlador=controlador)
+    mensagem = Mensagem(tipo=MSG_DECISAO, origem=origem.id, destino=eu.id, corpo={"transacao": "tx-x"})
+
+    controlador.injetar_crash()
+    with ServidorLocal(app, eu.porta) as servidor:
+        resposta = httpx.post(f"{servidor.base_url}/mensagem", json=mensagem.para_json(), timeout=5.0)
+
+    assert resposta.status_code == 503
+    assert log_duravel.transacoes() == ()

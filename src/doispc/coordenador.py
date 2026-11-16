@@ -302,28 +302,13 @@ def criar_app(servico: ServicoCoordenador, *, controlador=None):
     devolve 503. Os Participantes que votaram SIM ficam em Estado_Em_Duvida
     até o crash ser limpo, e então a retransmissão os alcança.
     """
-    from fastapi import Body, FastAPI, HTTPException
+    from fastapi import Body
     from fastapi.responses import JSONResponse
 
-    from src.comum.rede import CAMINHO_MENSAGEM
+    from src.comum.falhas import recebedor_http
+    from src.comum.rede import criar_app_recebedor
 
-    app = FastAPI()
-
-    receber_callback = servico.receber
-    if controlador is not None:
-        from src.comum.falhas import envolver_recebimento
-
-        receber_callback = envolver_recebimento(controlador, servico.receber)
-
-    @app.post(CAMINHO_MENSAGEM)
-    async def receber(corpo: dict = Body(...)) -> JSONResponse:  # pragma: no cover - via servidor
-        from src.comum.falhas import NoEmCrashError
-
-        mensagem = Mensagem.de_json(corpo)
-        try:
-            return JSONResponse(content=dict(receber_callback(mensagem)))
-        except NoEmCrashError as erro:
-            raise HTTPException(status_code=503, detail=str(erro)) from erro
+    app = criar_app_recebedor(recebedor_http(controlador, servico.receber))
 
     @app.post("/transacao")
     async def transacao(corpo: dict = Body(default={})) -> JSONResponse:  # pragma: no cover - via servidor

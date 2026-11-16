@@ -27,6 +27,7 @@ from src.comum.falhas import (
     EnvioDescartado,
     NoEmCrashError,
     envolver_recebimento,
+    recebedor_http,
     registrar_plano_no_log,
 )
 from src.comum.log import LogEstruturado
@@ -197,6 +198,27 @@ def test_envolver_recebimento_descarta_sem_tocar_a_maquina() -> None:
     resposta = recebedor(_msg())
     assert resposta == {"ack": False, "descartada": True}
     assert chamadas == []  # a Máquina nunca foi chamada
+
+
+def _ack(mensagem: Mensagem) -> dict:
+    return {"ack": True, "tipo": mensagem.tipo}
+
+
+def test_recebedor_http_sem_controlador_devolve_o_callback() -> None:
+    assert recebedor_http(None, _ack) is _ack
+
+
+def test_recebedor_http_delega_sem_falha_e_responde_503_no_crash() -> None:
+    from fastapi import HTTPException
+
+    ctrl = ControladorFalhas(SEMENTE, dormir=_sem_dormir)
+    recebedor = recebedor_http(ctrl, _ack)
+    assert recebedor(_msg()) == {"ack": True, "tipo": "eleicao"}
+
+    ctrl.injetar_crash()
+    with pytest.raises(HTTPException) as info:
+        recebedor(_msg())
+    assert info.value.status_code == 503
 
 
 class _ClienteFake:

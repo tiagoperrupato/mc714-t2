@@ -38,11 +38,18 @@ CAMINHO_MENSAGEM = "/mensagem"
 class DeadlineInvalidoError(ValueError):
     """Deadline ausente ou fora de domínio numa chamada de envio.
 
-    Levantada pelo próprio `ClienteRede.enviar` quando o Deadline não é um
+    Levantada por `ClienteRede.enviar` e por `entregar` quando o Deadline não é um
     número estritamente positivo. É um erro de programação (uso indevido da
     API), distinto das falhas de transporte, que viram `ResultadoEnvio`. Existe
     justamente para que não haja caminho de envio sem um prazo válido.
     """
+
+
+def _exigir_deadline(deadline: float) -> None:
+    if not isinstance(deadline, (int, float)) or isinstance(deadline, bool) or deadline <= 0:
+        raise DeadlineInvalidoError(
+            f"deadline obrigatório e > 0 em toda chamada; recebido {deadline!r}"
+        )
 
 
 @dataclass(frozen=True)
@@ -141,10 +148,7 @@ class ClienteRede:
         retorno é sempre um `ResultadoEnvio` tipado; falhas de transporte nunca
         escapam como exceção.
         """
-        if not isinstance(deadline, (int, float)) or isinstance(deadline, bool) or deadline <= 0:
-            raise DeadlineInvalidoError(
-                f"deadline obrigatório e > 0 em toda chamada; recebido {deadline!r}"
-            )
+        _exigir_deadline(deadline)
 
         url = destino_url.rstrip("/") + CAMINHO_MENSAGEM
         corpo = mensagem.para_json()
@@ -241,6 +245,37 @@ def _json_seguro(resposta: httpx.Response) -> Mapping[str, Any]:
     except ValueError:
         return {}
     return dados if isinstance(dados, Mapping) else {"valor": dados}
+
+
+# Tentativas de `entregar` dentro de um Deadline, uma a cada fração igual dele. Esgotadas, o Anel
+# salta o Sucessor.
+TENTATIVAS_ANTES_DO_SALTO = 3
+
+
+def entregar(
+    cliente: ClienteRede, destino_url: str, mensagem: Mensagem, deadline: float
+) -> str | None:
+    """Envia até o destino aceitar, ou até o Deadline acabar.
+
+    As tentativas começam a cada fração do Deadline, e cada uma pode usar
+    todo o prazo que resta. Assim uma resposta lenta ainda chega, e uma
+    falha que volta logo (drop, 503, conexão recusada) tem nova tentativa.
+    Só um `EnvioOk` com `ack` verdadeiro é aceite: um destino que descartou
+    a Mensagem responde 200 com `ack` falso. Devolve `None` no aceite, ou o
+    tipo do último resultado.
+    """
+    _exigir_deadline(deadline)
+    inicio = time.monotonic()
+    intervalo = deadline / TENTATIVAS_ANTES_DO_SALTO
+    for tentativa in range(TENTATIVAS_ANTES_DO_SALTO):
+        time.sleep(max(0.0, inicio + tentativa * intervalo - time.monotonic()))
+        restante = deadline - (time.monotonic() - inicio)
+        if restante <= 0:
+            break
+        resultado = cliente.enviar(destino_url, mensagem, restante)
+        if isinstance(resultado, EnvioOk) and resultado.corpo.get("ack") is True:
+            return None
+    return type(resultado).__name__
 
 
 # ---------------------------------------------------------------------------

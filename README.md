@@ -268,9 +268,11 @@ amarra a lógica pura à rede são `src/anel/no.py`, `src/doispc/coordenador.py`
 `src/doispc/participante.py`. O que orquestra experimentos é `src/experimentos/`.
 
 ```
-src/comum/         config, modelos, aleatoriedade, log, rede (Transporte com
-                   Deadline), despacho (fila de saída fora do handler),
-                   falhas (crash/pause/delay/drop), toxiproxy
+src/comum/         config (e leitura do Nó do ambiente), modelos,
+                   aleatoriedade, log, rede (Transporte com Deadline e
+                   entrega com reenvio), despacho (fila de saída fora do
+                   handler), falhas (crash/pause/delay/drop e o 503 do
+                   crash), toxiproxy
 src/anel/          maquina (pura), no (app FastAPI), __main__ (entrada do contêiner)
 src/doispc/        maquina (pura), log_duravel (write-ahead), coordenador,
                    participante, executor, __main__

@@ -5,8 +5,8 @@ do Anel (`src.anel.no`) e nos apps do 2PC (`src.doispc.coordenador` e
 `src.doispc.participante`), com quatro modos:
 
 - **crash**: o Nó deixa de responder. O controlador passa a recusar o
-  processamento de Mensagens recebidas (levanta `NoEmCrashError`, que o
-  adaptador traduz num HTTP 503) e a abortar o despacho de Mensagens de saída.
+  processamento de Mensagens recebidas (levanta `NoEmCrashError`, que
+  `recebedor_http` traduz num HTTP 503) e a abortar o despacho de Mensagens de saída.
 - **pause**: o próximo evento do Nó, recebimento ou envio, dorme N segundos, e
   depois o Nó volta a operar. No recebimento, o sono prende o laço de eventos do
   servidor, e o Nó inteiro deixa de responder nesse intervalo.
@@ -57,9 +57,9 @@ class NoEmCrashError(RuntimeError):
     """Sinaliza que o Nó está em crash e não deve responder.
 
     Levantada pelo controlador no caminho de recebimento quando o modo crash
-    está ativo. O adaptador a captura e devolve um HTTP 503, reproduzindo "o Nó
-    deixou de responder" sem derrubar o processo do servidor — o que permite
-    curar o crash depois via `/falha/limpar` na demonstração.
+    está ativo. `recebedor_http` a captura e devolve um HTTP 503, reproduzindo
+    "o Nó deixou de responder" sem derrubar o processo do servidor, o que
+    permite curar o crash depois via `/falha/limpar` na demonstração.
     """
 
 
@@ -182,7 +182,7 @@ class ControladorFalhas:
 
         Devolve `True` se a Mensagem deve seguir para a Máquina_de_Estados, e
         `False` se deve ser descartada (drop). Levanta `NoEmCrashError` se o Nó
-        está em crash — o adaptador traduz isso num 503. Aplica, nesta ordem:
+        está em crash, e `recebedor_http` a traduz num 503. Aplica, nesta ordem:
         crash (recusa), pause (congela), drop (descarta pelo stream), delay
         (atrasa pelo stream).
         """
@@ -272,7 +272,7 @@ def envolver_recebimento(
     O callback original (por exemplo, `NoAnel.processar_mensagem` ou
     `ServicoParticipante.receber`) só é chamado se o controlador deixa a
     Mensagem passar. Um drop devolve um ACK de "descartada" sem tocar a Máquina;
-    um crash propaga `NoEmCrashError` para o adaptador converter em 503. Assim o
+    um crash propaga `NoEmCrashError` para `recebedor_http` converter em 503. Assim o
     controlador é plugável sem que o adaptador mude sua lógica de decisão.
     """
 
@@ -280,6 +280,28 @@ def envolver_recebimento(
         if not controlador.antes_de_receber(mensagem):
             return {"ack": False, "descartada": True}
         return callback(mensagem)
+
+    return recebedor
+
+
+def recebedor_http(
+    controlador: Optional[ControladorFalhas], callback: CallbackMensagem
+) -> CallbackMensagem:
+    """Callback de `POST /mensagem` que passa pelo controlador, se houver, e responde 503 no crash.
+
+    Importa FastAPI localmente, para que este módulo continue utilizável sem o framework.
+    """
+    if controlador is None:
+        return callback
+    com_falhas = envolver_recebimento(controlador, callback)
+
+    def recebedor(mensagem: Mensagem) -> Mapping[str, Any]:
+        try:
+            return com_falhas(mensagem)
+        except NoEmCrashError as erro:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=503, detail=str(erro)) from erro
 
     return recebedor
 

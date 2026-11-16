@@ -22,6 +22,7 @@ import pytest
 from src.comum.modelos import Mensagem
 from src.comum.rede import (
     CAMINHO_MENSAGEM,
+    TENTATIVAS_ANTES_DO_SALTO,
     ClienteRede,
     DeadlineInvalidoError,
     EnvioConexaoRecusada,
@@ -29,6 +30,7 @@ from src.comum.rede import (
     EnvioOk,
     EnvioTimeout,
     criar_app_recebedor,
+    entregar,
 )
 from tests.apoio import ServidorLocal, porta_livre
 
@@ -246,3 +248,80 @@ def test_timeout_por_tempo_restante_decrescente() -> None:
     cliente = ClienteRede(retries=5, transporte=transporte, relogio=_RelogioFake(0.1))
     cliente.enviar("http://destino", Mensagem("t", 1, 2), deadline=2.0)
     assert transporte.chamadas == sorted(transporte.chamadas, reverse=True)
+
+
+class _Tempo:
+    """Substitui o módulo `time` de `src.comum.rede`: `sleep` só avança o relógio."""
+
+    def __init__(self) -> None:
+        self.agora = 0.0
+
+    def monotonic(self) -> float:
+        return self.agora
+
+    def sleep(self, segundos: float) -> None:
+        self.agora += segundos
+
+
+class _ClienteRoteirizado:
+    """Registra `(instante, deadline)` de cada envio e devolve o roteiro, repetindo o último."""
+
+    def __init__(self, tempo: _Tempo, *resultados, custo: float = 0.0) -> None:
+        self._tempo = tempo
+        self._resultados = list(resultados)
+        self._custo = custo
+        self.envios: list[tuple[float, float]] = []
+
+    def enviar(self, destino_url, mensagem, deadline):
+        self.envios.append((self._tempo.agora, deadline))
+        self._tempo.agora += self._custo
+        return self._resultados.pop(0) if len(self._resultados) > 1 else self._resultados[0]
+
+
+@pytest.fixture
+def tempo(monkeypatch) -> _Tempo:
+    relogio = _Tempo()
+    monkeypatch.setattr("src.comum.rede.time", relogio)
+    return relogio
+
+
+def test_entregar_aceite_devolve_none(tempo) -> None:
+    cliente = _ClienteRoteirizado(tempo, EnvioOk(status=200, corpo={"ack": True}))
+    assert entregar(cliente, "http://destino", Mensagem("t", 1, 2), 3.0) is None
+    assert cliente.envios == [(0.0, 3.0)]
+
+
+def test_entregar_reenvia_quando_o_ack_e_falso(tempo) -> None:
+    cliente = _ClienteRoteirizado(
+        tempo,
+        EnvioOk(status=200, corpo={"ack": False, "descartada": True}),
+        EnvioOk(status=200, corpo={"ack": True}),
+    )
+    assert entregar(cliente, "http://destino", Mensagem("t", 1, 2), 3.0) is None
+    assert cliente.envios == [(0.0, 3.0), (1.0, 2.0)]
+
+
+def test_entregar_sem_aceite_espaca_as_tentativas_com_o_prazo_restante(tempo) -> None:
+    cliente = _ClienteRoteirizado(
+        tempo,
+        EnvioOk(status=200, corpo={"ack": False}),
+        EnvioTimeout(deadline=1.0, tentativas=1),
+    )
+    assert entregar(cliente, "http://destino", Mensagem("t", 1, 2), 3.0) == "EnvioTimeout"
+    assert cliente.envios == [(0.0, 3.0), (1.0, 2.0), (2.0, 1.0)]
+    assert len(cliente.envios) == TENTATIVAS_ANTES_DO_SALTO
+
+
+def test_entregar_prazo_esgotado_devolve_o_ultimo_resultado(tempo) -> None:
+    # O primeiro envio gasta o Deadline inteiro, então não sobra prazo para outro.
+    cliente = _ClienteRoteirizado(tempo, EnvioTimeout(deadline=3.0, tentativas=1), custo=3.0)
+    assert entregar(cliente, "http://destino", Mensagem("t", 1, 2), 3.0) == "EnvioTimeout"
+    assert cliente.envios == [(0.0, 3.0)]
+
+
+@pytest.mark.parametrize("deadline", [0.0, -1.0, None, True])
+def test_entregar_recusa_deadline_invalido(tempo, deadline) -> None:
+    cliente = _ClienteRoteirizado(tempo, EnvioOk(status=200, corpo={"ack": True}))
+    with pytest.raises(DeadlineInvalidoError):
+        entregar(cliente, "http://destino", Mensagem("t", 1, 2), deadline)
+    assert cliente.envios == []

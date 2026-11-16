@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from src.comum.config import ConfigInvalidaError, ConfigNo
+from src.comum.config import ConfigInvalidaError, ConfigNo, ler_ids, ler_no_do_ambiente, ler_urls
 
 
 def config_valida(**sobrescritas) -> ConfigNo:
@@ -86,3 +88,76 @@ def test_semente_negativa_identifica_parametro_e_dominio() -> None:
 def test_sucessores_invalidos_recusam(sucessores: object) -> None:
     with pytest.raises(ConfigInvalidaError):
         config_valida(sucessores=sucessores).validar()
+
+
+def test_ler_ids_parseia_lista() -> None:
+    assert ler_ids("ANEL", " 1, 2,3 ") == (1, 2, 3)
+
+
+@pytest.mark.parametrize("bruto", [None, "", ",", "1,x", "1,1"])
+def test_ler_ids_invalido_cita_a_variavel(bruto) -> None:
+    with pytest.raises(ConfigInvalidaError) as info:
+        ler_ids("IDS", bruto)
+    assert info.value.parametro == "IDS"
+    assert "IDS" in str(info.value)
+
+
+def test_ler_urls_parseia_mapa() -> None:
+    assert ler_urls("URLS", "1=http://a:8000, 2=http://b:8000") == {
+        1: "http://a:8000",
+        2: "http://b:8000",
+    }
+
+
+@pytest.mark.parametrize("bruto", [None, "", ",", "1http://a", "x=http://a", "1="])
+def test_ler_urls_invalido_cita_a_variavel(bruto) -> None:
+    with pytest.raises(ConfigInvalidaError) as info:
+        ler_urls("URLS_DO_ANEL", bruto)
+    assert info.value.parametro == "URLS_DO_ANEL"
+
+
+def _ambiente(**sobrescritas: str | None) -> dict[str, str]:
+    base = {"NO_ID": "2", "ANEL": "1,2,3", "URLS": "1=http://a,2=http://b,3=http://c"}
+    base.update(sobrescritas)
+    return {chave: valor for chave, valor in base.items() if valor is not None}
+
+
+def test_ler_no_do_ambiente_aplica_padroes() -> None:
+    no = ler_no_do_ambiente(_ambiente())
+    assert no.config == ConfigNo(
+        id=2, algoritmo="anel", porta=8000, semente=0, deadline=1.0, retries=2, sucessores=(1, 3)
+    )
+    assert no.ids == (1, 2, 3)
+    assert no.urls == {1: "http://a", 2: "http://b", 3: "http://c"}
+    assert no.log_dir == Path("results")
+
+
+def test_ler_no_do_ambiente_le_opcionais() -> None:
+    no = ler_no_do_ambiente(
+        _ambiente(PORTA="8010", SEMENTE="7", DEADLINE="0.5", RETRIES="0", LOG_DIR="/tmp/logs")
+    )
+    assert (no.config.porta, no.config.semente, no.config.deadline, no.config.retries) == (
+        8010,
+        7,
+        0.5,
+        0,
+    )
+    assert no.log_dir == Path("/tmp/logs")
+
+
+@pytest.mark.parametrize(
+    ("sobrescritas", "parametro"),
+    [
+        ({"NO_ID": None}, "NO_ID"),
+        ({"NO_ID": "dois"}, "NO_ID"),
+        ({"NO_ID": "4"}, "NO_ID"),
+        ({"ANEL": None}, "ANEL"),
+        ({"URLS": "1=http://a,2=http://b"}, "URLS"),
+        ({"PORTA": "oito mil"}, "PORTA"),
+        ({"DEADLINE": "0"}, "deadline"),
+    ],
+)
+def test_ler_no_do_ambiente_recusa_com_o_parametro(sobrescritas, parametro) -> None:
+    with pytest.raises(ConfigInvalidaError) as info:
+        ler_no_do_ambiente(_ambiente(**sobrescritas))
+    assert info.value.parametro == parametro

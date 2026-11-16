@@ -21,9 +21,10 @@ import time
 import pytest
 
 from src.anel.maquina import EstadoAnel, TIPO_ELEICAO
-from src.anel.no import TENTATIVAS_ANTES_DO_SALTO, NoAnel, criar_app
+from src.anel.no import NoAnel, criar_app
 from src.comum.modelos import Mensagem
 from src.comum.rede import (
+    TENTATIVAS_ANTES_DO_SALTO,
     EnvioConexaoRecusada,
     EnvioOk,
     EnvioTimeout,

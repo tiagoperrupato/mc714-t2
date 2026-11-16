@@ -35,7 +35,6 @@ lógica de eleição.
 from __future__ import annotations
 
 import threading
-import time
 import uuid
 from typing import Any, Mapping
 
@@ -46,12 +45,10 @@ from src.anel.maquina import (
     receber,
 )
 from src.comum.despacho import Despachante
+from src.comum.falhas import recebedor_http, registrar_endpoints_falha
 from src.comum.log import LogEstruturado
 from src.comum.modelos import Mensagem
-from src.comum.rede import ClienteRede, EnvioOk
-
-# Tentativas de entrega a um Sucessor antes do salto, uma a cada fração igual do Deadline.
-TENTATIVAS_ANTES_DO_SALTO = 3
+from src.comum.rede import ClienteRede, criar_app_recebedor, entregar
 
 
 class NoAnel:
@@ -169,34 +166,12 @@ class NoAnel:
         if destino_url is None:
             self._enfileirar(self._tratar_falha(mensagem, mensagem.destino, motivo="sem_url"))
             return
-        motivo = self._entregar(destino_url, mensagem)
+        motivo = entregar(self._cliente, destino_url, mensagem, self._deadline)
         if motivo is None:
             if self._log is not None:
                 self._log.evento("repassou", msg_tipo=mensagem.tipo, destino=mensagem.destino)
             return
         self._enfileirar(self._tratar_falha(mensagem, mensagem.destino, motivo=motivo))
-
-    def _entregar(self, destino_url: str, mensagem: Mensagem) -> str | None:
-        """Envia até o destino aceitar, ou até o Deadline acabar.
-
-        As tentativas começam a cada fração do Deadline, e cada uma pode usar
-        todo o prazo que resta. Assim uma resposta lenta ainda chega, e uma
-        falha que volta logo (drop, 503, conexão recusada) tem nova tentativa.
-        Só um `EnvioOk` com `ack` verdadeiro é aceite: um destino que descartou
-        a Mensagem responde 200 com `ack` falso. Devolve `None` no aceite, ou o
-        tipo do último resultado.
-        """
-        inicio = time.monotonic()
-        intervalo = self._deadline / TENTATIVAS_ANTES_DO_SALTO
-        for tentativa in range(TENTATIVAS_ANTES_DO_SALTO):
-            time.sleep(max(0.0, inicio + tentativa * intervalo - time.monotonic()))
-            restante = self._deadline - (time.monotonic() - inicio)
-            if restante <= 0:
-                break
-            resultado = self._cliente.enviar(destino_url, mensagem, restante)
-            if isinstance(resultado, EnvioOk) and resultado.corpo.get("ack") is True:
-                return None
-        return type(resultado).__name__
 
     def _tratar_falha(self, mensagem: Mensagem, sucessor_falho: int, *, motivo: str) -> list[Mensagem]:
         """Aplica `com_sucessor_falho` sob o lock e devolve a Mensagem reemitida."""
@@ -229,26 +204,8 @@ def criar_app(no: NoAnel, *, controlador=None):
     é interceptado passando um `ClienteComFalhas` ao `NoAnel` na construção; a
     Máquina continua pura.
     """
-    from src.comum.rede import criar_app_recebedor
-
-    callback = no.processar_mensagem
+    app = criar_app_recebedor(recebedor_http(controlador, no.processar_mensagem))
     if controlador is not None:
-        from src.comum.falhas import NoEmCrashError, envolver_recebimento
-
-        com_falhas = envolver_recebimento(controlador, no.processar_mensagem)
-
-        def callback(mensagem):  # noqa: F811 - substitui o callback por um que converte crash em 503
-            try:
-                return com_falhas(mensagem)
-            except NoEmCrashError as erro:
-                from fastapi import HTTPException
-
-                raise HTTPException(status_code=503, detail=str(erro)) from erro
-
-    app = criar_app_recebedor(callback)
-    if controlador is not None:
-        from src.comum.falhas import registrar_endpoints_falha
-
         registrar_endpoints_falha(app, controlador)
 
     @app.get("/estado")
