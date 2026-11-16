@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from functools import lru_cache
 from pathlib import Path
@@ -19,6 +20,7 @@ from typing import Any
 RAIZ = Path(__file__).resolve().parents[2]
 COMPOSE = RAIZ / "compose.yaml"
 COMPOSE_TOXIPROXY = RAIZ / "compose.toxiproxy.yaml"
+COMPOSE_INTEGRACAO = RAIZ / "compose.integracao.yaml"
 
 SERVICOS_ANEL = [f"no-anel-{i}" for i in range(1, 6)]
 PORTAS_ANEL = {i: 8000 + i for i in range(1, 6)}  # 8001..8005
@@ -27,6 +29,10 @@ SERVICOS_2PC = ["participante-1", "participante-2", "participante-3", "coordenad
 PORTA_COORD = 8000
 PORTAS_PART = {11: 8011, 12: 8012, 13: 8013}
 BASE_COORD = f"http://127.0.0.1:{PORTA_COORD}"
+
+SERVICOS_INTEGRACAO = [f"{papel}-{i}" for papel in ("participante", "candidato") for i in (1, 2, 3)]
+PORTAS_CANDIDATO = {1: 8021, 2: 8022, 3: 8023}
+PORTAS_PART_INTEGRACAO = {11: 8031, 12: 8032, 13: 8033}
 
 # Imagem que o compose constrói, usada para ler o Python de dentro dela.
 IMAGEM = "mc714-t2:latest"
@@ -101,6 +107,26 @@ services:
 """
 
 
+def override_integracao(modo: str, semente: int) -> str:
+    """YAML de override da integração: semente nos seis serviços e, no failover, a queda do 3.
+
+    No `failover` o processo do candidato 3 morre logo depois de gravar a primeira Decisao.
+    """
+    linhas = ["services:"]
+    for servico in SERVICOS_INTEGRACAO:
+        linhas += [f"  {servico}:", "    environment:", f'      SEMENTE: "{semente}"']
+        if modo == "failover" and servico == "candidato-3":
+            linhas.append('      DOISPC_CAIR_APOS_DECIDIR: "true"')
+    return "\n".join(linhas) + "\n"
+
+
+def url_estado(base: str, transacao: str | None = None) -> str:
+    """URL do `/estado` de `base`, com a visão de `transacao` quando dada."""
+    if transacao is None:
+        return f"{base}/estado"
+    return f"{base}/estado?{urllib.parse.urlencode({'transacao': transacao})}"
+
+
 def esperar_saude(base: str, timeout: float) -> bool:
     """Espera `/saude` responder ok, até `timeout` segundos."""
     limite = time.monotonic() + timeout
@@ -143,15 +169,22 @@ def eleger(bases: dict[int, str], ids: list[int], esperado: int) -> tuple[dict[i
 
 
 def estados_participantes(
-    *, esperar_decisao: bool, timeout: float = 10.0, portas: dict[int, int] = PORTAS_PART
+    *,
+    esperar_decisao: bool,
+    timeout: float = 10.0,
+    portas: dict[int, int] = PORTAS_PART,
+    transacao: str | None = None,
 ) -> dict[int, Any]:
-    """O `/estado` dos participantes de `portas`, esperando até todos eles decidirem se pedido."""
+    """O `/estado` dos participantes de `portas`, esperando até todos eles decidirem se pedido.
+
+    Sem `transacao`, cada um mostra a última que viu.
+    """
     limite = time.monotonic() + timeout
     while True:
         estados: dict[int, Any] = {}
         for pid, porta in portas.items():
             try:
-                estados[pid] = http_json(f"http://127.0.0.1:{porta}/estado")
+                estados[pid] = http_json(url_estado(f"http://127.0.0.1:{porta}", transacao))
             except (urllib.error.URLError, OSError):
                 estados[pid] = {}
         decidiram = all(est.get("decisao") for est in estados.values())
@@ -165,20 +198,21 @@ def decisoes(estados: dict[int, Any]) -> dict[int, Any]:
     return {pid: est.get("decisao") for pid, est in estados.items()}
 
 
-def esperar_conclusao(transacao: str | None = None, prazo: float = 10.0) -> dict[str, Any]:
-    """Espera o coordenador receber todos os ACK e devolve o `/estado` dele.
+def esperar_conclusao(
+    transacao: str | None = None, prazo: float = 10.0, *, base: str = BASE_COORD
+) -> dict[str, Any]:
+    """Espera o coordenador em `base` receber os ACK de `transacao` e devolve o `/estado` dela.
 
-    Com `transacao`, espera também que ela seja a última iniciada. Ao fim do prazo devolve o último
-    estado lido, e quem chama confere `concluido`.
+    Sem `transacao`, vale a última iniciada. Ao fim do prazo devolve o último estado lido, e quem
+    chama confere `concluido`.
     """
     limite = time.monotonic() + prazo
     while True:
         try:
-            estado = http_json(f"{BASE_COORD}/estado")
+            estado = http_json(url_estado(base, transacao))
         except (urllib.error.URLError, OSError):
             estado = {}
-        pronto = estado.get("concluido") and transacao in (None, estado.get("transacao"))
-        if pronto or time.monotonic() >= limite:
+        if estado.get("concluido") or time.monotonic() >= limite:
             return estado
         time.sleep(SONDAGEM_S)
 
@@ -220,11 +254,23 @@ def esperar_saudavel(servico: str, arquivos: list[Path]) -> None:
     _exigir(compose(*args, arquivos=arquivos, timeout=120), f"up --wait {servico}")
 
 
-def reiniciar_coordenador(arquivos: list[Path], prazo: float = 30.0) -> tuple[float, dict[int, Any]]:
-    """Reinicia o coordenador que caiu e mede do `start` até todos os participantes decidirem."""
-    inicio = reiniciar_servico("coordenador", arquivos)
-    finais = decisoes(estados_participantes(esperar_decisao=True, timeout=prazo))
-    return time.monotonic() - inicio, finais
+def reiniciar_coordenador(
+    arquivos: list[Path],
+    prazo: float = 30.0,
+    *,
+    servico: str = "coordenador",
+    portas: dict[int, int] = PORTAS_PART,
+    transacao: str | None = None,
+) -> tuple[float, dict[int, Any]]:
+    """Reinicia o coordenador que caiu e mede do `start` até os participantes decidirem.
+
+    Sem `transacao`, vale a última que cada participante viu.
+    """
+    inicio = reiniciar_servico(servico, arquivos)
+    estados = estados_participantes(
+        esperar_decisao=True, timeout=prazo, portas=portas, transacao=transacao
+    )
+    return time.monotonic() - inicio, decisoes(estados)
 
 
 def copiar_de_container(servico: str, origem: str, destino: Path, arquivos: list[Path]) -> None:
@@ -241,8 +287,9 @@ def copiar_de_container(servico: str, origem: str, destino: Path, arquivos: list
 def coletar_logs(algoritmo: str, servicos: list[str], destino: Path, arquivos: list[Path]) -> None:
     """Copia o log estruturado e o Log_Duravel de cada nó para `destino/<servico>`.
 
-    No anel o log estruturado fica em `/app/results`. No 2PC o volume `/dados` guarda o Log_Duravel e,
-    em `/dados/logs`, o log estruturado, e uma cópia de `/dados` traz cada arquivo uma vez.
+    No anel o log estruturado fica em `/app/results`. No 2PC e na integração o volume `/dados`
+    guarda o Log_Duravel e, em `/dados/logs`, o log estruturado, e uma cópia de `/dados` traz cada
+    arquivo uma vez.
     """
     destino.mkdir(parents=True, exist_ok=True)
     origem = "/app/results/." if algoritmo == "anel" else "/dados/."

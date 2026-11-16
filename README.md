@@ -174,7 +174,11 @@ python scripts/cenario.py 2pc abort          # Participante 3 vota NAO -> ABORT 
 python scripts/cenario.py 2pc crash-coord    # Coordenador cai após decidir -> dúvida, com aviso na verificação -> reinício -> COMMIT
 python scripts/cenario.py 2pc crash-coord-part  # Coordenador e Participante 11 caem -> 11 volta em dúvida -> COMMIT -> 11 volta com COMMIT
 python scripts/cenario.py 2pc particao       # isola o Participante 11 -> ABORT no prazo -> cura -> ABORT também no 11
+python scripts/cenario.py integracao normal   # Líder 3 do anel de candidatos -> 409 no candidato 1 -> COMMIT de c3-tx-n no 3
+python scripts/cenario.py integracao failover # 3 cai depois de decidir c3-tx-a -> cliente elege o 2 -> COMMIT de c2-tx-b -> 3 volta e difunde o COMMIT de c3-tx-a
 ```
+
+Os da integração sobem a pilha de `compose.integracao.yaml`, e os demais a de `compose.yaml`.
 
 As duas demos também sobem o compose:
 
@@ -225,6 +229,20 @@ código.
   com o HTTP API em `8474`. Sem override, ele só fica no ar e os Nós falam direto
   entre si. Com o `compose.toxiproxy.yaml`, falam pelas escutas dele.
 
+A integração, em que o Líder do Anel coordena o 2PC, fica em `compose.integracao.yaml`,
+uma pilha à parte com projeto (`mc714-t2-integracao`), rede, volumes, portas e nomes de
+contêiner próprios. Ela sobe e cai sem tocar a do `compose.yaml`.
+
+- **Candidatos:** `candidato-1..3` (`8021..8023`), no anel 1 → 2 → 3 → 1, rodam
+  `python -m src.integracao`. Cada um tem no mesmo processo um Nó do Anel, com as variáveis
+  dele (`NO_ID`, `ANEL`, `URLS`, `PORTA`, `DEADLINE`, `RETRIES`, `SEMENTE`, `LOG_DIR`), e
+  um Coordenador de id `NO_ID`, com as `DOISPC_*` do Coordenador
+  (`DOISPC_PARTICIPANTES`, `DOISPC_DEADLINE_VOTO`, `DOISPC_DEADLINE_DECISAO`,
+  `DOISPC_LOG_DURAVEL`, `DOISPC_CAIR_APOS_DECIDIR`). O Log_Duravel de cada um fica num
+  volume próprio.
+- **Participantes:** `participante-1..3` (`8031..8033`), o mesmo serviço do 2PC, com
+  `DOISPC_COORDENADORES` apontando os três candidatos.
+
 Comandos de ciclo de vida:
 
 ```bash
@@ -232,6 +250,8 @@ docker compose build                                   # constrói a imagem úni
 docker compose up -d --wait no-anel-1 no-anel-2 no-anel-3 no-anel-4 no-anel-5   # sobe o Anel
 docker compose up -d --wait coordenador                # sobe o 2PC (puxa os Participantes)
 docker compose down -v --remove-orphans                # derruba e limpa volumes e órfãos
+docker compose -f compose.integracao.yaml up -d --wait                   # sobe a integração
+docker compose -f compose.integracao.yaml down -v --remove-orphans       # derruba a integração
 ```
 
 Overrides pontuais:
@@ -247,6 +267,7 @@ Endpoints de controle de cada Nó:
 |:---|:---|
 | Anel | `GET /estado`, `POST /iniciar-eleicao`, `GET /saude`, `POST /falha/*` |
 | 2PC | `POST /transacao`, `GET /estado?transacao=`, `GET /saude`, `POST /falha/*` |
+| Candidato | `POST /transacao` (só no Líder, 409 nos outros), `POST /iniciar-eleicao`, `GET /estado?transacao=`, `GET /saude`, `POST /falha/*` |
 
 Os endpoints `/falha/*` (crash, pause, delay, drop) são a porta pela qual a
 injeção de falhas de aplicação é disparada, de forma determinística por Semente.
@@ -254,7 +275,8 @@ injeção de falhas de aplicação é disparada, de forma determinística por Se
 O `POST /transacao` aceita o id da transação no corpo, `{"transacao": "x"}`, e
 gera um quando ele falta. Um id já usado devolve a Decisao que ele já tem, sem
 abrir rodada nova. O `GET /estado` do Coordenador e do Participante mostra a
-transação pedida em `?transacao=`, e sem ela a última.
+transação pedida em `?transacao=`, e sem ela a última. No candidato, o id leva o prefixo
+dele (`c3-tx-a`), e o `GET /estado` junta a visão do Nó do Anel e a do Coordenador.
 
 ## Arquitetura
 
@@ -356,10 +378,11 @@ e o `scripts/verificar.py` os confere como um diretório à parte.
 
 ### Logs dos cenários
 
-Os cenários sobre o compose coletam, por Nó, o Log_Estruturado (JSONL) e,
-no 2PC, o Log_Duravel, em subdiretórios como `cenario_anel_falha_logs/` e
-`cenario_2pc_crash-coord_logs/`, mais um `.json` com o registro do cenário, que
-inclui o relatório da verificação, e um `.txt` por Nó com o stdout do contêiner.
+Os cenários sobre o compose coletam, por Nó, o Log_Estruturado (JSONL) e, no 2PC e
+na integração, o Log_Duravel, em subdiretórios como `cenario_anel_falha_logs/`,
+`cenario_2pc_crash-coord_logs/` e `cenario_integracao_failover_logs/`, mais um `.json`
+com o registro do cenário, que inclui o relatório da verificação, e um `.txt` por Nó
+com o stdout do contêiner.
 Os diretórios `*_logs` e o `.json` entram no git, e o stdout fica fora. São esses
 logs que `scripts/verificar.py` consome, um diretório por vez.
 
@@ -399,6 +422,8 @@ python scripts/cenario.py 2pc abort
 python scripts/cenario.py 2pc crash-coord
 python scripts/cenario.py 2pc crash-coord-part
 python scripts/cenario.py 2pc particao
+python scripts/cenario.py integracao normal
+python scripts/cenario.py integracao failover
 python scripts/verificar.py                        # (6) invariantes sobre results/
 docker compose down -v --remove-orphans            # (7) teardown limpo, sem órfãos
 ```

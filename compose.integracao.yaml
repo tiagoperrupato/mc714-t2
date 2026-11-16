@@ -1,0 +1,153 @@
+# Integração: o Líder do Anel coordena o 2PC. Três candidatos formam o anel 1 -> 2 -> 3 -> 1, e cada
+# um roda num processo um Nó do Anel e um Coordenador (`python -m src.integracao`). Os três
+# Participantes são os do 2PC e respondem ao candidato que lhes mandou a Mensagem.
+#
+# Projeto, rede, volumes, portas e nomes de contêiner são próprios, e o `down -v` desta pilha não
+# toca a do compose.yaml:
+#   docker compose -f compose.integracao.yaml up -d --wait
+#   docker compose -f compose.integracao.yaml down -v --remove-orphans
+
+name: mc714-t2-integracao
+
+x-no: &no
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: mc714-t2:latest
+  networks:
+    - rede-integracao
+  healthcheck:
+    test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/saude', timeout=2).status==200 else 1)\""]
+    interval: 3s
+    timeout: 3s
+    retries: 10
+    start_period: 2s
+  restart: "no"
+
+# O id do Coordenador de cada candidato é o NO_ID, e os ids dos Participantes ficam fora do ANEL.
+x-candidato: &candidato
+  <<: *no
+  command: ["python", "-m", "src.integracao"]
+  depends_on:
+    participante-1:
+      condition: service_healthy
+    participante-2:
+      condition: service_healthy
+    participante-3:
+      condition: service_healthy
+
+x-candidato-env: &candidato-env
+  ANEL: "1,2,3"
+  URLS: "1=http://candidato-1:8000,2=http://candidato-2:8000,3=http://candidato-3:8000"
+  PORTA: "8000"
+  DEADLINE: "1.0"
+  RETRIES: "2"
+  SEMENTE: "0"
+  DOISPC_PARTICIPANTES: "11@participante-1:8000,12@participante-2:8000,13@participante-3:8000"
+  DOISPC_DEADLINE_VOTO: "3.0"
+  DOISPC_DEADLINE_DECISAO: "2.0"
+  DOISPC_LOG_DURAVEL: "/dados/coordenador.log"
+  LOG_DIR: "/dados/logs"
+
+x-participante: &participante
+  <<: *no
+  command: ["python", "-m", "src.doispc"]
+
+x-participante-env: &participante-env
+  DOISPC_PAPEL: "participante"
+  PART_PORTA: "8000"
+  DOISPC_COORDENADORES: "1@candidato-1:8000,2@candidato-2:8000,3@candidato-3:8000"
+  DOISPC_VOTO: "SIM"
+  DOISPC_DEADLINE: "2.0"
+  SEMENTE: "0"
+  LOG_DIR: "/dados/logs"
+
+services:
+  candidato-1:
+    <<: *candidato
+    container_name: int-candidato-1
+    environment:
+      <<: *candidato-env
+      NO_ID: "1"
+    volumes:
+      - log-candidato-1:/dados
+    ports:
+      - "8021:8000"
+
+  candidato-2:
+    <<: *candidato
+    container_name: int-candidato-2
+    environment:
+      <<: *candidato-env
+      NO_ID: "2"
+    volumes:
+      - log-candidato-2:/dados
+    ports:
+      - "8022:8000"
+
+  candidato-3:
+    <<: *candidato
+    container_name: int-candidato-3
+    environment:
+      <<: *candidato-env
+      NO_ID: "3"
+    volumes:
+      - log-candidato-3:/dados
+    ports:
+      - "8023:8000"
+
+  participante-1:
+    <<: *participante
+    container_name: int-participante-1
+    environment:
+      <<: *participante-env
+      PART_ID: "11"
+      DOISPC_LOG_DURAVEL: "/dados/participante-11.log"
+    volumes:
+      - log-participante-1:/dados
+    ports:
+      - "8031:8000"
+
+  participante-2:
+    <<: *participante
+    container_name: int-participante-2
+    environment:
+      <<: *participante-env
+      PART_ID: "12"
+      DOISPC_LOG_DURAVEL: "/dados/participante-12.log"
+    volumes:
+      - log-participante-2:/dados
+    ports:
+      - "8032:8000"
+
+  participante-3:
+    <<: *participante
+    container_name: int-participante-3
+    environment:
+      <<: *participante-env
+      PART_ID: "13"
+      DOISPC_LOG_DURAVEL: "/dados/participante-13.log"
+    volumes:
+      - log-participante-3:/dados
+    ports:
+      - "8033:8000"
+
+networks:
+  rede-integracao:
+    name: mc714-t2-rede-integracao
+    driver: bridge
+
+volumes:
+  # Um volume por Nó para o Log_Duravel, que sobrevive ao crash e ao start do contêiner.
+  log-candidato-1:
+    name: mc714-t2-int-candidato-1
+  log-candidato-2:
+    name: mc714-t2-int-candidato-2
+  log-candidato-3:
+    name: mc714-t2-int-candidato-3
+  log-participante-1:
+    name: mc714-t2-int-participante-1
+  log-participante-2:
+    name: mc714-t2-int-participante-2
+  log-participante-3:
+    name: mc714-t2-int-participante-3

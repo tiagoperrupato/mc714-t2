@@ -62,6 +62,19 @@ Cenários do 2PC:
         difunde. O 11 fica sem Decisao enquanto a partição dura, e depois da cura a
         retransmissão da DECISAO o alcança. Todos terminam em ABORT.
 
+Cenários da integração, em que o Líder do Anel de três candidatos coordena o 2PC
+(compose.integracao.yaml):
+
+    python scripts/cenario.py integracao normal
+        Elege o candidato 3. O candidato 1 recusa a transação com 409 e aponta o 3,
+        que a comita com o id c3-tx-n em todos os Participantes.
+
+    python scripts/cenario.py integracao failover
+        O candidato 3 grava o COMMIT de c3-tx-a e morre antes de difundi-lo. O
+        cliente dispara a eleição, que elege o 2, e o 2 comita c2-tx-b com c3-tx-a
+        ainda em dúvida nos Participantes. O 3 volta, relê o Log_Duravel e difunde o
+        COMMIT de c3-tx-a, e a eleição seguinte o reintegra como Líder.
+
 Requer Docker com Compose v2. Sem Docker, o script falha com uma mensagem clara
 e código de saída 2, em vez de travar.
 
@@ -79,6 +92,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -92,11 +106,15 @@ from src.experimentos.ambiente import coletar_ambiente  # noqa: E402
 from src.experimentos.conteineres import (  # noqa: E402
     BASE_COORD,
     COMPOSE,
+    COMPOSE_INTEGRACAO,
     COMPOSE_TOXIPROXY,
     PORTAS_ANEL,
+    PORTAS_CANDIDATO,
     PORTAS_PART,
+    PORTAS_PART_INTEGRACAO,
     SERVICOS_2PC,
     SERVICOS_ANEL,
+    SERVICOS_INTEGRACAO,
     coletar_logs,
     compose,
     decisoes,
@@ -109,8 +127,10 @@ from src.experimentos.conteineres import (  # noqa: E402
     estados_participantes,
     http_json,
     override_2pc,
+    override_integracao,
     reiniciar_coordenador,
     reiniciar_servico,
+    url_estado,
 )
 
 RESULTS_PADRAO = _RAIZ / "results"
@@ -130,6 +150,7 @@ MODOS: dict[str, dict[str, tuple[int, ...]]] = {
         "crash-coord-part": (4, 5, 6, 7),
         "particao": (4, 7),
     },
+    "integracao": {"normal": (1, 2, 3, 4, 6, 7), "failover": (1, 2, 3, 4, 5, 6, 7)},
 }
 
 
@@ -284,11 +305,7 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
             "esperado": esperado,
         }
 
-    em_duvida = sorted(
-        pid
-        for pid, est in estados_participantes(esperar_decisao=False).items()
-        if est.get("em_duvida")
-    )
+    em_duvida = _em_duvida(estados_participantes(esperar_decisao=False))
     print(f"[cenario] Coordenador caiu ({resposta.get('erro')}). Em dúvida: {em_duvida}", file=erro)
     combinado = modo == "crash-coord-part"
     if combinado:
@@ -400,6 +417,11 @@ def _cenario_2pc_particao(erro) -> dict[str, Any]:
     }
 
 
+def _em_duvida(estados: dict[int, Any]) -> list[int]:
+    """Os Participantes em Estado_Em_Duvida, em ordem."""
+    return sorted(pid for pid, est in estados.items() if est.get("em_duvida"))
+
+
 def _verificar_com_coordenador_fora(arquivos: list[Path]) -> tuple[int, list[str]]:
     """Coleta os logs do 2PC com o Coordenador fora e roda os invariantes neles.
 
@@ -411,6 +433,184 @@ def _verificar_com_coordenador_fora(arquivos: list[Path]) -> tuple[int, list[str
         coletar_logs("2pc", SERVICOS_2PC, destino, arquivos)
         linhas: list[str] = []
         return verificar.verificar([destino], imprimir=linhas.append), linhas
+
+
+# --------------------------------------------------------------------------- #
+# Cenários da integração
+# --------------------------------------------------------------------------- #
+
+# Os ids levam o prefixo do candidato que coordena a transação.
+TX_NORMAL = "c3-tx-n"
+TX_A = "c3-tx-a"
+TX_B = "c2-tx-b"
+
+
+def _pedir_transacao(base: str, nome: str) -> tuple[int | None, dict[str, Any]]:
+    """`POST /transacao` em `base` com o status e o corpo da resposta.
+
+    Um status de erro, como o 409 de quem não é Líder, volta com o corpo dele. Sem resposta, porque
+    o processo caiu, o status é None.
+    """
+    try:
+        return 200, http_json(
+            f"{base}/transacao", metodo="POST", corpo={"transacao": nome}, timeout=30.0
+        )
+    except urllib.error.HTTPError as exc:
+        texto = exc.read().decode("utf-8")
+        try:
+            return exc.code, json.loads(texto)
+        except json.JSONDecodeError:
+            return exc.code, {"erro": texto}
+    except (urllib.error.URLError, OSError) as exc:
+        return None, {"erro": str(exc)}
+
+
+def _cenario_integracao(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
+    """Conduz a integração sobre o compose dela e devolve as métricas observadas.
+
+    Quem detecta a queda do Líder é o cliente, pelo POST sem resposta, e é ele que dispara a
+    eleição. Nenhum candidato assume a transação de outro, então c3-tx-a espera o 3 voltar.
+    Cada passo imprime uma linha `[cenario]` em `erro`.
+    """
+    bases = {i: f"http://127.0.0.1:{porta}" for i, porta in PORTAS_CANDIDATO.items()}
+    todos = list(PORTAS_CANDIDATO)
+    participantes = partial(estados_participantes, portas=PORTAS_PART_INTEGRACAO)
+    commit = dict.fromkeys(PORTAS_PART_INTEGRACAO, "COMMIT")
+
+    lideres, tempo = eleger(bases, todos, 3)
+    print(f"[cenario] eleição no candidato 1: Líderes {lideres} em {tempo:.2f} s", file=erro)
+    registro: dict[str, Any] = {
+        "cenario": f"integracao_{modo}",
+        "algoritmo": "integracao",
+        "modo": modo,
+        "lideres_iniciais": lideres,
+        "tempo_eleicao_s": round(tempo, 4),
+        "esperado": {"lideres_iniciais": dict.fromkeys(todos, 3)},
+    }
+
+    if modo == "normal":
+        status, recusa = _pedir_transacao(bases[1], "tx-n")
+        print(f"[cenario] candidato 1 responde {status}: {recusa.get('erro')}", file=erro)
+        inicio = time.monotonic()
+        _, resposta = _pedir_transacao(bases[3], "tx-n")
+        latencia = time.monotonic() - inicio
+        print(
+            f"[cenario] candidato 3: {resposta.get('transacao')} {resposta.get('decisao')} "
+            f"em {latencia:.2f} s",
+            file=erro,
+        )
+        finais = decisoes(participantes(esperar_decisao=True, transacao=TX_NORMAL))
+        print(f"[cenario] Participantes em {TX_NORMAL}: {finais}", file=erro)
+        conclusao = esperar_conclusao(TX_NORMAL, base=bases[3])
+        print(f"[cenario] todos os ACK no candidato 3: {conclusao.get('concluido')}", file=erro)
+        registro |= {
+            "recusa_nao_lider": {"status": status, "lider": recusa.get("lider")},
+            "transacao": resposta.get("transacao"),
+            "decisao": resposta.get("decisao"),
+            "latencia_commit_s": round(latencia, 4),
+            "decisoes_participantes": finais,
+            "concluido": conclusao.get("concluido"),
+        }
+        registro["esperado"] |= {
+            "recusa_nao_lider": {"status": 409, "lider": 3},
+            "transacao": TX_NORMAL,
+            "decisao": "COMMIT",
+            "decisoes_participantes": commit,
+            "concluido": True,
+        }
+        return registro
+
+    status, resposta_a = _pedir_transacao(bases[3], "tx-a")
+    queda = time.monotonic()
+    if status is not None:
+        raise RuntimeError(
+            f"o candidato 3 respondeu {status} ao POST de tx-a, mas devia cair logo depois de "
+            "gravar a Decisao. Confira DOISPC_CAIR_APOS_DECIDIR do candidato-3 em "
+            "override_integracao."
+        )
+    print(f"[cenario] candidato 3 caiu depois de decidir {TX_A}: {resposta_a['erro']}", file=erro)
+    em_duvida = _em_duvida(participantes(esperar_decisao=False, transacao=TX_A))
+    print(f"[cenario] Participantes em dúvida em {TX_A}: {em_duvida}", file=erro)
+
+    vivos = [1, 2]
+    lideres_pos, tempo_reeleicao = eleger(bases, vivos, 2)
+    print(
+        f"[cenario] o cliente dispara a eleição no candidato 1: Líderes {lideres_pos} "
+        f"em {tempo_reeleicao:.2f} s",
+        file=erro,
+    )
+    inicio = time.monotonic()
+    _, resposta_b = _pedir_transacao(bases[2], "tx-b")
+    fim = time.monotonic()
+    print(
+        f"[cenario] candidato 2: {resposta_b.get('transacao')} {resposta_b.get('decisao')} em "
+        f"{fim - inicio:.2f} s, {fim - queda:.2f} s depois da queda do 3",
+        file=erro,
+    )
+    finais_b = decisoes(participantes(esperar_decisao=True, transacao=TX_B))
+    print(f"[cenario] Participantes em {TX_B}: {finais_b}", file=erro)
+    duvida_durante = _em_duvida(participantes(esperar_decisao=False, transacao=TX_A))
+    tx_a_no_2 = http_json(url_estado(bases[2], TX_A)).get("transacao")
+    print(
+        f"[cenario] {TX_A} segue em dúvida em {duvida_durante}, e o /estado dela no candidato 2 "
+        f"traz transacao={tx_a_no_2}",
+        file=erro,
+    )
+
+    recuperacao, finais_a = reiniciar_coordenador(
+        arquivos, servico="candidato-3", portas=PORTAS_PART_INTEGRACAO, transacao=TX_A
+    )
+    print(
+        f"[cenario] candidato 3 reiniciado. Em {recuperacao:.2f} s, {TX_A}: {finais_a}", file=erro
+    )
+    _exigir_saude("candidato-3", bases[3], "integracao failover", arquivos)
+    lideres_finais, tempo_reintegracao = eleger(bases, todos, 3)
+    print(
+        f"[cenario] eleição com o 3 de volta: Líderes {lideres_finais} em "
+        f"{tempo_reintegracao:.2f} s",
+        file=erro,
+    )
+    conclusao_a = esperar_conclusao(TX_A, base=bases[3])
+    conclusao_b = esperar_conclusao(TX_B, base=bases[2])
+    print(
+        f"[cenario] todos os ACK: {TX_A} no 3 {conclusao_a.get('concluido')}, {TX_B} no 2 "
+        f"{conclusao_b.get('concluido')}",
+        file=erro,
+    )
+    registro |= {
+        "falha_injetada": f"processo do candidato 3 morre depois de gravar a Decisao de {TX_A} "
+        f"(DOISPC_CAIR_APOS_DECIDIR) e o contêiner é reiniciado depois do COMMIT de {TX_B}",
+        "em_duvida_tx_a": em_duvida,
+        "lideres_pos_falha": lideres_pos,
+        "tempo_reeleicao_s": round(tempo_reeleicao, 4),
+        "transacao_tx_b": resposta_b.get("transacao"),
+        "decisao_tx_b": resposta_b.get("decisao"),
+        "latencia_tx_b_s": round(fim - inicio, 4),
+        "tempo_failover_s": round(fim - queda, 4),
+        "decisoes_participantes_tx_b": finais_b,
+        "em_duvida_tx_a_durante_tx_b": duvida_durante,
+        "tx_a_no_novo_lider": tx_a_no_2,
+        "tempo_recuperacao_tx_a_s": round(recuperacao, 4),
+        "decisoes_participantes_tx_a": finais_a,
+        "lideres_finais": lideres_finais,
+        "tempo_reintegracao_s": round(tempo_reintegracao, 4),
+        "concluido_tx_a": conclusao_a.get("concluido"),
+        "concluido_tx_b": conclusao_b.get("concluido"),
+    }
+    registro["esperado"] |= {
+        "em_duvida_tx_a": sorted(PORTAS_PART_INTEGRACAO),
+        "lideres_pos_falha": dict.fromkeys(vivos, 2),
+        "transacao_tx_b": TX_B,
+        "decisao_tx_b": "COMMIT",
+        "decisoes_participantes_tx_b": commit,
+        "em_duvida_tx_a_durante_tx_b": sorted(PORTAS_PART_INTEGRACAO),
+        "tx_a_no_novo_lider": None,
+        "decisoes_participantes_tx_a": commit,
+        "lideres_finais": dict.fromkeys(todos, 3),
+        "concluido_tx_a": True,
+        "concluido_tx_b": True,
+    }
+    return registro
 
 
 # --------------------------------------------------------------------------- #
@@ -451,9 +651,13 @@ def _gravar_registro(registro: dict[str, Any], destino: Path) -> None:
 
 
 def _validar_modo(algoritmo: str, modo: str) -> None:
-    """Recusa um modo fora de `MODOS`, antes de qualquer efeito colateral."""
+    """Recusa um algoritmo ou modo fora de `MODOS`, antes de qualquer efeito colateral."""
+    if algoritmo not in MODOS:
+        raise ValueError(f"algoritmo inválido: {algoritmo!r} (use {'|'.join(MODOS)})")
     if modo not in MODOS[algoritmo]:
-        raise ValueError(f"modo do {algoritmo} inválido: {modo!r} (use {'|'.join(MODOS[algoritmo])})")
+        raise ValueError(
+            f"modo de {algoritmo} inválido: {modo!r} (use {'|'.join(MODOS[algoritmo])})"
+        )
 
 
 def executar_cenario(
@@ -483,16 +687,20 @@ def executar_cenario(
         print(f"[cenario] semente deve ser inteiro >= 0; recebido {semente!r}", file=erro)
         return 1
 
+    particao = (algoritmo, modo) == ("2pc", "particao")
     if algoritmo == "anel":
-        nos = SERVICOS_ANEL
+        nos, compose_base = SERVICOS_ANEL, [COMPOSE]
         override_texto = _override_anel(semente)
         conduzir = lambda arquivos: _cenario_anel(modo, arquivos)  # noqa: E731
-    else:
-        nos = SERVICOS_2PC
+    elif algoritmo == "2pc":
+        nos, compose_base = SERVICOS_2PC, [COMPOSE, COMPOSE_TOXIPROXY] if particao else [COMPOSE]
         override_texto = override_2pc(modo, semente)
         conduzir = lambda arquivos: _cenario_2pc(modo, arquivos, erro)  # noqa: E731
+    else:
+        nos, compose_base = SERVICOS_INTEGRACAO, [COMPOSE_INTEGRACAO]
+        override_texto = override_integracao(modo, semente)
+        conduzir = lambda arquivos: _cenario_integracao(modo, arquivos, erro)  # noqa: E731
     # Só a partição põe o Toxiproxy entre os Nós. Os logs são dos Nós, e o stdout de todos.
-    particao = (algoritmo, modo) == ("2pc", "particao")
     servicos = [*nos, "toxiproxy"] if particao else nos
 
     if not docker_disponivel():
@@ -509,7 +717,7 @@ def executar_cenario(
     with tempfile.TemporaryDirectory() as tmp:
         override = Path(tmp) / "cenario-override.yaml"
         override.write_text(override_texto, encoding="utf-8")
-        arquivos = [COMPOSE, COMPOSE_TOXIPROXY, override] if particao else [COMPOSE, override]
+        arquivos = [*compose_base, override]
 
         compose("down", "-v", "--remove-orphans", arquivos=arquivos)
         up = compose("up", "-d", "--build", "--wait", *servicos, arquivos=arquivos, timeout=900)
@@ -575,7 +783,7 @@ def _construir_parser() -> argparse.ArgumentParser:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("algoritmo", choices=["anel", "2pc"], help="algoritmo alvo")
+    parser.add_argument("algoritmo", choices=list(MODOS), help="algoritmo alvo")
     parser.add_argument(
         "modo",
         help=" ".join(f"{alg}: {'|'.join(modos)}." for alg, modos in MODOS.items()),
