@@ -1,0 +1,16 @@
+{"ts": 1794797032.860454, "no": 1, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "integracao", "anel": [1, 2, 3], "deadline": 1.0, "participantes": [11, 12, 13], "deadline_voto": 3.0, "deadline_decisao": 2.0, "cair_apos_decidir": false}}
+{"ts": 1794797035.1181304, "no": 1, "tipo": "iniciou_eleicao", "no_id": 1, "rodada": "1-35d3d00a"}
+{"ts": 1794797035.1332629, "no": 1, "tipo": "repassou", "msg_tipo": "eleicao", "destino": 2}
+{"ts": 1794797035.1619754, "no": 1, "tipo": "recebeu", "msg_tipo": "eleicao", "origem": 3, "corpo": {"rodada": "1-35d3d00a", "ids": [1, 2, 3]}}
+{"ts": 1794797035.166318, "no": 1, "tipo": "repassou", "msg_tipo": "lider", "destino": 2}
+{"ts": 1794797035.1689587, "no": 1, "tipo": "recebeu", "msg_tipo": "lider", "origem": 3, "corpo": {"rodada": "1-35d3d00a", "lider": 3}}
+{"ts": 1794797035.2197368, "no": 1, "tipo": "iniciou_eleicao", "no_id": 1, "rodada": "1-9a632796"}
+{"ts": 1794797035.2232497, "no": 1, "tipo": "repassou", "msg_tipo": "eleicao", "destino": 2}
+{"ts": 1794797035.906229, "no": 1, "tipo": "recebeu", "msg_tipo": "eleicao", "origem": 2, "corpo": {"rodada": "1-9a632796", "ids": [1, 2]}}
+{"ts": 1794797035.9080153, "no": 1, "tipo": "repassou", "msg_tipo": "lider", "destino": 2}
+{"ts": 1794797035.9084089, "no": 1, "tipo": "recebeu", "msg_tipo": "lider", "origem": 2, "corpo": {"rodada": "1-9a632796", "lider": 2}}
+{"ts": 1794797040.8223598, "no": 1, "tipo": "iniciou_eleicao", "no_id": 1, "rodada": "1-14a3627e"}
+{"ts": 1794797040.8273835, "no": 1, "tipo": "repassou", "msg_tipo": "eleicao", "destino": 2}
+{"ts": 1794797040.8452091, "no": 1, "tipo": "recebeu", "msg_tipo": "eleicao", "origem": 3, "corpo": {"rodada": "1-14a3627e", "ids": [1, 2, 3]}}
+{"ts": 1794797040.8463936, "no": 1, "tipo": "repassou", "msg_tipo": "lider", "destino": 2}
+{"ts": 1794797040.8474338, "no": 1, "tipo": "recebeu", "msg_tipo": "lider", "origem": 3, "corpo": {"rodada": "1-14a3627e", "lider": 3}}

@@ -1,0 +1,19 @@
+{"ts": 1794797053.704484, "no": 2, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "bully", "ids": [1, 2, 3, 4, 5], "deadline": 1.0, "prazo_ok": 2.5, "prazo_coordenador": 5.0}}
+{"ts": 1794797053.9810288, "no": 2, "tipo": "bully_iniciou", "epoca": 1, "gatilho": "inicio"}
+{"ts": 1794797054.008795, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 4, "corpo": {"epoca": 1, "lider": null}}
+{"ts": 1794797054.104179, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "coordenador", "origem": 5, "corpo": {"lider": 5}}
+{"ts": 1794797054.1042266, "no": 2, "tipo": "bully_lider", "lider": 5, "anterior": null, "epoca": 1, "gatilho": "coordenador"}
+{"ts": 1794797054.1841924, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"epoca": 1}}
+{"ts": 1794797054.1842504, "no": 2, "tipo": "bully_iniciou", "epoca": 2, "gatilho": "eleicao"}
+{"ts": 1794797054.1862402, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 4, "corpo": {"epoca": 2, "lider": null}}
+{"ts": 1794797054.3177154, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 5, "corpo": {"epoca": 1, "lider": 5}}
+{"ts": 1794797054.3184068, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 3, "corpo": {"epoca": 1, "lider": null}}
+{"ts": 1794797054.3194802, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 5, "corpo": {"epoca": 2, "lider": 5}}
+{"ts": 1794797054.3197496, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 3, "corpo": {"epoca": 2, "lider": null}}
+{"ts": 1794797055.9402165, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"epoca": 2}}
+{"ts": 1794797055.9404237, "no": 2, "tipo": "bully_iniciou", "epoca": 3, "gatilho": "eleicao"}
+{"ts": 1794797055.9459083, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 4, "corpo": {"epoca": 3, "lider": null}}
+{"ts": 1794797055.9487534, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 3, "corpo": {"epoca": 3, "lider": null}}
+{"ts": 1794797056.624877, "no": 2, "tipo": "bully_envio_falhou", "msg_tipo": "eleicao", "destino": 5, "motivo": "EnvioIndisponivel"}
+{"ts": 1794797058.4496424, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "coordenador", "origem": 4, "corpo": {"lider": 4}}
+{"ts": 1794797058.449859, "no": 2, "tipo": "bully_lider", "lider": 4, "anterior": 5, "epoca": 3, "gatilho": "coordenador"}

@@ -2,7 +2,6 @@
   "cenario": "anel_falha",
   "algoritmo": "anel",
   "modo": "falha",
-  "semente": 0,
   "maior_id_topologia": 5,
   "lideres_iniciais": {
     "1": 5,
@@ -11,7 +10,7 @@
     "4": 5,
     "5": 5
   },
-  "tempo_convergencia_s": 0.2069,
+  "tempo_convergencia_s": 0.1406,
   "esperado": {
     "lideres_iniciais": {
       "1": 5,
@@ -34,7 +33,8 @@
     "3": 4,
     "4": 4
   },
-  "tempo_reeleicao_s": 0.7225,
+  "tempo_reeleicao_s": 0.7011,
+  "semente": 0,
   "desfecho": {
     "ok": true,
     "divergencias": []
@@ -43,17 +43,20 @@
     "codigo": 0,
     "ok": true,
     "relatorio": [
-      "\nlidos 44 evento(s) estruturado(s) e 0 entrada(s) de Log_Duravel.",
-      "\n=== Invariantes de correção ===\n",
-      "  OK      1. Unicidade do Líder por rodada (Anel)  cada uma das 2 rodada(s) concluída(s) anuncia um único Líder",
-      "  OK      2. Convergência dos Nós vivos (Anel)     em cada uma das 2 rodada(s), todos os Nós vivos reportam o mesmo Líder",
-      "  OK      3. Líder é o maior id vivo (Anel)        o Líder de cada uma das 2 rodada(s) é o maior id vivo",
-      "  LACUNA  4. Atomicidade do 2PC                    nenhum caso a verificar nos dados fornecidos",
-      "  LACUNA  5. Durabilidade da Decisao do 2PC        nenhum caso a verificar nos dados fornecidos",
-      "  LACUNA  6. Validade do 2PC                       nenhum caso a verificar nos dados fornecidos",
+      "\n=== cenario_anel_falha_logs: 44 evento(s) e 0 entrada(s) de Log_Duravel ===\n",
+      "  OK      1. Unicidade do Líder por rodada (Anel)    cada uma das 2 rodada(s) concluída(s) anuncia um único Líder",
+      "  OK      2. Convergência dos Nós vivos (Anel)       em cada uma das 2 rodada(s), todos os Nós vivos reportam o mesmo Líder",
+      "  OK      3. Líder é o maior id vivo (Anel)          o Líder de cada uma das 2 rodada(s) é o maior id vivo",
+      "  LACUNA  4. Atomicidade do 2PC                      nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  5. Durabilidade da Decisao do 2PC          nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  6. Validade do 2PC                         nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  7. Coordenador único por transação do 2PC  nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  8. Líder não menor que o Nó (Bully)        nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  9. Vivos no maior id vivo (Bully)          nenhum caso a verificar nos dados fornecidos",
       "",
-      "3 invariante(s) sem dados a verificar (nº 4, 5, 6): estes logs não têm o caso que eles conferem.",
-      "Nenhuma reprovação: 3 invariante(s) passaram, sem violação de safety."
+      "6 invariante(s) sem dados a verificar (nº 4, 5, 6, 7, 8, 9): estes logs não têm o caso que eles conferem.",
+      "Nenhuma reprovação: 3 invariante(s) passaram, sem violação de safety.",
+      "\n1 diretório(s) verificado(s), nenhum com reprovação."
     ]
   },
   "ambiente": {

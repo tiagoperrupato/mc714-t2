@@ -1,0 +1,15 @@
+{"ts": 1794797062.754089, "no": 5, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "bully", "ids": [1, 2, 3, 4, 5], "deadline": 1.0, "prazo_ok": 2.5, "prazo_coordenador": 5.0}}
+{"ts": 1794797063.00198, "no": 5, "tipo": "bully_iniciou", "epoca": 1, "gatilho": "inicio"}
+{"ts": 1794797063.0020628, "no": 5, "tipo": "bully_lider", "lider": 5, "anterior": null, "epoca": 1, "gatilho": "inicio"}
+{"ts": 1794797063.0739968, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 2, "corpo": {"epoca": 1}}
+{"ts": 1794797063.15797, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 4, "corpo": {"epoca": 1}}
+{"ts": 1794797063.2207847, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 3, "corpo": {"epoca": 1}}
+{"ts": 1794797063.3330584, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"epoca": 1}}
+{"ts": 1794797063.334103, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 2, "corpo": {"epoca": 2}}
+{"ts": 1794797063.4062383, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 4, "corpo": {"epoca": 2}}
+{"ts": 1794797063.4070208, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 3, "corpo": {"epoca": 2}}
+{"ts": 1794797063.4107985, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 3, "corpo": {"epoca": 3}}
+{"ts": 1794797063.4121637, "no": 5, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 4, "corpo": {"epoca": 3}}
+{"ts": 1794797068.152703, "no": 5, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "bully", "ids": [1, 2, 3, 4, 5], "deadline": 1.0, "prazo_ok": 2.5, "prazo_coordenador": 5.0}}
+{"ts": 1794797068.3617537, "no": 5, "tipo": "bully_iniciou", "epoca": 1, "gatilho": "inicio"}
+{"ts": 1794797068.3617969, "no": 5, "tipo": "bully_lider", "lider": 5, "anterior": null, "epoca": 1, "gatilho": "inicio"}

@@ -1,0 +1,94 @@
+{
+  "cenario": "anel_reinicio",
+  "algoritmo": "anel",
+  "modo": "reinicio",
+  "maior_id_topologia": 5,
+  "lideres_iniciais": {
+    "1": 5,
+    "2": 5,
+    "3": 5,
+    "4": 5,
+    "5": 5
+  },
+  "tempo_convergencia_s": 0.1113,
+  "esperado": {
+    "lideres_iniciais": {
+      "1": 5,
+      "2": 5,
+      "3": 5,
+      "4": 5,
+      "5": 5
+    },
+    "lideres_pos_falha": {
+      "1": 4,
+      "2": 4,
+      "3": 4,
+      "4": 4
+    },
+    "estado_5_apos_reinicio": {
+      "lider": null,
+      "rodadas_concluidas": []
+    },
+    "lideres_pos_reinicio": {
+      "1": 5,
+      "2": 5,
+      "3": 5,
+      "4": 5,
+      "5": 5
+    }
+  },
+  "falha_injetada": "docker compose kill no-anel-5, depois da primeira eleição, e docker compose start no-anel-5 depois da segunda",
+  "lideres_pos_falha": {
+    "1": 4,
+    "2": 4,
+    "3": 4,
+    "4": 4
+  },
+  "tempo_reeleicao_s": 0.7079,
+  "estado_5_apos_reinicio": {
+    "lider": null,
+    "rodadas_concluidas": []
+  },
+  "lideres_pos_reinicio": {
+    "1": 5,
+    "2": 5,
+    "3": 5,
+    "4": 5,
+    "5": 5
+  },
+  "tempo_reintegracao_s": 0.0269,
+  "semente": 0,
+  "desfecho": {
+    "ok": true,
+    "divergencias": []
+  },
+  "verificacao": {
+    "codigo": 0,
+    "ok": true,
+    "relatorio": [
+      "\n=== cenario_anel_reinicio_logs: 66 evento(s) e 0 entrada(s) de Log_Duravel ===\n",
+      "  OK      1. Unicidade do Líder por rodada (Anel)    cada uma das 3 rodada(s) concluída(s) anuncia um único Líder",
+      "  OK      2. Convergência dos Nós vivos (Anel)       em cada uma das 3 rodada(s), todos os Nós vivos reportam o mesmo Líder",
+      "  OK      3. Líder é o maior id vivo (Anel)          o Líder de cada uma das 3 rodada(s) é o maior id vivo",
+      "  LACUNA  4. Atomicidade do 2PC                      nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  5. Durabilidade da Decisao do 2PC          nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  6. Validade do 2PC                         nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  7. Coordenador único por transação do 2PC  nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  8. Líder não menor que o Nó (Bully)        nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  9. Vivos no maior id vivo (Bully)          nenhum caso a verificar nos dados fornecidos",
+      "",
+      "6 invariante(s) sem dados a verificar (nº 4, 5, 6, 7, 8, 9): estes logs não têm o caso que eles conferem.",
+      "Nenhuma reprovação: 3 invariante(s) passaram, sem violação de safety.",
+      "\n1 diretório(s) verificado(s), nenhum com reprovação."
+    ]
+  },
+  "ambiente": {
+    "amb_so": "Darwin",
+    "amb_so_versao": "25.6.0",
+    "amb_arquitetura": "arm64",
+    "amb_processador": "arm",
+    "amb_num_cpus": 8,
+    "amb_python_versao": "3.12.13",
+    "amb_pacotes": "fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8"
+  }
+}

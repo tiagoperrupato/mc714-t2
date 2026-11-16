@@ -1,0 +1,10 @@
+{"ts": 1794796989.714077, "no": 12, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "2pc", "papel": "participante", "coordenadores": [1], "voto_desejado": "SIM", "deadline": 2.0}}
+{"ts": 1794796994.5558877, "no": 12, "tipo": "recebe", "msg_tipo": "prepare", "origem": 1, "transacao": "tx-318ed008"}
+{"ts": 1794796994.5583863, "no": 12, "tipo": "grava_log", "transacao": "tx-318ed008", "fase": "voto", "valor": "SIM"}
+{"ts": 1794796994.5719185, "no": 12, "tipo": "envia", "msg_tipo": "voto", "destino": 1, "transacao": "tx-318ed008", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794796998.6527054, "no": 12, "tipo": "recebe", "msg_tipo": "decisao", "origem": 1, "transacao": "tx-318ed008"}
+{"ts": 1794796998.6545556, "no": 12, "tipo": "grava_log", "transacao": "tx-318ed008", "fase": "decisao", "valor": "COMMIT"}
+{"ts": 1794796998.6545856, "no": 12, "tipo": "aplica", "transacao": "tx-318ed008", "decisao": "COMMIT"}
+{"ts": 1794796998.659252, "no": 12, "tipo": "envia", "msg_tipo": "ack", "destino": 1, "transacao": "tx-318ed008", "resultado": "EnvioConexaoRecusada", "ok": false}
+{"ts": 1794796999.641743, "no": 12, "tipo": "recebe", "msg_tipo": "decisao", "origem": 1, "transacao": "tx-318ed008"}
+{"ts": 1794796999.6483178, "no": 12, "tipo": "envia", "msg_tipo": "ack", "destino": 1, "transacao": "tx-318ed008", "resultado": "EnvioOk", "ok": true}

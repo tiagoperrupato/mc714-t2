@@ -1,0 +1,112 @@
+{
+  "cenario": "2pc_crash-coord-part",
+  "algoritmo": "2pc",
+  "modo": "crash-coord-part",
+  "falha_injetada": "processo do Coordenador morre depois de gravar a Decisao (DOISPC_CAIR_APOS_DECIDIR) e o contêiner é reiniciado. O contêiner do Participante 11 cai e volta em dúvida antes do reinício do Coordenador, e cai e volta com a Decisao depois que todos decidem",
+  "participantes_em_duvida": [
+    11,
+    12,
+    13
+  ],
+  "verificacao_com_coordenador_fora": {
+    "codigo": 0,
+    "relatorio": [
+      "\n=== coordenador_fora_logs: 24 evento(s) e 5 entrada(s) de Log_Duravel ===\n",
+      "  LACUNA  1. Unicidade do Líder por rodada (Anel)    nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  2. Convergência dos Nós vivos (Anel)       nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  3. Líder é o maior id vivo (Anel)          nenhum caso a verificar nos dados fornecidos",
+      "  OK      4. Atomicidade do 2PC                      as 1 transação(ões) com Decisao durável são atômicas (todos COMMIT ou todos ABORT)",
+      "  LACUNA  5. Durabilidade da Decisao do 2PC          nenhum caso a verificar nos dados fornecidos",
+      "           aviso: transação tx-318ed008, nó 11: votou SIM e segue sem Decisao durável (Estado_Em_Duvida, bloqueio esperado do 2PC)",
+      "           aviso: transação tx-318ed008, nó 12: votou SIM e segue sem Decisao durável (Estado_Em_Duvida, bloqueio esperado do 2PC)",
+      "           aviso: transação tx-318ed008, nó 13: votou SIM e segue sem Decisao durável (Estado_Em_Duvida, bloqueio esperado do 2PC)",
+      "  OK      6. Validade do 2PC                         as 1 transação(ões) com COMMIT tiveram o Voto SIM de todos os Participantes",
+      "  OK      7. Coordenador único por transação do 2PC  as 1 transação(ões) tiveram um único Coordenador",
+      "  LACUNA  8. Líder não menor que o Nó (Bully)        nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  9. Vivos no maior id vivo (Bully)          nenhum caso a verificar nos dados fornecidos",
+      "",
+      "3 aviso(s), que não reprovam.",
+      "6 invariante(s) sem dados a verificar (nº 1, 2, 3, 5, 8, 9): estes logs não têm o caso que eles conferem.",
+      "Nenhuma reprovação: 3 invariante(s) passaram, sem violação de safety.",
+      "\n1 diretório(s) verificado(s), nenhum com reprovação."
+    ]
+  },
+  "avisos_com_coordenador_fora": 3,
+  "decisao": "COMMIT",
+  "concluido": true,
+  "tempo_recuperacao_s": 0.552,
+  "decisoes_participantes": {
+    "11": "COMMIT",
+    "12": "COMMIT",
+    "13": "COMMIT"
+  },
+  "esperado": {
+    "decisao": "COMMIT",
+    "decisoes_participantes": {
+      "11": "COMMIT",
+      "12": "COMMIT",
+      "13": "COMMIT"
+    },
+    "participantes_em_duvida": [
+      11,
+      12,
+      13
+    ],
+    "avisos_com_coordenador_fora": 3,
+    "concluido": true,
+    "reinicio_em_duvida": {
+      "voto": "SIM",
+      "decisao": null,
+      "em_duvida": true
+    },
+    "reinicio_apos_decidir": {
+      "voto": "SIM",
+      "decisao": "COMMIT",
+      "em_duvida": false
+    }
+  },
+  "reinicio_em_duvida": {
+    "voto": "SIM",
+    "decisao": null,
+    "em_duvida": true
+  },
+  "reinicio_apos_decidir": {
+    "voto": "SIM",
+    "decisao": "COMMIT",
+    "em_duvida": false
+  },
+  "semente": 0,
+  "desfecho": {
+    "ok": true,
+    "divergencias": []
+  },
+  "verificacao": {
+    "codigo": 0,
+    "ok": true,
+    "relatorio": [
+      "\n=== cenario_2pc_crash-coord-part_logs: 56 evento(s) e 8 entrada(s) de Log_Duravel ===\n",
+      "  LACUNA  1. Unicidade do Líder por rodada (Anel)    nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  2. Convergência dos Nós vivos (Anel)       nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  3. Líder é o maior id vivo (Anel)          nenhum caso a verificar nos dados fornecidos",
+      "  OK      4. Atomicidade do 2PC                      as 1 transação(ões) com Decisao durável são atômicas (todos COMMIT ou todos ABORT)",
+      "  OK      5. Durabilidade da Decisao do 2PC          as 2 recuperação(ões) após reinício reproduzem a Decisao registrada",
+      "  OK      6. Validade do 2PC                         as 1 transação(ões) com COMMIT tiveram o Voto SIM de todos os Participantes",
+      "  OK      7. Coordenador único por transação do 2PC  as 1 transação(ões) tiveram um único Coordenador",
+      "  LACUNA  8. Líder não menor que o Nó (Bully)        nenhum caso a verificar nos dados fornecidos",
+      "  LACUNA  9. Vivos no maior id vivo (Bully)          nenhum caso a verificar nos dados fornecidos",
+      "",
+      "5 invariante(s) sem dados a verificar (nº 1, 2, 3, 8, 9): estes logs não têm o caso que eles conferem.",
+      "Nenhuma reprovação: 4 invariante(s) passaram, sem violação de safety.",
+      "\n1 diretório(s) verificado(s), nenhum com reprovação."
+    ]
+  },
+  "ambiente": {
+    "amb_so": "Darwin",
+    "amb_so_versao": "25.6.0",
+    "amb_arquitetura": "arm64",
+    "amb_processador": "arm",
+    "amb_num_cpus": 8,
+    "amb_python_versao": "3.12.13",
+    "amb_pacotes": "fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8"
+  }
+}

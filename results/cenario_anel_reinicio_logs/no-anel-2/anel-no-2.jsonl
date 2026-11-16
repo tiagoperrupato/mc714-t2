@@ -1,0 +1,13 @@
+{"ts": 1794796928.9957657, "no": 2, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "anel", "anel": [1, 2, 3, 4, 5], "deadline": 1.0}}
+{"ts": 1794796931.4908328, "no": 2, "tipo": "recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"rodada": "1-ce75c9cb", "ids": [1]}}
+{"ts": 1794796931.505972, "no": 2, "tipo": "repassou", "msg_tipo": "eleicao", "destino": 3}
+{"ts": 1794796931.5451932, "no": 2, "tipo": "recebeu", "msg_tipo": "lider", "origem": 1, "corpo": {"rodada": "1-ce75c9cb", "lider": 5}}
+{"ts": 1794796931.5465713, "no": 2, "tipo": "repassou", "msg_tipo": "lider", "destino": 3}
+{"ts": 1794796931.861742, "no": 2, "tipo": "recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"rodada": "1-b8429a2a", "ids": [1]}}
+{"ts": 1794796931.8639355, "no": 2, "tipo": "repassou", "msg_tipo": "eleicao", "destino": 3}
+{"ts": 1794796932.5489619, "no": 2, "tipo": "recebeu", "msg_tipo": "lider", "origem": 1, "corpo": {"rodada": "1-b8429a2a", "lider": 4}}
+{"ts": 1794796932.5511925, "no": 2, "tipo": "repassou", "msg_tipo": "lider", "destino": 3}
+{"ts": 1794796933.3372521, "no": 2, "tipo": "recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"rodada": "1-4ab7d95a", "ids": [1]}}
+{"ts": 1794796933.339064, "no": 2, "tipo": "repassou", "msg_tipo": "eleicao", "destino": 3}
+{"ts": 1794796933.3506873, "no": 2, "tipo": "recebeu", "msg_tipo": "lider", "origem": 1, "corpo": {"rodada": "1-4ab7d95a", "lider": 5}}
+{"ts": 1794796933.3516421, "no": 2, "tipo": "repassou", "msg_tipo": "lider", "destino": 3}

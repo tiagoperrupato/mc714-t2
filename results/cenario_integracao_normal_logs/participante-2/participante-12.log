@@ -1,0 +1,2 @@
+{"fase": "voto", "no": 12, "transacao": "c3-tx-n", "valor": "SIM"}
+{"fase": "decisao", "no": 12, "transacao": "c3-tx-n", "valor": "COMMIT"}

@@ -1,0 +1,2 @@
+{"fase": "inicio", "no": 1, "transacao": "tx-4a68f61d", "valor": "WAIT"}
+{"fase": "decisao", "no": 1, "transacao": "tx-4a68f61d", "valor": "ABORT"}

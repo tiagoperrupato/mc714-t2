@@ -1,0 +1,17 @@
+{"ts": 1794797016.9278786, "no": 11, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "2pc", "papel": "participante", "coordenadores": [1, 2, 3], "voto_desejado": "SIM", "deadline": 2.0}}
+{"ts": 1794797022.0817049, "no": 11, "tipo": "recebe", "msg_tipo": "prepare", "origem": 3, "transacao": "c3-tx-a"}
+{"ts": 1794797022.082865, "no": 11, "tipo": "grava_log", "transacao": "c3-tx-a", "fase": "voto", "valor": "SIM"}
+{"ts": 1794797022.0929909, "no": 11, "tipo": "envia", "msg_tipo": "voto", "destino": 3, "transacao": "c3-tx-a", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794797022.824966, "no": 11, "tipo": "recebe", "msg_tipo": "prepare", "origem": 2, "transacao": "c2-tx-b"}
+{"ts": 1794797022.825801, "no": 11, "tipo": "grava_log", "transacao": "c2-tx-b", "fase": "voto", "valor": "SIM"}
+{"ts": 1794797022.8274999, "no": 11, "tipo": "envia", "msg_tipo": "voto", "destino": 2, "transacao": "c2-tx-b", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794797022.835334, "no": 11, "tipo": "recebe", "msg_tipo": "decisao", "origem": 2, "transacao": "c2-tx-b"}
+{"ts": 1794797022.8360121, "no": 11, "tipo": "grava_log", "transacao": "c2-tx-b", "fase": "decisao", "valor": "COMMIT"}
+{"ts": 1794797022.8360403, "no": 11, "tipo": "aplica", "transacao": "c2-tx-b", "decisao": "COMMIT"}
+{"ts": 1794797022.837463, "no": 11, "tipo": "envia", "msg_tipo": "ack", "destino": 2, "transacao": "c2-tx-b", "resultado": "EnvioOk", "ok": true}
+{"ts": 1794797023.4687107, "no": 11, "tipo": "recebe", "msg_tipo": "decisao", "origem": 3, "transacao": "c3-tx-a"}
+{"ts": 1794797023.469969, "no": 11, "tipo": "grava_log", "transacao": "c3-tx-a", "fase": "decisao", "valor": "COMMIT"}
+{"ts": 1794797023.4700003, "no": 11, "tipo": "aplica", "transacao": "c3-tx-a", "decisao": "COMMIT"}
+{"ts": 1794797023.4715042, "no": 11, "tipo": "envia", "msg_tipo": "ack", "destino": 3, "transacao": "c3-tx-a", "resultado": "EnvioConexaoRecusada", "ok": false}
+{"ts": 1794797024.4745233, "no": 11, "tipo": "recebe", "msg_tipo": "decisao", "origem": 3, "transacao": "c3-tx-a"}
+{"ts": 1794797024.4816923, "no": 11, "tipo": "envia", "msg_tipo": "ack", "destino": 3, "transacao": "c3-tx-a", "resultado": "EnvioOk", "ok": true}

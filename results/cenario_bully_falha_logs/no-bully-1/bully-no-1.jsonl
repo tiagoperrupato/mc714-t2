@@ -1,0 +1,15 @@
+{"ts": 1794797053.941141, "no": 1, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "bully", "ids": [1, 2, 3, 4, 5], "deadline": 1.0, "prazo_ok": 2.5, "prazo_coordenador": 5.0}}
+{"ts": 1794797054.1761858, "no": 1, "tipo": "bully_iniciou", "epoca": 1, "gatilho": "inicio"}
+{"ts": 1794797054.1861815, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 4, "corpo": {"epoca": 1, "lider": null}}
+{"ts": 1794797054.1866095, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 2, "corpo": {"epoca": 1, "lider": null}}
+{"ts": 1794797054.431324, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "coordenador", "origem": 5, "corpo": {"lider": 5}}
+{"ts": 1794797054.4313934, "no": 1, "tipo": "bully_lider", "lider": 5, "anterior": null, "epoca": 1, "gatilho": "coordenador"}
+{"ts": 1794797054.432666, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 5, "corpo": {"epoca": 1, "lider": 5}}
+{"ts": 1794797054.5255127, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 3, "corpo": {"epoca": 1, "lider": null}}
+{"ts": 1794797055.9375107, "no": 1, "tipo": "bully_iniciou", "epoca": 2, "gatilho": "pedido"}
+{"ts": 1794797055.9442923, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 4, "corpo": {"epoca": 2, "lider": null}}
+{"ts": 1794797055.9457927, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 3, "corpo": {"epoca": 2, "lider": null}}
+{"ts": 1794797055.9462106, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 2, "corpo": {"epoca": 2, "lider": null}}
+{"ts": 1794797056.6167493, "no": 1, "tipo": "bully_envio_falhou", "msg_tipo": "eleicao", "destino": 5, "motivo": "EnvioIndisponivel"}
+{"ts": 1794797058.4515016, "no": 1, "tipo": "bully_recebeu", "msg_tipo": "coordenador", "origem": 4, "corpo": {"lider": 4}}
+{"ts": 1794797058.451711, "no": 1, "tipo": "bully_lider", "lider": 4, "anterior": 5, "epoca": 2, "gatilho": "coordenador"}

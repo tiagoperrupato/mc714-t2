@@ -1,0 +1,13 @@
+{"ts": 1794797047.279501, "no": 2, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "bully", "ids": [1, 2, 3, 4, 5], "deadline": 1.0, "prazo_ok": 2.5, "prazo_coordenador": 5.0}}
+{"ts": 1794797047.5174644, "no": 2, "tipo": "bully_iniciou", "epoca": 1, "gatilho": "inicio"}
+{"ts": 1794797047.5280967, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 3, "corpo": {"epoca": 1, "lider": null}}
+{"ts": 1794797047.6470542, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"epoca": 1}}
+{"ts": 1794797047.7577999, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "coordenador", "origem": 5, "corpo": {"lider": 5}}
+{"ts": 1794797047.7578483, "no": 2, "tipo": "bully_lider", "lider": 5, "anterior": null, "epoca": 1, "gatilho": "coordenador"}
+{"ts": 1794797047.7591326, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 5, "corpo": {"epoca": 1, "lider": 5}}
+{"ts": 1794797047.8597062, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 4, "corpo": {"epoca": 1, "lider": null}}
+{"ts": 1794797049.1455183, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"epoca": 2}}
+{"ts": 1794797049.1456666, "no": 2, "tipo": "bully_iniciou", "epoca": 2, "gatilho": "eleicao"}
+{"ts": 1794797049.150624, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 5, "corpo": {"epoca": 2, "lider": 5}}
+{"ts": 1794797049.1512716, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 3, "corpo": {"epoca": 2, "lider": null}}
+{"ts": 1794797049.1514997, "no": 2, "tipo": "bully_recebeu", "msg_tipo": "ok", "origem": 4, "corpo": {"epoca": 2, "lider": null}}

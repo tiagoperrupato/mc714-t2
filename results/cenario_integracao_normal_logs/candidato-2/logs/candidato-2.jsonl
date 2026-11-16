@@ -1,0 +1,5 @@
+{"ts": 1794797008.7068386, "no": 2, "tipo": "inicio_replica", "semente": 0, "plano_de_falhas": {"semente": 0, "crash": false, "pausa_s": 0.0, "delay_ativo": false, "delay_s": 0.0, "drop_ativo": false, "drop_p": 0.0}, "cenario": {"algoritmo": "integracao", "anel": [1, 2, 3], "deadline": 1.0, "participantes": [11, 12, 13], "deadline_voto": 3.0, "deadline_decisao": 2.0, "cair_apos_decidir": false}}
+{"ts": 1794797010.9685159, "no": 2, "tipo": "recebeu", "msg_tipo": "eleicao", "origem": 1, "corpo": {"rodada": "1-9a4ee1ba", "ids": [1]}}
+{"ts": 1794797010.9838724, "no": 2, "tipo": "repassou", "msg_tipo": "eleicao", "destino": 3}
+{"ts": 1794797010.9939098, "no": 2, "tipo": "recebeu", "msg_tipo": "lider", "origem": 1, "corpo": {"rodada": "1-9a4ee1ba", "lider": 3}}
+{"ts": 1794797010.9949808, "no": 2, "tipo": "repassou", "msg_tipo": "lider", "destino": 3}
