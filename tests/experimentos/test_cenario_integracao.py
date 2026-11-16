@@ -26,11 +26,12 @@ from tests.apoio import ServidorLocal, compose_cli_disponivel, porta_livre
 
 
 def test_modos_da_integracao_e_invariantes_exigidos() -> None:
-    for modo in ("normal", "failover"):
+    for modo in ("normal", "failover", "failover-isolamento"):
         cenario._validar_modo("integracao", modo)
-    # Só o failover tem recuperação de Coordenador para o 05 conferir.
+    # Só os failovers têm recuperação de Coordenador para o 05 conferir.
     assert cenario.MODOS["integracao"]["normal"] == (1, 2, 3, 4, 6, 7)
     assert cenario.MODOS["integracao"]["failover"] == (1, 2, 3, 4, 5, 6, 7)
+    assert cenario.MODOS["integracao"]["failover-isolamento"] == (1, 2, 3, 4, 5, 6, 7)
 
 
 @pytest.mark.parametrize(
@@ -54,8 +55,9 @@ def test_override_normal_fixa_a_semente_sem_queda() -> None:
         assert "DOISPC_CAIR_APOS_DECIDIR" not in texto
 
 
-def test_override_failover_derruba_so_o_candidato_3() -> None:
-    blocos = _ambiente_por_servico(conteineres.override_integracao("failover", 0))
+@pytest.mark.parametrize("modo", ["failover", "failover-isolamento"])
+def test_override_failover_derruba_so_o_candidato_3(modo: str) -> None:
+    blocos = _ambiente_por_servico(conteineres.override_integracao(modo, 0))
     com_queda = [s for s, texto in blocos.items() if 'DOISPC_CAIR_APOS_DECIDIR: "true"' in texto]
     assert com_queda == ["candidato-3"]
     assert all('SEMENTE: "0"' in texto for texto in blocos.values())
@@ -235,3 +237,21 @@ def test_integracao_failover_e2e(tmp_path: Path) -> None:
     assert [(ev.campos["transacao"], ev.campos["decisao"]) for ev in recuperacoes] == [
         ("c3-tx-a", "COMMIT")
     ]
+
+
+@pytest.mark.slow
+@pularsem_docker
+def test_integracao_failover_isolamento_e2e(tmp_path: Path) -> None:
+    """Com o 11 isolado, c2-tx-b aborta no prazo de Votos, e a retransmissão leva o ABORT a ele."""
+    assert cenario.executar_cenario("integracao", "failover-isolamento", tmp_path, semente=0) == 0
+    reg = _registro(tmp_path, "failover-isolamento")
+    assert reg["decisao_tx_b"] == "ABORT"
+    assert reg["decisoes_tx_b_durante_isolamento"] == {"11": None, "12": "ABORT", "13": "ABORT"}
+    assert reg["concluido_tx_b_durante_isolamento"] is False
+    assert reg["tx_b_no_isolado_apos_limpeza"] == {"voto": None, "decisao": "ABORT"}
+    assert reg["decisoes_participantes_tx_a"] == dict.fromkeys(("11", "12", "13"), "COMMIT")
+    assert reg["desfecho"]["ok"] is True
+    assert reg["verificacao"]["ok"] is True
+    # Os três votariam SIM, então o ABORT veio do prazo de coleta de Votos do candidato 2.
+    log = tmp_path / "cenario_integracao_failover-isolamento_logs" / "candidato-2"
+    assert any(ev.tipo == "timeout_votos" for ev in inv.carregar_eventos(log))

@@ -75,6 +75,12 @@ Cenários da integração, em que o Líder do Anel de três candidatos coordena 
         ainda em dúvida nos Participantes. O 3 volta, relê o Log_Duravel e difunde o
         COMMIT de c3-tx-a, e a eleição seguinte o reintegra como Líder.
 
+    python scripts/cenario.py integracao failover-isolamento
+        Como o failover, com o Participante 11 descartando toda Mensagem que recebe
+        (/falha/drop com p = 1) durante c2-tx-b. O 11 descarta o PREPARE, e o 2
+        decide ABORT no prazo de Votos. Depois da limpeza, a retransmissão da
+        DECISAO leva o ABORT ao 11, que nunca votou, e o 3 volta como no failover.
+
 Requer Docker com Compose v2. Sem Docker, o script falha com uma mensagem clara
 e código de saída 2, em vez de travar.
 
@@ -150,7 +156,11 @@ MODOS: dict[str, dict[str, tuple[int, ...]]] = {
         "crash-coord-part": (4, 5, 6, 7),
         "particao": (4, 7),
     },
-    "integracao": {"normal": (1, 2, 3, 4, 6, 7), "failover": (1, 2, 3, 4, 5, 6, 7)},
+    "integracao": {
+        "normal": (1, 2, 3, 4, 6, 7),
+        "failover": (1, 2, 3, 4, 5, 6, 7),
+        "failover-isolamento": (1, 2, 3, 4, 5, 6, 7),
+    },
 }
 
 
@@ -444,6 +454,9 @@ TX_NORMAL = "c3-tx-n"
 TX_A = "c3-tx-a"
 TX_B = "c2-tx-b"
 
+# O Participante que o `failover-isolamento` isola durante c2-tx-b.
+PART_ISOLADO = 11
+
 
 def _pedir_transacao(base: str, nome: str) -> tuple[int | None, dict[str, Any]]:
     """`POST /transacao` em `base` com o status e o corpo da resposta.
@@ -470,7 +483,9 @@ def _cenario_integracao(modo: str, arquivos: list[Path], erro) -> dict[str, Any]
 
     Quem detecta a queda do Líder é o cliente, pelo POST sem resposta, e é ele que dispara a
     eleição. Nenhum candidato assume a transação de outro, então c3-tx-a espera o 3 voltar.
-    Cada passo imprime uma linha `[cenario]` em `erro`.
+    O `failover-isolamento` é o failover com o Participante 11 descartando tudo o que recebe
+    durante c2-tx-b, que aborta no prazo de Votos. Cada passo imprime uma linha `[cenario]` em
+    `erro`.
     """
     bases = {i: f"http://127.0.0.1:{porta}" for i, porta in PORTAS_CANDIDATO.items()}
     todos = list(PORTAS_CANDIDATO)
@@ -539,6 +554,11 @@ def _cenario_integracao(modo: str, arquivos: list[Path], erro) -> dict[str, Any]
         f"em {tempo_reeleicao:.2f} s",
         file=erro,
     )
+    isolado = modo == "failover-isolamento"
+    base_isolado = f"http://127.0.0.1:{PORTAS_PART_INTEGRACAO[PART_ISOLADO]}"
+    if isolado:
+        http_json(f"{base_isolado}/falha/drop", metodo="POST", corpo={"p": 1})
+        print(f"[cenario] Participante {PART_ISOLADO} descarta toda Mensagem recebida", file=erro)
     inicio = time.monotonic()
     _, resposta_b = _pedir_transacao(bases[2], "tx-b")
     fim = time.monotonic()
@@ -547,7 +567,22 @@ def _cenario_integracao(modo: str, arquivos: list[Path], erro) -> dict[str, Any]
         f"{fim - inicio:.2f} s, {fim - queda:.2f} s depois da queda do 3",
         file=erro,
     )
-    finais_b = decisoes(participantes(esperar_decisao=True, transacao=TX_B))
+    if isolado:
+        outros = {
+            pid: porta for pid, porta in PORTAS_PART_INTEGRACAO.items() if pid != PART_ISOLADO
+        }
+        participantes(esperar_decisao=True, transacao=TX_B, portas=outros)
+        durante = decisoes(participantes(esperar_decisao=False, transacao=TX_B))
+        concluido_durante = http_json(url_estado(bases[2], TX_B)).get("concluido")
+        print(
+            f"[cenario] com o {PART_ISOLADO} isolado, {TX_B}: {durante}, todos os ACK no 2: "
+            f"{concluido_durante}",
+            file=erro,
+        )
+        # A retransmissão da DECISAO alcança o 11, que grava a Decisao sem nunca ter votado.
+        http_json(f"{base_isolado}/falha/limpar", metodo="POST")
+    estados_b = participantes(esperar_decisao=True, transacao=TX_B)
+    finais_b = decisoes(estados_b)
     print(f"[cenario] Participantes em {TX_B}: {finais_b}", file=erro)
     duvida_durante = _em_duvida(participantes(esperar_decisao=False, transacao=TX_A))
     tx_a_no_2 = http_json(url_estado(bases[2], TX_A)).get("transacao")
@@ -563,7 +598,7 @@ def _cenario_integracao(modo: str, arquivos: list[Path], erro) -> dict[str, Any]
     print(
         f"[cenario] candidato 3 reiniciado. Em {recuperacao:.2f} s, {TX_A}: {finais_a}", file=erro
     )
-    _exigir_saude("candidato-3", bases[3], "integracao failover", arquivos)
+    _exigir_saude("candidato-3", bases[3], f"integracao {modo}", arquivos)
     lideres_finais, tempo_reintegracao = eleger(bases, todos, 3)
     print(
         f"[cenario] eleição com o 3 de volta: Líderes {lideres_finais} em "
@@ -579,7 +614,7 @@ def _cenario_integracao(modo: str, arquivos: list[Path], erro) -> dict[str, Any]
     )
     registro |= {
         "falha_injetada": f"processo do candidato 3 morre depois de gravar a Decisao de {TX_A} "
-        f"(DOISPC_CAIR_APOS_DECIDIR) e o contêiner é reiniciado depois do COMMIT de {TX_B}",
+        f"(DOISPC_CAIR_APOS_DECIDIR) e o contêiner é reiniciado depois da Decisao de {TX_B}",
         "em_duvida_tx_a": em_duvida,
         "lideres_pos_falha": lideres_pos,
         "tempo_reeleicao_s": round(tempo_reeleicao, 4),
@@ -597,18 +632,39 @@ def _cenario_integracao(modo: str, arquivos: list[Path], erro) -> dict[str, Any]
         "concluido_tx_a": conclusao_a.get("concluido"),
         "concluido_tx_b": conclusao_b.get("concluido"),
     }
+    decisao_b = "ABORT" if isolado else "COMMIT"
     registro["esperado"] |= {
         "em_duvida_tx_a": sorted(PORTAS_PART_INTEGRACAO),
         "lideres_pos_falha": dict.fromkeys(vivos, 2),
         "transacao_tx_b": TX_B,
-        "decisao_tx_b": "COMMIT",
-        "decisoes_participantes_tx_b": commit,
+        "decisao_tx_b": decisao_b,
+        "decisoes_participantes_tx_b": dict.fromkeys(PORTAS_PART_INTEGRACAO, decisao_b),
         "em_duvida_tx_a_durante_tx_b": sorted(PORTAS_PART_INTEGRACAO),
         "tx_a_no_novo_lider": None,
         "decisoes_participantes_tx_a": commit,
         "lideres_finais": dict.fromkeys(todos, 3),
         "concluido_tx_a": True,
         "concluido_tx_b": True,
+    }
+    if not isolado:
+        return registro
+    registro["falha_injetada"] += (
+        f". O Participante {PART_ISOLADO} descarta toda Mensagem recebida (POST /falha/drop com "
+        f"p = 1) de antes de {TX_B} até o POST /falha/limpar, antes do reinício do 3"
+    )
+    registro |= {
+        "decisoes_tx_b_durante_isolamento": durante,
+        "concluido_tx_b_durante_isolamento": concluido_durante,
+        "tx_b_no_isolado_apos_limpeza": {
+            chave: estados_b[PART_ISOLADO].get(chave) for chave in ("voto", "decisao")
+        },
+    }
+    registro["esperado"] |= {
+        "decisoes_tx_b_durante_isolamento": {
+            pid: None if pid == PART_ISOLADO else "ABORT" for pid in PORTAS_PART_INTEGRACAO
+        },
+        "concluido_tx_b_durante_isolamento": False,
+        "tx_b_no_isolado_apos_limpeza": {"voto": None, "decisao": "ABORT"},
     }
     return registro
 

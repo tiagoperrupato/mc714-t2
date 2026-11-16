@@ -110,12 +110,13 @@ services:
 def override_integracao(modo: str, semente: int) -> str:
     """YAML de override da integração: semente nos seis serviços e, no failover, a queda do 3.
 
-    No `failover` o processo do candidato 3 morre logo depois de gravar a primeira Decisao.
+    No `failover` e no `failover-isolamento` o processo do candidato 3 morre logo depois de gravar
+    a primeira Decisao.
     """
     linhas = ["services:"]
     for servico in SERVICOS_INTEGRACAO:
         linhas += [f"  {servico}:", "    environment:", f'      SEMENTE: "{semente}"']
-        if modo == "failover" and servico == "candidato-3":
+        if modo in ("failover", "failover-isolamento") and servico == "candidato-3":
             linhas.append('      DOISPC_CAIR_APOS_DECIDIR: "true"')
     return "\n".join(linhas) + "\n"
 

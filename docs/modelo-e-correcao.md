@@ -337,7 +337,8 @@ as quebra:
   Coordenador, como a queda de um processo real. O Deadline do Anel pode suspeitar de um
   candidato vivo, e então dois candidatos se julgam Líderes ao mesmo tempo. A *safety* das
   transações se mantém, porque cada uma leva no id o prefixo do candidato que a criou
-  (`c3-tx-a`, de `id_da_transacao`), e só ele a coordena.
+  (`c3-tx-a`, de `id_da_transacao`), e só ele a coordena. Um Participante que descarta as
+  Mensagens que recebe faz a transação nova abortar no prazo de Votos, como no 2PC.
 - **Persistência e reinício (M4).** Cada candidato tem o próprio Log_Duravel num volume, e o
   Anel continua sem estado durável. O candidato que volta recupera só as próprias transações
   e não conhece Líder até a eleição seguinte. Nenhum candidato assume a transação de outro.
@@ -375,6 +376,14 @@ as quebra:
   reiniciado, mas a recuperação de uma transação decidida só difunde a Decisao, sem gravar, e
   o cenário não manda transação nova a ele. O 05 confere a `recuperacao` de `c3-tx-a` no
   candidato 3 contra a Decisao do log dele.
+- **Failover com Participante isolado** (`integracao failover-isolamento`): o mesmo failover,
+  com o Participante 11 descartando toda Mensagem que recebe durante `c2-tx-b`
+  (`POST /falha/drop` com p = 1). O 11 descarta o PREPARE, e o 2 decide ABORT no prazo de
+  Votos, com o 11 sem Decisao e a transação sem todos os ACK
+  (`decisoes_tx_b_durante_isolamento` e `concluido_tx_b_durante_isolamento`). Depois do
+  `POST /falha/limpar`, a retransmissão leva o ABORT ao 11, que nunca preparou `c2-tx-b` e
+  grava a Decisao sem Voto (`tx_b_no_isolado_apos_limpeza`), como a Máquina_de_Estados faz com
+  toda DECISAO de transação desconhecida (`src/doispc/maquina.py`).
 
 ---
 
@@ -398,13 +407,15 @@ aprovados são os que o modo exige em `MODOS`.
 | `2pc particao` | corta a rota até o Participante 11, o Coordenador aborta no prazo de Votos, e depois da cura a retransmissão leva o ABORT ao 11 | 04, 05, 06, 07 | 04 e 07 passam, 05 e 06 em lacuna, ABORT em todos e transação concluída |
 | `integracao normal` | elege o candidato 3, o 1 recusa a transação com 409 e aponta o 3, que comita `c3-tx-n` em todos | 01 a 07 | 01 a 04, 06 e 07 passam, 05 em lacuna |
 | `integracao failover` | o candidato 3 cai depois de gravar o COMMIT de `c3-tx-a`, o cliente elege o 2, que comita `c2-tx-b` com `c3-tx-a` em dúvida, e o 3 volta, difunde o COMMIT e a eleição seguinte o reintegra como Líder | 01 a 07 | passam nas três rodadas e nas duas transações, o 05 com a recuperação do candidato 3 |
+| `integracao failover-isolamento` | como o `integracao failover`, com o Participante 11 descartando toda Mensagem durante `c2-tx-b`, que aborta no prazo de Votos, e a retransmissão leva o ABORT ao 11 depois da limpeza | 01 a 07 | passam nas três rodadas e nas duas transações, o 05 com a recuperação do candidato 3, `c2-tx-b` em ABORT e `c3-tx-a` em COMMIT nos três |
 
 Em todos, `verificar.py` sai com código 0 e o desfecho observado é o esperado.
 `cenario.py` sai 1 se um invariante reprova, se um invariante exigido termina sem
 caso verificado ou se o desfecho difere do esperado. No `2pc crash-coord`, o 05
 confere a `recuperacao` do Coordenador reiniciado contra a Decisao do log dele, e
 no `2pc crash-coord-part` também a segunda `recuperacao` do 11. No
-`integracao failover`, ele confere a `recuperacao` de `c3-tx-a` no candidato 3.
+`integracao failover` e no `integracao failover-isolamento`, ele confere a `recuperacao` de
+`c3-tx-a` no candidato 3.
 
 ## Falhas do modelo e onde são demonstradas
 
@@ -428,4 +439,5 @@ processo ou servidos localmente.
 | 2PC | Participante lento, que o timeout trata como falho | `test_voto_depois_do_abort_sai_da_duvida_pela_retransmissao` | o Voto atrasado não muda o ABORT, e a retransmissão tira o Participante da dúvida |
 | 2PC | DECISAO perdida | `test_decisao_perdida_chega_pela_retransmissao` | a retransmissão entrega a Decisao |
 | Integração | crash do Líder que coordena, depois de decidir | cenário `integracao failover` | 01 a 07, `c2-tx-b` em COMMIT com `c3-tx-a` em dúvida, e `c3-tx-a` em COMMIT depois do reinício do 3 |
+| Integração | Participante que descarta toda Mensagem recebida (drop de aplicação com p = 1) durante o failover | cenário `integracao failover-isolamento` | 01 a 07, `c2-tx-b` em ABORT no prazo de Votos, e o ABORT no 11 pela retransmissão depois da limpeza |
 | Integração | candidato que não responde numa eleição e volta crendo ser o Líder, com dois Líderes | `test_dois_lideres_comitam_com_prefixos_distintos_e_nenhum_invariante_reprova` | 01 a 03 nas duas rodadas, e 04, 06 e 07 nas dez transações dos dois Líderes |

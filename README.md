@@ -178,6 +178,7 @@ python scripts/cenario.py 2pc crash-coord-part  # Coordenador e Participante 11 
 python scripts/cenario.py 2pc particao       # isola o Participante 11 -> ABORT no prazo -> cura -> ABORT também no 11
 python scripts/cenario.py integracao normal   # Líder 3 do anel de candidatos -> 409 no candidato 1 -> COMMIT de c3-tx-n no 3
 python scripts/cenario.py integracao failover # 3 cai depois de decidir c3-tx-a -> cliente elege o 2 -> COMMIT de c2-tx-b -> 3 volta e difunde o COMMIT de c3-tx-a
+python scripts/cenario.py integracao failover-isolamento  # como o failover, com o 11 descartando tudo -> ABORT de c2-tx-b no prazo -> limpeza -> ABORT também no 11
 ```
 
 Os da integração sobem a pilha de `compose.integracao.yaml`, e os demais a de `compose.yaml`.
@@ -426,6 +427,7 @@ python scripts/cenario.py 2pc crash-coord-part
 python scripts/cenario.py 2pc particao
 python scripts/cenario.py integracao normal
 python scripts/cenario.py integracao failover
+python scripts/cenario.py integracao failover-isolamento
 python scripts/verificar.py                        # (6) invariantes sobre results/
 docker compose down -v --remove-orphans            # (7) teardown limpo, sem órfãos
 ```
