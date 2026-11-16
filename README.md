@@ -84,26 +84,29 @@ partir da raiz do projeto.
 ### 1. Bateria de experimentos (`scripts/bateria.py`)
 
 Executa Réplicas com Sementes independentes variando **um** parâmetro em pelo
-menos três níveis e grava CSVs em `results/`. A do Anel roda **em processo**,
-dirigindo a Máquina_de_Estados pura, e é determinística por Semente. A do 2PC
+menos três níveis e grava CSVs em `results/`. As do Anel e do Bully rodam **em
+processo**, dirigindo a Máquina_de_Estados pura, e são determinísticas por Semente.
+As duas usam os mesmos níveis, a mesma perda e as mesmas Sementes. A do 2PC
 mede os Nós reais: cada Réplica sobe o compose com o Toxiproxy entre o
 Coordenador e os Participantes, aplica a latência do nível e derruba tudo no fim.
 
 ```bash
 python scripts/bateria.py --algoritmo anel    # varia num_nos (3, 5, 7)
+python scripts/bateria.py --algoritmo bully   # varia num_nos (3, 5, 7), nas condições do Anel
 python scripts/bateria.py --algoritmo 2pc     # varia latencia_rede (0, 10, 25, 50 ms), cerca de 10 min
 ```
 
 Para o Anel, as métricas são Tempo_de_Convergencia (em passos lógicos de entrega
-de Mensagem) e número de Mensagens. Para o 2PC, são a latência de commit vista
-pelo cliente, as mensagens por transação e o tempo de recuperação depois de um
-crash do Coordenador. A bateria valida a configuração inteira antes de
+de Mensagem) e número de Mensagens. O Bully mede as mesmas e conta também as
+Mensagens até não restar nenhuma em trânsito. Para o 2PC, são a latência de
+commit vista pelo cliente, as mensagens por transação e o tempo de recuperação
+depois de um crash do Coordenador. A bateria valida a configuração inteira antes de
 sobrescrever resultados, carimba a Semente e o ambiente em cada linha, e uma
 Réplica que falha é registrada sem interromper o restante.
 
 | Opção | Padrão | Descrição |
 |:---|:---|:---|
-| `--algoritmo` | n/d (obrigatória) | `anel` ou `2pc` |
+| `--algoritmo` | n/d (obrigatória) | `anel`, `bully` ou `2pc` |
 | `--replicas` | 5 | Réplicas por nível |
 | `--semente-base` | 42 | Semente base das Réplicas |
 | `--transacoes` | 40 | 2pc: transações medidas por Réplica |
@@ -111,7 +114,8 @@ Réplica que falha é registrada sem interromper o restante.
 | `--results` | `results/` | diretório de saída |
 
 A análise consome por padrão `results/bateria_anel_num_nos.csv`,
-`results/bateria_2pc_latencia_rede.csv` e `results/bateria_2pc_recuperacao.csv`.
+`results/bateria_bully_num_nos.csv`, `results/bateria_2pc_latencia_rede.csv` e
+`results/bateria_2pc_recuperacao.csv`.
 
 ### 2. Análise (`scripts/analisar.py`)
 
@@ -129,6 +133,8 @@ python scripts/analisar.py tudo
 | `2pc-complexidade` | mensagens e latência do 2PC medidas contra 4N e 2N atrasos de ida |
 | `2pc-latencia` | latência de commit do 2PC × latência de rede, com p50/p95/p99 e mensagens por transação |
 | `2pc-recuperacao` | tempo de recuperação após o crash do Coordenador × latência de rede |
+| `bully` | mensagens do Bully medidas contra n − 1 e n² − 1, com perda |
+| `bully-anel` | mensagens e saltos até a convergência, Anel × Bully nas mesmas condições (tabela + figura) |
 | `conferir` | confere se as tabelas de `docs/` batem com os dados atuais |
 | `tudo` | executa todos os anteriores, na ordem |
 
@@ -337,10 +343,10 @@ e ficam fora dele. Há dois tipos.
 
 ### CSVs da bateria
 
-Uma linha por Réplica no Anel e uma por transação na latência do 2PC. Além das
-colunas de métrica, cada linha carrega colunas de ambiente com prefixo `amb_` (SO,
-versão, arquitetura, processador, número de CPUs, versão de Python e das
-dependências), o carimbo de reprodutibilidade descrito abaixo. As do 2PC trazem
+Uma linha por Réplica no Anel e no Bully e uma por transação na latência do 2PC.
+Além das colunas de métrica, cada linha carrega colunas de ambiente com prefixo
+`amb_` (SO, versão, arquitetura, processador, número de CPUs, versão de Python e
+das dependências), o carimbo de reprodutibilidade descrito abaixo. As do 2PC trazem
 também as versões do Docker e do Compose e o Python da imagem.
 
 `bateria_anel_num_nos.csv`:
@@ -352,6 +358,13 @@ também as versões do Docker e do Compose e o Python da imagem.
 | `tempo_convergencia` | passos lógicos de entrega até a convergência |
 | `mensagens` | tentativas de entrega até a convergência, perdidas incluídas |
 | `convergiu`, `lider` | resultado da eleição |
+
+`bateria_bully_num_nos.csv` tem as colunas do Anel, com os mesmos parâmetros e
+Sementes, e mais `mensagens_total`, as tentativas de entrega até não restar
+Mensagem nem prazo. A convergência é o último Nó aceitar o maior id, e o tempo é a
+profundidade causal em saltos de Mensagem, com um salto a mais por tentativa
+perdida. No Anel, com uma Mensagem em trânsito por vez, os passos são essa mesma
+profundidade.
 
 `bateria_2pc_latencia_rede.csv`, uma linha por transação:
 

@@ -1,0 +1,4 @@
+num_nos,n_replicas,n_convergiram,taxa_falhas,msgs_total_medio,msgs_total_ic95,msgs_melhor_caso,msgs_pior_caso,msgs_pior_caso_com_perda
+3,5,5,0.05,8.0,0.0,2,8,8.421052631578947
+5,5,5,0.05,25.6,1.882774803315574,4,24,25.263157894736842
+7,5,5,0.05,51.0,1.520477819634341,6,48,50.526315789473685

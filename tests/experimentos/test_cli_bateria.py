@@ -1,6 +1,6 @@
 """Testes da CLI `scripts/bateria.py`, sem Docker.
 
-O Anel roda em processo de ponta a ponta. No 2PC o condutor é trocado por um
+O Anel e o Bully rodam em processo de ponta a ponta. No 2PC o condutor é trocado por um
 fake, e o teste confere a ligação da CLI: os dois CSVs, as Sementes e o código
 de saída sem Docker. Também cobre a validação de argumentos.
 """
@@ -35,6 +35,18 @@ def test_demo_anel_grava_csv_com_colunas_esperadas(tmp_path: Path) -> None:
     }
     assert esperadas <= colunas
     assert all(l["algoritmo"] == "anel" for l in linhas)
+
+
+def test_bully_grava_csv_nas_mesmas_condicoes_do_anel(tmp_path: Path) -> None:
+    argv = ["--replicas", "2", "--results", str(tmp_path)]
+    assert cli.main(["--algoritmo", "bully", *argv]) == 0
+    assert cli.main(["--algoritmo", "anel", *argv]) == 0
+    bully = ler_csv(tmp_path / "bateria_bully_num_nos.csv")
+    anel = ler_csv(tmp_path / "bateria_anel_num_nos.csv")
+    assert {"mensagens", "mensagens_total", "tempo_convergencia", "amb_so"} <= set(bully[0])
+    assert all(l["algoritmo"] == "bully" and l["convergiu"] == "1" for l in bully)
+    chave = [(l["num_nos"], l["semente"], l["taxa_falhas"]) for l in bully]
+    assert chave == [(l["num_nos"], l["semente"], l["taxa_falhas"]) for l in anel]
 
 
 def test_2pc_liga_o_condutor_e_grava_os_dois_csvs(tmp_path: Path, monkeypatch) -> None:

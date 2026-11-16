@@ -10,7 +10,7 @@ teste `slow` dele em `test_condutor_doispc.py`.
 O que se garante aqui:
 
 - apagar `results/` e rodar a bateria recria os CSVs por algoritmo, com o esquema
-  esperado, e a do Anel é determinística por Semente;
+  esperado, e as do Anel e do Bully são determinísticas por Semente;
 - a análise lê esses CSVs e grava as figuras, sem subir contêiner nem reexecutar
   Réplica;
 - `scripts/verificar.py` sai com código 0 sobre logs corretos, e também sobre um
@@ -79,7 +79,7 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
     """Apagar results/ e seguir o README recria CSVs, tabelas e figuras, e verifica.
 
     Reproduz, num `results/` e num `docs/` temporários, a sequência documentada:
-    bateria (anel + 2pc) -> análise (tabelas + figuras) -> verificação, com
+    bateria (anel, bully e 2pc) -> análise (tabelas + figuras) -> verificação, com
     poucas Réplicas para ser rápido.
     """
     _fakes_do_condutor(monkeypatch)
@@ -91,16 +91,20 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
 
     # 1) Bateria curta de cada algoritmo para o results/ temporário.
     csv_anel = results / "bateria_anel_num_nos.csv"
+    csv_bully = results / "bateria_bully_num_nos.csv"
     csv_latencia = results / "bateria_2pc_latencia_rede.csv"
     csv_recuperacao = results / "bateria_2pc_recuperacao.csv"
     assert bateria.main(["--algoritmo", "anel", "--replicas", "2", "--results", str(results)]) == 0
+    assert bateria.main(["--algoritmo", "bully", "--replicas", "2", "--results", str(results)]) == 0
     argv_2pc = ["--algoritmo", "2pc", "--replicas", "2", "--transacoes", "3", "--aquecimento", "1"]
     assert bateria.main([*argv_2pc, "--results", str(results)]) == 0
 
     # Determinismo por Semente: rodar de novo produz exatamente o mesmo CSV.
-    conteudo_anel_1 = csv_anel.read_bytes()
-    assert bateria.main(["--algoritmo", "anel", "--replicas", "2", "--results", str(results)]) == 0
-    assert csv_anel.read_bytes() == conteudo_anel_1
+    for algoritmo, csv in (("anel", csv_anel), ("bully", csv_bully)):
+        primeira = csv.read_bytes()
+        argv = ["--algoritmo", algoritmo, "--replicas", "2", "--results", str(results)]
+        assert bateria.main(argv) == 0
+        assert csv.read_bytes() == primeira
 
     linhas_anel = ler_csv(csv_anel)
     assert len(linhas_anel) == 6  # 3 níveis padrão x 2 Réplicas
@@ -115,7 +119,7 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
     assert len(linhas_recuperacao) == niveis_2pc * 2
     assert {"tempo_recuperacao_s", "em_duvida", "amb_so"} <= set(linhas_recuperacao[0])
 
-    # 2) Análise: lê os CSVs e grava as três figuras, sem subir contêiner.
+    # 2) Análise: lê os CSVs e grava as quatro figuras, sem subir contêiner.
     comuns = [
         "--anel-nos",
         str(csv_anel),
@@ -123,6 +127,8 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
         str(csv_latencia),
         "--doispc-recuperacao",
         str(csv_recuperacao),
+        "--bully-nos",
+        str(csv_bully),
         "--dir-dados",
         str(dir_dados),
         "--dir-figuras",
@@ -131,9 +137,11 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
     assert analisar.main(["anel", *comuns]) == 0
     assert analisar.main(["2pc-latencia", *comuns]) == 0
     assert analisar.main(["2pc-recuperacao", *comuns]) == 0
+    assert analisar.main(["bully-anel", *comuns]) == 0
     assert (dir_figuras / "anel_convergencia.png").exists()
     assert (dir_figuras / "doispc_latencia.png").exists()
     assert (dir_figuras / "doispc_recuperacao.png").exists()
+    assert (dir_figuras / "anel_bully.png").exists()
 
     # 3) Verificação: sobre logs corretos, sai 0; sobre results/ sem logs, também.
     assert verificar.verificar([results], imprimir=lambda *_: None) == 0

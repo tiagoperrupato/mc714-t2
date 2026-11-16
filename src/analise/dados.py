@@ -27,6 +27,7 @@ DIR_FIGURAS: Path = DIR_DOCS / "figuras"
 # CSVs produzidos pela bateria (scripts/bateria.py). Os do 2PC são um por transação e um por crash
 # do Coordenador.
 BATERIA_ANEL_NOS: Path = DIR_RESULTS / "bateria_anel_num_nos.csv"
+BATERIA_BULLY_NOS: Path = DIR_RESULTS / "bateria_bully_num_nos.csv"
 BATERIA_2PC_LATENCIA: Path = DIR_RESULTS / "bateria_2pc_latencia_rede.csv"
 BATERIA_2PC_RECUPERACAO: Path = DIR_RESULTS / "bateria_2pc_recuperacao.csv"
 
@@ -43,6 +44,9 @@ COLUNAS_ANEL: tuple[str, ...] = (
     "mensagens",
     "convergiu",
 )
+
+# O Bully conta também as Mensagens até não restar nenhuma em trânsito.
+COLUNAS_BULLY: tuple[str, ...] = (*COLUNAS_ANEL, "mensagens_total")
 
 COLUNAS_2PC_LATENCIA: tuple[str, ...] = (
     "algoritmo",
@@ -139,6 +143,13 @@ def rejeitar_duplicadas(
 def carregar_anel(caminho: Path) -> pd.DataFrame:
     """Carrega um CSV da bateria do Anel, validando colunas e unicidade por Réplica."""
     df = ler_csv(caminho, COLUNAS_ANEL, "bateria do Anel")
+    rejeitar_duplicadas(df, CHAVE_REPLICA, caminho)
+    return df
+
+
+def carregar_bully(caminho: Path) -> pd.DataFrame:
+    """Carrega um CSV da bateria do Bully, validando colunas e unicidade por Réplica."""
+    df = ler_csv(caminho, COLUNAS_BULLY, "bateria do Bully")
     rejeitar_duplicadas(df, CHAVE_REPLICA, caminho)
     return df
 

@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from scripts import analisar as cli
-from src.analise import anel_exp, dados, doispc_exp
+from src.analise import anel_exp, bully_exp, dados, doispc_exp
 
 
 def _escrever_csv(caminho: Path, colunas: list[str], linhas: list[dict]) -> None:
@@ -52,6 +52,21 @@ def _csv_anel(caminho: Path) -> None:
         {"algoritmo": "anel", "parametro_variado": "num_nos", "semente": 4,
          "num_nos": 5, "taxa_falhas": 0.0, "tempo_convergencia": 12,
          "mensagens": 5, "convergiu": 1},
+    ]
+    _escrever_csv(caminho, colunas, linhas)
+
+
+def _csv_bully(caminho: Path) -> None:
+    """Bully com os níveis e as Sementes do `_csv_anel`, sem perda e no pior caso n² − 1."""
+    colunas = [
+        "algoritmo", "parametro_variado", "semente", "num_nos", "taxa_falhas",
+        "tempo_convergencia", "mensagens", "mensagens_total", "convergiu",
+    ]
+    linhas = [
+        {"algoritmo": "bully", "parametro_variado": "num_nos", "semente": semente,
+         "num_nos": num_nos, "taxa_falhas": 0.0, "tempo_convergencia": 2,
+         "mensagens": mensagens, "mensagens_total": num_nos * num_nos - 1, "convergiu": 1}
+        for semente, num_nos, mensagens in ((1, 3, 7), (2, 3, 7), (3, 5, 18), (4, 5, 18))
     ]
     _escrever_csv(caminho, colunas, linhas)
 
@@ -186,17 +201,24 @@ def _preparar(tmp_path: Path) -> tuple:
     anel_csv = tmp_path / "anel.csv"
     latencia_csv = tmp_path / "2pc_latencia.csv"
     recuperacao_csv = tmp_path / "2pc_recuperacao.csv"
+    bully_csv = tmp_path / "bully.csv"
     _csv_anel(anel_csv)
     _csv_2pc_latencia(latencia_csv)
     _csv_2pc_recuperacao(recuperacao_csv)
-    return anel_csv, latencia_csv, recuperacao_csv, tmp_path / "dados", tmp_path / "figs"
+    _csv_bully(bully_csv)
+    return (
+        anel_csv, latencia_csv, recuperacao_csv, bully_csv, tmp_path / "dados", tmp_path / "figs"
+    )
 
 
-def _args_comuns(anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs) -> list[str]:
+def _args_comuns(
+    anel_csv, latencia_csv, recuperacao_csv, bully_csv, dir_dados, dir_figs
+) -> list[str]:
     return [
         "--anel-nos", str(anel_csv),
         "--doispc-latencia", str(latencia_csv),
         "--doispc-recuperacao", str(recuperacao_csv),
+        "--bully-nos", str(bully_csv),
         "--dir-dados", str(dir_dados),
         "--dir-figuras", str(dir_figs),
     ]
@@ -211,6 +233,8 @@ def test_subcomandos_escrevem_tabelas_e_figuras(tmp_path: Path) -> None:
     assert cli.main(["2pc-recuperacao", *comuns]) == 0
     assert cli.main(["anel-complexidade", *comuns]) == 0
     assert cli.main(["2pc-complexidade", *comuns]) == 0
+    assert cli.main(["bully", *comuns]) == 0
+    assert cli.main(["bully-anel", *comuns]) == 0
 
     assert (dir_dados / "anel_complexidade.csv").exists()
     assert (dir_dados / "doispc_complexidade.csv").exists()
@@ -220,17 +244,22 @@ def test_subcomandos_escrevem_tabelas_e_figuras(tmp_path: Path) -> None:
     assert (dir_dados / "doispc_latencia.csv").exists()
     assert (dir_figs / "doispc_latencia.png").exists()
     assert (dir_dados / "doispc_recuperacao.csv").exists()
+    assert (dir_dados / "bully_complexidade.csv").exists()
+    assert (dir_dados / "anel_bully.csv").exists()
+    assert (dir_figs / "anel_bully.png").exists()
 
 
 def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
     tmp_path: Path, monkeypatch
 ) -> None:
-    anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs = _preparar(tmp_path)
-    comuns = _args_comuns(anel_csv, latencia_csv, recuperacao_csv, dir_dados, dir_figs)
+    preparados = _preparar(tmp_path)
+    anel_csv, latencia_csv, recuperacao_csv, bully_csv, _, _ = preparados
+    comuns = _args_comuns(*preparados)
 
     # Aponta o documento de cada tabela para o tmp, com o mesmo nome.
     doc_anel = tmp_path / "resultados-anel.md"
     doc_2pc = tmp_path / "resultados-2pc.md"
+    doc_bully = tmp_path / "resultados-bully.md"
     monkeypatch.setattr(
         cli,
         "TABELAS",
@@ -263,7 +292,17 @@ def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
         cli.COMANDOS["2pc-recuperacao"],
         [dados.relativo(recuperacao_csv)],
     )
+    df_bully = dados.carregar_bully(bully_csv)
+    bloco_bully = bully_exp.complexidade_como_markdown(
+        bully_exp.consolidar(df_bully), cli.COMANDOS["bully"], [dados.relativo(bully_csv)]
+    )
+    bloco_bully_anel = bully_exp.comparacao_como_markdown(
+        bully_exp.comparar_com_anel(df_anel, df_bully),
+        cli.COMANDOS["bully-anel"],
+        [dados.relativo(anel_csv), dados.relativo(bully_csv)],
+    )
     doc_anel.write_text(f"# Anel\n\n{bloco_anel}\n\n{bloco_anel_complexidade}\n", encoding="utf-8")
+    doc_bully.write_text(f"# Bully\n\n{bloco_bully}\n\n{bloco_bully_anel}\n", encoding="utf-8")
     doc_2pc.write_text(
         f"# 2PC\n\n{bloco_lat}\n\n{bloco_2pc_complexidade}\n\n{bloco_rec}\n", encoding="utf-8"
     )
@@ -271,9 +310,19 @@ def test_conferir_passa_em_doc_fresco_e_reprova_em_doc_defasado(
     assert cli.main(["conferir", *comuns]) == 0
 
     # Agora torna o doc do Anel DEFASADO, trocando um dígito da tabela.
-    defasado = doc_anel.read_text(encoding="utf-8").replace("5,00", "9,99", 1)
-    assert defasado != doc_anel.read_text(encoding="utf-8")
+    fresco = doc_anel.read_text(encoding="utf-8")
+    defasado = fresco.replace("5,00", "9,99", 1)
+    assert defasado != fresco
     doc_anel.write_text(defasado, encoding="utf-8")
+
+    assert cli.main(["conferir", *comuns]) == 1
+
+    # O mesmo vale para o documento do Bully, com o do Anel de novo em dia.
+    doc_anel.write_text(fresco, encoding="utf-8")
+    assert cli.main(["conferir", *comuns]) == 0
+    defasado = doc_bully.read_text(encoding="utf-8").replace("24,00", "25,00", 1)
+    assert defasado != doc_bully.read_text(encoding="utf-8")
+    doc_bully.write_text(defasado, encoding="utf-8")
 
     assert cli.main(["conferir", *comuns]) == 1
 

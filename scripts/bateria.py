@@ -1,9 +1,9 @@
 """CLI da bateria de experimentos do T2.
 
 Executa Réplicas com Sementes independentes variando UM parâmetro em pelo menos
-três níveis, gravando CSVs em `results/`. A do
-Anel roda em processo e é determinística por Semente. A do 2PC sobe o compose
-com o Toxiproxy a cada Réplica e mede os nós reais.
+três níveis, gravando CSVs em `results/`. As do Anel e do Bully rodam em processo
+e são determinísticas por Semente. A do 2PC sobe o compose com o Toxiproxy a cada
+Réplica e mede os nós reais.
 
 Uso:
 
@@ -11,6 +11,11 @@ Uso:
         Varia o número de Nós do Anel (3, 5, 7) e grava
         `results/bateria_anel_num_nos.csv`, com as métricas Tempo_de_Convergencia e
         número de Mensagens.
+
+    python scripts/bateria.py --algoritmo bully
+        Os mesmos níveis, perda e Sementes do Anel, com o Nó 1 como iniciador. Grava
+        `results/bateria_bully_num_nos.csv`, com as métricas do Anel e as Mensagens
+        até não restar nenhuma em trânsito.
 
     python scripts/bateria.py --algoritmo 2pc
         Varia a latência de rede do 2PC (0, 10, 25 e 50 ms em cada sentido). Grava
@@ -40,26 +45,29 @@ from src.analise.dados import (  # noqa: E402
     BATERIA_2PC_LATENCIA,
     BATERIA_2PC_RECUPERACAO,
     BATERIA_ANEL_NOS,
+    BATERIA_BULLY_NOS,
 )
 from src.comum.config import SEMENTE_MAX, SEMENTE_MIN  # noqa: E402
 from src.experimentos import condutor_doispc  # noqa: E402
 from src.experimentos.bateria import (  # noqa: E402
     ItemReplica,
+    Runner,
     executar_bateria,
     planejar_bateria,
 )
 from src.experimentos.runner_anel import executar_replica_anel  # noqa: E402
+from src.experimentos.runner_bully import executar_replica_bully  # noqa: E402
 
 RESULTS_PADRAO = _RAIZ / "results"
 SEMENTE_BASE_PADRAO = 42
 REPLICAS_PADRAO = 5
 
-# Níveis padrão por parâmetro variado. Sempre >= 3 níveis.
-NIVEIS_ANEL_NOS: tuple[int, ...] = (3, 5, 7)
+# Níveis padrão por parâmetro variado. Sempre >= 3 níveis. O Anel e o Bully usam os mesmos.
+NIVEIS_NOS: tuple[int, ...] = (3, 5, 7)
 # Atraso de ida em ms, aplicado em cada sentido de cada proxy do 2PC.
 NIVEIS_2PC_LATENCIA: tuple[int, ...] = (0, 10, 25, 50)
 
-# Perda fixa da bateria do Anel.
+# Perda fixa das baterias do Anel e do Bully.
 TAXA_FALHAS_FIXA = 0.05
 
 # Transações por Réplica do 2PC. As de aquecimento ficam no CSV, marcadas, e a
@@ -86,19 +94,39 @@ def _runner_anel(item: ItemReplica) -> Mapping[str, Any]:
     }
 
 
-def _executar_anel(args: argparse.Namespace) -> int:
+def _runner_bully(item: ItemReplica) -> Mapping[str, Any]:
+    """Executa uma Réplica do Bully em processo e devolve as métricas."""
+    p = item.parametros
+    resultado = executar_replica_bully(
+        num_nos=int(p["num_nos"]),
+        taxa_falhas=float(p["taxa_falhas"]),
+        semente=item.semente,
+    )
+    return {
+        "tempo_convergencia": resultado.tempo_convergencia,
+        "mensagens": resultado.mensagens,
+        "mensagens_total": resultado.mensagens_total,
+        "convergiu": int(resultado.convergiu),
+        "lider": resultado.lider if resultado.lider is not None else "",
+    }
+
+
+def _executar_eleicao(
+    args: argparse.Namespace, algoritmo: str, runner: Runner, destino: Path
+) -> int:
+    """Bateria em processo de uma eleição, com os mesmos níveis, perda e Sementes nas duas."""
     itens = planejar_bateria(
         parametro="num_nos",
-        niveis=NIVEIS_ANEL_NOS,
+        niveis=NIVEIS_NOS,
         replicas=args.replicas,
         semente_base=args.semente_base,
         fixos={"taxa_falhas": TAXA_FALHAS_FIXA},
     )
     return executar_bateria(
         itens,
-        _runner_anel,
-        Path(args.results) / BATERIA_ANEL_NOS.name,
-        meta={"algoritmo": "anel", "parametro_variado": "num_nos"},
+        runner,
+        Path(args.results) / destino.name,
+        meta={"algoritmo": algoritmo, "parametro_variado": "num_nos"},
     )
 
 
@@ -155,13 +183,13 @@ def _executar_2pc(args: argparse.Namespace) -> int:
 def _construir_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bateria",
-        description="Bateria de Réplicas do T2: o Anel em processo e o 2PC no compose.",
+        description="Bateria de Réplicas do T2: Anel e Bully em processo, 2PC no compose.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--algoritmo",
         required=True,
-        choices=["anel", "2pc"],
+        choices=["anel", "bully", "2pc"],
         help="algoritmo a experimentar",
     )
     parser.add_argument(
@@ -210,7 +238,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--transacoes deve ser >= 1 e --aquecimento >= 0")
 
     if args.algoritmo == "anel":
-        return _executar_anel(args)
+        return _executar_eleicao(args, "anel", _runner_anel, BATERIA_ANEL_NOS)
+    if args.algoritmo == "bully":
+        return _executar_eleicao(args, "bully", _runner_bully, BATERIA_BULLY_NOS)
     return _executar_2pc(args)
 
 

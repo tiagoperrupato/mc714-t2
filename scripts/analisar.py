@@ -26,12 +26,13 @@ _RAIZ = Path(__file__).resolve().parent.parent
 if str(_RAIZ) not in sys.path:
     sys.path.insert(0, str(_RAIZ))
 
-from src.analise import anel_exp, dados, doispc_exp  # noqa: E402
+from src.analise import anel_exp, bully_exp, dados, doispc_exp  # noqa: E402
 from src.analise.dados import DadosError  # noqa: E402
 
 # Documentos onde as tabelas são coladas.
 DOC_ANEL = dados.DIR_DOCS / "resultados-anel.md"
 DOC_2PC = dados.DIR_DOCS / "resultados-2pc.md"
+DOC_BULLY = dados.DIR_DOCS / "resultados-bully.md"
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,14 @@ _ENTRADAS: dict[str, Entrada] = {
         carregar=dados.carregar_anel,
         vazia="nenhuma configuração do Anel com réplicas convergidas",
         bateria="python scripts/bateria.py --algoritmo anel",
+    ),
+    "bully": Entrada(
+        argumento="bully_nos",
+        padrao=dados.BATERIA_BULLY_NOS,
+        ajuda="CSV da bateria do Bully por número de Nós",
+        carregar=dados.carregar_bully,
+        vazia="nenhuma configuração do Bully com réplicas convergidas",
+        bateria="python scripts/bateria.py --algoritmo bully",
     ),
     "2pc-latencia": Entrada(
         argumento="doispc_latencia",
@@ -152,6 +161,28 @@ TABELAS: tuple[Tabela, ...] = (
         markdown=doispc_exp.recuperacao_como_markdown,
         nome="doispc_recuperacao",
         figura=doispc_exp.gerar_grafico_recuperacao,
+    ),
+    Tabela(
+        comando="bully",
+        ajuda="mensagens do Bully medidas contra n − 1 e n² − 1, com perda",
+        documento=DOC_BULLY,
+        rotulo="mensagens do Bully × esperado",
+        entradas=("bully",),
+        consolidar=bully_exp.consolidar,
+        markdown=bully_exp.complexidade_como_markdown,
+        nome="bully_complexidade",
+        figura=None,
+    ),
+    Tabela(
+        comando="bully-anel",
+        ajuda="mensagens e saltos até a convergência, Anel × Bully nas mesmas condições",
+        documento=DOC_BULLY,
+        rotulo="Anel × Bully",
+        entradas=("anel", "bully"),
+        consolidar=bully_exp.comparar_com_anel,
+        markdown=bully_exp.comparacao_como_markdown,
+        nome="anel_bully",
+        figura=bully_exp.gerar_grafico,
     ),
 )
 
@@ -322,24 +353,23 @@ def main(argv: list[str] | None = None) -> int:
     """Devolve 0 em sucesso e 1 quando os dados são inválidos ou um bloco está defasado."""
     args = _construir_parser().parse_args(argv)
 
+    acoes = {t.comando: functools.partial(_executar, t) for t in TABELAS}
+    acoes["conferir"] = _executar_conferir
     try:
         dfs = {
             nome: entrada.carregar(getattr(args, entrada.argumento))
             for nome, entrada in _ENTRADAS.items()
         }
+        if args.comando != "tudo":
+            return acoes[args.comando](dfs, args)
+        for nome, acao in acoes.items():
+            codigo = acao(dfs, args)
+            if codigo != 0:
+                print(f"erro: subcomando '{nome}' falhou.", file=sys.stderr)
+                return codigo
     except DadosError as erro:
         print(f"erro: {erro}", file=sys.stderr)
         return 1
-
-    acoes = {t.comando: functools.partial(_executar, t) for t in TABELAS}
-    acoes["conferir"] = _executar_conferir
-    if args.comando != "tudo":
-        return acoes[args.comando](dfs, args)
-    for nome, acao in acoes.items():
-        codigo = acao(dfs, args)
-        if codigo != 0:
-            print(f"erro: subcomando '{nome}' falhou.", file=sys.stderr)
-            return codigo
     return 0
 
 
