@@ -1,12 +1,13 @@
 # Modelo do sistema e correção dos algoritmos
 
-Este documento fixa, por algoritmo, o modelo sob o qual o Trabalho 2 raciocina:
-o modelo temporal, as propriedades dos canais, os tipos de falha e as hipóteses
-de relógio, persistência e reinício. Fixa também as propriedades de *safety* e
-*liveness* de cada algoritmo, cada uma com o invariante que a testa sobre os
-logs (`invariante_01` a `invariante_07`, em
+Este documento fixa, por algoritmo e para a integração dos dois, o modelo sob o
+qual o Trabalho 2 raciocina: o modelo temporal, as propriedades dos canais, os
+tipos de falha e as hipóteses de relógio, persistência e reinício. Fixa também as
+propriedades de *safety* e *liveness*, cada uma com o invariante que a testa sobre
+os logs (`invariante_01` a `invariante_07`, em
 [`src/analise/invariantes.py`](../src/analise/invariantes.py)) ou, na terminação
-do 2PC, com o cenário que a confere. A afirmação de correção se confere com
+do 2PC e no failover da integração, com o cenário que a confere. A afirmação de
+correção se confere com
 
 ```bash
 python scripts/verificar.py
@@ -47,8 +48,13 @@ medida assim:
   Coordenador, que sai quando ele decide. O tempo de convergência do Anel vai do
   pedido de eleição até todos os vivos reportarem o Líder em `/estado`, e o de
   recuperação do 2PC vai do `start` do Coordenador até todos os Participantes
-  reportarem a Decisao. O condutor consulta `/estado` a cada 10 ms, que é a
-  resolução desses dois tempos e do tempo de recuperação da bateria.
+  reportarem a Decisao. Na integração, `tempo_failover_s` vai do erro do
+  `POST /transacao` de `c3-tx-a` à resposta de `c2-tx-b` e inclui a reeleição, e
+  `tempo_recuperacao_tx_a_s` vai do `start` do candidato 3 até os três
+  Participantes reportarem a Decisao de `c3-tx-a`, a mesma definição da
+  recuperação do 2PC. O condutor consulta `/estado` a cada 10 ms, que é a
+  resolução de cada tempo que termina numa resposta de `/estado`, nos cenários e
+  na bateria.
 
 **Falhas (modelo comum).** As falhas entram por duas camadas, e cada Cenário
 registra no log a **Semente** que o conduziu.
@@ -306,6 +312,72 @@ as quebra:
 
 ---
 
+## Integração: o Líder do Anel coordena o 2PC
+
+### Modelo
+
+- **Problema.** Um serviço de transações atômicas sobre três Participantes, com três
+  candidatos a Coordenador. O Líder do Anel formado pelos candidatos aceita as transações, e
+  quando ele cai outro candidato assume as novas. Cada candidato roda no mesmo processo um Nó
+  do Anel e um Coordenador do 2PC (`src/integracao/candidato.py`), e a pilha fica em
+  `compose.integracao.yaml`.
+- **Nós (M7).** Três candidatos, no anel 1 → 2 → 3 → 1, e três Participantes. Com três
+  candidatos, a queda do Líder ainda deixa um anel de dois para reeleger, e o candidato que
+  volta tem o maior id e retoma a liderança na eleição seguinte.
+- **Temporal (M1).** Parcialmente síncrono, herdado dos dois algoritmos. Não há detector de
+  falha do Líder. Quem percebe a queda é o cliente, pelo erro ou pelo prazo do
+  `POST /transacao`, e é ele que dispara a eleição com `POST /iniciar-eleicao`.
+- **Canais (M2).** Cada candidato recebe as Mensagens dos dois algoritmos num só
+  `POST /mensagem` e despacha pelo tipo: `eleicao` e `lider` vão ao Nó do Anel, `voto` e `ack`
+  ao Coordenador, e outro tipo recebe 400. Entre os candidatos corre o Anel. Entre cada
+  candidato e os Participantes corre a estrela do 2PC, e o Participante responde à `origem` da
+  Mensagem quando ela está em `DOISPC_COORDENADORES`. Uma origem fora dessa lista é recusada
+  antes da Máquina_de_Estados, com o evento `origem_desconhecida` (`src/doispc/participante.py`).
+- **Falhas (M3).** *Crash-recovery* do candidato, que derruba juntos o Nó do Anel e o
+  Coordenador, como a queda de um processo real. O Deadline do Anel pode suspeitar de um
+  candidato vivo, e então dois candidatos se julgam Líderes ao mesmo tempo. A *safety* das
+  transações se mantém, porque cada uma leva no id o prefixo do candidato que a criou
+  (`c3-tx-a`, de `id_da_transacao`), e só ele a coordena.
+- **Persistência e reinício (M4).** Cada candidato tem o próprio Log_Duravel num volume, e o
+  Anel continua sem estado durável. O candidato que volta recupera só as próprias transações
+  e não conhece Líder até a eleição seguinte. Nenhum candidato assume a transação de outro.
+  Só o log do 3 sabe se ele gravou o COMMIT de `c3-tx-a`, e abortá-la no lugar dele violaria
+  a atomicidade. Por isso a transação em dúvida espera o 3 voltar, o bloqueio do 2PC.
+- **Limite.** Não há dados nem travas. Num banco, `c2-tx-b` esperaria as travas que
+  `c3-tx-a` segura nos itens em comum. Aqui ela comita com `c3-tx-a` em dúvida porque nada
+  liga as duas.
+
+### Propriedades (M5) e como são verificadas (M6)
+
+| Propriedade | Tipo | Verificação |
+| --- | --- | --- |
+| Coordenador único: cada transação tem um só Coordenador, mesmo com dois candidatos que se julgam Líderes | *safety* | **`invariante_07_coordenador_unico`** |
+| Atomicidade, durabilidade e validade de cada transação | *safety* | **`invariante_04_atomicidade`**, **`invariante_05_durabilidade`** e **`invariante_06_validade`** |
+| Unicidade, convergência e maior id vivo entre os candidatos | *safety*, *liveness* e *correctness* | **`invariante_01_lider_unico`**, **`invariante_02_convergencia`** e **`invariante_03_maior_id_vivo`** |
+| Só o Líder aceita transação | roteamento, não *safety* | `cenario.py integracao normal`, campo `recusa_nao_lider` |
+| Transações novas voltam a comitar depois da reeleição | *liveness* | `cenario.py integracao failover`, campos `lideres_pos_falha` e `decisoes_participantes_tx_b`, prazo de 10 s |
+| A transação em dúvida termina quando o Coordenador dela volta | *liveness* bloqueante | `cenario.py integracao failover`, campos `em_duvida_tx_a_durante_tx_b` e `decisoes_participantes_tx_a`, prazo de 30 s |
+
+- **Coordenador único** (`invariante_07_coordenador_unico`): no
+  `test_dois_lideres_comitam_com_prefixos_distintos_e_nenhum_invariante_reprova`, o 3 não
+  responde durante a segunda eleição, que elege o 2, e volta com o estado de antes, crendo
+  que ainda é o Líder. Os dois comitam cinco transações com os mesmos nomes, que só o prefixo
+  separa, e 04, 06 e 07 conferem as dez sem reprovação.
+- **Só o Líder aceita transação**: o candidato que não é o Líder responde 409 com o id do
+  Líder, sem chamar o Coordenador, e grava `transacao_recusada`. Isso não é *safety*. Um
+  candidato que se julga Líder por engano aceita transações com o próprio prefixo, e o 07
+  continua valendo.
+- **Failover** (`integracao failover`): o 3 grava o COMMIT de `c3-tx-a` e cai antes de
+  difundi-lo (`DOISPC_CAIR_APOS_DECIDIR`), com os três Participantes em dúvida
+  (`em_duvida_tx_a`). O cliente elege o 2, que comita `c2-tx-b` sem conhecer `c3-tx-a`
+  (`tx_a_no_novo_lider` nulo). O 3 volta, relê o Log_Duravel e difunde o COMMIT, e a eleição
+  seguinte o reintegra como Líder (`lideres_finais`). A flag de queda continua ligada no 3
+  reiniciado, mas a recuperação de uma transação decidida só difunde a Decisao, sem gravar, e
+  o cenário não manda transação nova a ele. O 05 confere a `recuperacao` de `c3-tx-a` no
+  candidato 3 contra a Decisao do log dele.
+
+---
+
 ## Cenários que exercitam cada propriedade
 
 Cada cenário reproduzível (`scripts/cenario.py`) grava os logs dos Nós em
@@ -324,12 +396,15 @@ aprovados são os que o modo exige em `MODOS`.
 | `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05, 06, 07 | passam, com o aviso de dúvida dos três na verificação feita com o Coordenador fora e todos em COMMIT depois do reinício |
 | `2pc crash-coord-part` | o Coordenador cai depois de gravar a Decisao, o Participante 11 cai e volta em dúvida, o Coordenador volta e todos decidem COMMIT, e o 11 cai e volta com a Decisao | 04, 05, 06, 07 | passam, o 05 com a recuperação do Coordenador e a segunda do 11, e com o aviso de dúvida dos três na verificação feita com o Coordenador fora |
 | `2pc particao` | corta a rota até o Participante 11, o Coordenador aborta no prazo de Votos, e depois da cura a retransmissão leva o ABORT ao 11 | 04, 05, 06, 07 | 04 e 07 passam, 05 e 06 em lacuna, ABORT em todos e transação concluída |
+| `integracao normal` | elege o candidato 3, o 1 recusa a transação com 409 e aponta o 3, que comita `c3-tx-n` em todos | 01 a 07 | 01 a 04, 06 e 07 passam, 05 em lacuna |
+| `integracao failover` | o candidato 3 cai depois de gravar o COMMIT de `c3-tx-a`, o cliente elege o 2, que comita `c2-tx-b` com `c3-tx-a` em dúvida, e o 3 volta, difunde o COMMIT e a eleição seguinte o reintegra como Líder | 01 a 07 | passam nas três rodadas e nas duas transações, o 05 com a recuperação do candidato 3 |
 
 Em todos, `verificar.py` sai com código 0 e o desfecho observado é o esperado.
 `cenario.py` sai 1 se um invariante reprova, se um invariante exigido termina sem
 caso verificado ou se o desfecho difere do esperado. No `2pc crash-coord`, o 05
 confere a `recuperacao` do Coordenador reiniciado contra a Decisao do log dele, e
-no `2pc crash-coord-part` também a segunda `recuperacao` do 11.
+no `2pc crash-coord-part` também a segunda `recuperacao` do 11. No
+`integracao failover`, ele confere a `recuperacao` de `c3-tx-a` no candidato 3.
 
 ## Falhas do modelo e onde são demonstradas
 
@@ -352,3 +427,5 @@ processo ou servidos localmente.
 | 2PC | partição entre o Coordenador e um Participante | cenário `2pc particao` | 04, 07 e ABORT em todos depois da cura |
 | 2PC | Participante lento, que o timeout trata como falho | `test_voto_depois_do_abort_sai_da_duvida_pela_retransmissao` | o Voto atrasado não muda o ABORT, e a retransmissão tira o Participante da dúvida |
 | 2PC | DECISAO perdida | `test_decisao_perdida_chega_pela_retransmissao` | a retransmissão entrega a Decisao |
+| Integração | crash do Líder que coordena, depois de decidir | cenário `integracao failover` | 01 a 07, `c2-tx-b` em COMMIT com `c3-tx-a` em dúvida, e `c3-tx-a` em COMMIT depois do reinício do 3 |
+| Integração | candidato que não responde numa eleição e volta crendo ser o Líder, com dois Líderes | `test_dois_lideres_comitam_com_prefixos_distintos_e_nenhum_invariante_reprova` | 01 a 03 nas duas rodadas, e 04, 06 e 07 nas dez transações dos dois Líderes |

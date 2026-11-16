@@ -155,6 +155,15 @@ ali a origem é um Participante. Mais de um id na mesma transação reprova, já
 dois Coordenadores difundem Decisoes independentes e a atomicidade passaria a
 depender de qual delas chega primeiro. Tolerância: zero.
 
+Na integração, é o 07 que sustenta a atomicidade com dois Líderes. O Deadline do
+Anel pode suspeitar de um candidato vivo, e então dois candidatos se julgam Líderes
+e aceitam transações ao mesmo tempo. Cada transação leva no id o prefixo de quem a
+criou, e por isso nenhuma tem dois Coordenadores. O
+`test_dois_lideres_comitam_com_prefixos_distintos_e_nenhum_invariante_reprova`
+produz os dois Líderes em processo e confere o 07 nas dez transações deles. O
+cenário `integracao failover` o confere em `c3-tx-a`, coordenada pelo 3, e em
+`c2-tx-b`, que o 2 coordena enquanto o 3 está fora.
+
 ## Ligação com o modelo de correção
 
 Cada invariante testa uma propriedade declarada em
@@ -167,5 +176,7 @@ Estado_Em_Duvida é a *liveness* bloqueante do 2PC, classificada como aviso. O
 cenário `2pc crash-coord` verifica os logs com o Coordenador fora, com o aviso, e
 depois do reinício, sem ele. O `2pc crash-coord-part` faz o mesmo com o
 Participante 11 reiniciado em dúvida antes da verificação com o Coordenador fora.
-Os cenários reproduzíveis que exercitam cada propriedade estão em
-`scripts/cenario.py`, e `scripts/demo.py` encadeia o `anel falha` e o `2pc crash-coord`.
+Na integração, os invariantes 1 a 3 conferem as rodadas dos candidatos, e os 4 a 7
+as transações que eles coordenam. Os cenários reproduzíveis que exercitam cada
+propriedade estão em `scripts/cenario.py`, e `scripts/demo.py` encadeia o
+`anel falha` e o `2pc crash-coord`.

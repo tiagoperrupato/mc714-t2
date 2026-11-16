@@ -6,12 +6,14 @@ Líder em Anel**, com cinco Nós formando o anel 1 → 2 → 3 → 4 → 5 → 1
 **Two-Phase Commit (2PC)**, com um Coordenador e três Participantes, cada um com
 seu Log_Duravel. Os dois algoritmos sofrem falhas injetadas na aplicação (crash,
 pause, delay, drop) e na rede, pelo Toxiproxy (latência e partição), e cada
-execução registra a Semente e o ambiente para ser reproduzível.
+execução registra a Semente e o ambiente para ser reproduzível. Na integração dos
+dois, o Líder de um anel de três candidatos coordena o 2PC, e quando ele cai o
+cliente elege outro, que assume as transações novas.
 
-O repositório entrega os dois algoritmos, a orquestração de experimentos que os
-exercita em processo e sobre o compose, a camada de análise que consome os CSVs
-coletados, os invariantes de correção sobre os logs dos Nós reais e as respostas
-de modelo e correção em [`docs/`](docs/).
+O repositório entrega os dois algoritmos e a integração deles, a orquestração de
+experimentos que os exercita em processo e sobre o compose, a camada de análise
+que consome os CSVs coletados, os invariantes de correção sobre os logs dos Nós
+reais e as respostas de modelo e correção em [`docs/`](docs/).
 
 ## Índice
 
@@ -455,7 +457,8 @@ Em [`docs/`](docs/):
 - [`docs/relatorio/`](docs/relatorio/): o relatório IEEE, com o `.tex`, a classe
   IEEEtran e o PDF compilado.
 - [`docs/roteiro-video.md`](docs/roteiro-video.md): o roteiro do vídeo de
-  demonstração, com os cenários `anel falha` e `2pc crash-coord`.
+  demonstração, com os cenários `anel falha`, `2pc crash-coord` e
+  `integracao failover`.
 
 ## Verificação
 

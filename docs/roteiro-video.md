@@ -22,13 +22,14 @@ que o código realmente faz, sem encenação.
 
 ## Divisão sugerida das falas
 
-- **Integrante A** conduz a Eleição em Anel (normal + falha).
+- **Integrante A** conduz a Eleição em Anel (normal + falha) e a integração, que junta os
+  dois algoritmos.
 - **Integrante B** conduz o Two-Phase Commit (normal + crash do Coordenador).
 - Abertura e fechamento podem ser divididos, uma frase cada.
 
 ---
 
-## Bloco 1. Abertura e visão geral (~40 s)
+## Bloco 1. Abertura e visão geral (~35 s)
 
 **Quem:** Integrante A.
 
@@ -46,7 +47,7 @@ O que mostrar:
 
 ---
 
-## Bloco 2. Eleição em Anel: cenário normal (~45 s)
+## Bloco 2. Eleição em Anel: cenário normal (~40 s)
 
 **Quem:** Integrante A.
 
@@ -64,7 +65,7 @@ python scripts/cenario.py anel normal
 
 ---
 
-## Bloco 3. Eleição em Anel: falha do Líder (~50 s)
+## Bloco 3. Eleição em Anel: falha do Líder (~45 s)
 
 **Quem:** Integrante A.
 
@@ -84,7 +85,7 @@ python scripts/cenario.py anel falha
 
 ---
 
-## Bloco 4. Two-Phase Commit: cenário normal (~45 s)
+## Bloco 4. Two-Phase Commit: cenário normal (~40 s)
 
 **Quem:** Integrante B.
 
@@ -103,7 +104,7 @@ python scripts/cenario.py 2pc abort     # um NÃO -> ABORT atômico
 
 ---
 
-## Bloco 5. 2PC: crash do Coordenador e recuperação (~70 s), o clímax
+## Bloco 5. 2PC: crash do Coordenador e recuperação (~60 s), o clímax
 
 **Quem:** Integrante B.
 
@@ -151,7 +152,31 @@ python scripts/cenario.py 2pc crash-coord-part
 
 ---
 
-## Bloco 6. Resultados e fechamento (~50 s)
+## Bloco 6. Integração: failover do Líder que coordena (~40 s)
+
+**Quem:** Integrante A.
+
+O que dizer:
+- Os dois algoritmos num problema só. Três candidatos formam um anel, e cada um roda um Nó do
+  Anel e um Coordenador. Só o Líder aceita transação, e o id dela leva o prefixo de quem a
+  criou.
+- O Líder 3 grava o COMMIT de `c3-tx-a` e cai antes de difundi-lo. O cliente percebe pelo
+  pedido sem resposta e dispara a eleição, que elege o 2. O 2 comita `c2-tx-b`, mas não
+  assume `c3-tx-a`, porque só o log do 3 sabe que ela foi COMMIT. Ela espera o 3 voltar.
+
+O que mostrar / rodar:
+```bash
+python scripts/cenario.py integracao failover
+```
+- Apontar as linhas `[cenario]`: os Participantes em dúvida em `c3-tx-a`, o Líder 2 depois
+  da reeleição, `c2-tx-b` em COMMIT com `c3-tx-a` ainda em dúvida, o 3 reiniciado
+  difundindo o COMMIT e a eleição que o devolve à liderança.
+- Fechar no relatório da verificação: o 07 OK, cada transação com um só Coordenador, e o 05
+  com a recuperação do candidato 3.
+
+---
+
+## Bloco 7. Resultados e fechamento (~40 s)
 
 **Quem:** Integrante B.
 
@@ -174,13 +199,14 @@ O que dizer / mostrar (usar as figuras de `docs/figuras/`):
 
 | Bloco | Conteúdo | Tempo |
 |:------|:---------|------:|
-| 1 | Abertura e visão geral | ~40 s |
-| 2 | Anel normal | ~45 s |
-| 3 | Anel com falha do Líder | ~50 s |
-| 4 | 2PC normal (commit/abort) | ~45 s, ~35 s com o 5b |
-| 5 | 2PC crash do Coordenador + recuperação | ~70 s |
+| 1 | Abertura e visão geral | ~35 s |
+| 2 | Anel normal | ~40 s |
+| 3 | Anel com falha do Líder | ~45 s |
+| 4 | 2PC normal (commit/abort) | ~40 s, ~30 s com o 5b |
+| 5 | 2PC crash do Coordenador + recuperação | ~60 s |
 | 5b | Falha combinada, opcional | ~25 s |
-| 6 | Resultados e fechamento | ~50 s, ~40 s com o 5b |
+| 6 | Integração: failover do Líder que coordena | ~40 s |
+| 7 | Resultados e fechamento | ~40 s, ~25 s com o 5b |
 | | **Total** | **~5 min** |
 
 ## Dicas de gravação

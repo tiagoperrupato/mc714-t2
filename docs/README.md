@@ -64,6 +64,7 @@ Uma linha por conceito adicional do B1.
 | Item | O que pede | Resposta | Módulo | Comando |
 |:-----|:-----------|:---------|:-------|:--------|
 | B1 | falhas combinadas | [`modelo-e-correcao.md`](modelo-e-correcao.md), Cenários que exercitam cada propriedade | [`scripts/cenario.py`](../scripts/cenario.py) | `python scripts/cenario.py 2pc crash-coord-part` |
+| B1 | integração dos algoritmos num problema prático | [`modelo-e-correcao.md`](modelo-e-correcao.md), Integração: o Líder do Anel coordena o 2PC | [`src/integracao/`](../src/integracao/), [`compose.integracao.yaml`](../compose.integracao.yaml) | `python scripts/cenario.py integracao failover` |
 
 ## Artefatos versionados
 
