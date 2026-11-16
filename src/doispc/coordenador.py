@@ -24,7 +24,6 @@ envio de rede (PREPARE, DECISAO) feito pelo Transporte.
 
 from __future__ import annotations
 
-import os
 import threading
 import time
 from typing import Any, Mapping, Optional, Sequence
@@ -256,9 +255,9 @@ class ServicoCoordenador:
             self._executor.enviar(acao)
         return max(proxima - time.monotonic(), 0.0)
 
-    def instantaneo(self) -> dict[str, Any]:
-        """Resumo serializável da transação iniciada por último, para o endpoint `/estado`."""
-        estado = self.estado
+    def instantaneo(self, transacao: Optional[str] = None) -> dict[str, Any]:
+        """Resumo de uma transação para o `/estado`. Sem `transacao`, a iniciada por último."""
+        estado = self.estado if transacao is None else self._estados.get(transacao)
         return {
             "no": self._eu.id,
             "participantes": sorted(self._participantes),
@@ -267,25 +266,6 @@ class ServicoCoordenador:
             "decisao": estado.decisao if estado else None,
             "concluido": estado.concluido if estado else False,
         }
-
-
-def _participantes_de_env() -> dict[int, No]:
-    """Lê os Participantes de `DOISPC_PARTICIPANTES` = "id@host:porta,id@host:porta"."""
-    bruto = os.environ.get("DOISPC_PARTICIPANTES", "")
-    participantes: dict[int, No] = {}
-    for item in bruto.split(","):
-        item = item.strip()
-        if not item:
-            continue
-        ident, endereco = item.split("@", 1)
-        host, porta = endereco.split(":", 1)
-        no = No(id=int(ident), host=host, porta=int(porta))
-        participantes[no.id] = no
-    if not participantes:
-        raise ValueError(
-            "DOISPC_PARTICIPANTES vazio; esperado 'id@host:porta,...'"
-        )
-    return participantes
 
 
 def criar_app(servico: ServicoCoordenador, *, controlador=None):
@@ -322,8 +302,10 @@ def criar_app(servico: ServicoCoordenador, *, controlador=None):
         return JSONResponse(content=resultado)
 
     @app.get("/estado")
-    async def estado() -> JSONResponse:  # pragma: no cover - via servidor
-        return JSONResponse(content=servico.instantaneo())
+    async def estado(  # pragma: no cover - via servidor
+        transacao: Optional[str] = None,
+    ) -> JSONResponse:
+        return JSONResponse(content=servico.instantaneo(transacao))
 
     @app.get("/saude")
     async def saude() -> JSONResponse:  # pragma: no cover - via servidor

@@ -25,7 +25,9 @@ Coordenador:
 
 Participante:
 - `PART_ID`, `PART_PORTA`    identidade e porta de escuta.
-- `COORD_ID/HOST/PORTA`      identidade do Coordenador.
+- `DOISPC_COORDENADORES`     "id@host:porta,..." dos Coordenadores a quem o Participante
+                             responde. Sem ela, só o de `COORD_ID/HOST/PORTA`.
+- `COORD_ID/HOST/PORTA`      identidade do Coordenador quando falta `DOISPC_COORDENADORES`.
 - `DOISPC_VOTO`              "SIM" ou "NAO" — a flag de voto.
 - `DOISPC_DEADLINE`          Deadline de cada envio de rede, em s (default 2.0).
 - `DOISPC_LOG_DURAVEL`       caminho do Log_Duravel (default /dados/participante-{id}.log).
@@ -41,11 +43,7 @@ from src.comum.falhas import ClienteComFalhas, ControladorFalhas, registrar_plan
 from src.comum.log import LogEstruturado, abrir_log
 from src.comum.modelos import No
 from src.comum.rede import ClienteRede
-from src.doispc.coordenador import (
-    ServicoCoordenador,
-    _participantes_de_env,
-    criar_app as criar_app_coordenador,
-)
+from src.doispc.coordenador import ServicoCoordenador, criar_app as criar_app_coordenador
 from src.doispc.log_duravel import (
     FASE_DECISAO,
     VOTO_NAO,
@@ -87,6 +85,21 @@ def _no_de_env(prefixo: str, padrao_porta: int) -> No:
     )
 
 
+def _mapa_de_nos(variavel: str) -> dict[int, No]:
+    """Lê "id@host:porta,..." da variável `variavel` num mapa id -> No."""
+    bruto = os.environ.get(variavel, "")
+    nos: dict[int, No] = {}
+    for item in filter(None, (parte.strip() for parte in bruto.split(","))):
+        ident, _, endereco = item.partition("@")
+        host, _, porta = endereco.rpartition(":")
+        if not (ident.isdigit() and host and porta.isdigit()):
+            raise ConfigInvalidaError(variavel, item, "id@host:porta")
+        nos[int(ident)] = No(id=int(ident), host=host, porta=int(porta))
+    if not nos:
+        raise ConfigInvalidaError(variavel, bruto, "id@host:porta separados por vírgula")
+    return nos
+
+
 def _abrir_log_e_controlador(
     papel: str, no_id: int, semente: int, cenario: dict
 ) -> tuple[object, ControladorFalhas]:
@@ -106,7 +119,7 @@ def _abrir_log_e_controlador(
 def construir_coordenador() -> tuple[object, int]:
     """Monta o Coordenador a partir do ambiente, validando antes de qualquer efeito."""
     eu = _no_de_env("COORD", 8000)
-    participantes = _participantes_de_env()
+    participantes = _mapa_de_nos("DOISPC_PARTICIPANTES")
     semente = int(os.environ.get("SEMENTE", "0"))
     deadline_voto = float(os.environ.get("DOISPC_DEADLINE_VOTO", "3.0"))
     deadline_decisao = float(os.environ.get("DOISPC_DEADLINE_DECISAO", "2.0"))
@@ -158,7 +171,11 @@ def construir_coordenador() -> tuple[object, int]:
 def construir_participante() -> tuple[object, int]:
     """Monta um Participante a partir do ambiente, validando antes de qualquer efeito."""
     eu = _no_de_env("PART", 8100)
-    coordenador = _no_de_env("COORD", 8000)
+    if "DOISPC_COORDENADORES" in os.environ:
+        coordenadores = _mapa_de_nos("DOISPC_COORDENADORES")
+    else:
+        coordenador = _no_de_env("COORD", 8000)
+        coordenadores = {coordenador.id: coordenador}
     semente = int(os.environ.get("SEMENTE", "0"))
     deadline = float(os.environ.get("DOISPC_DEADLINE", "2.0"))
     voto = VOTO_NAO if os.environ.get("DOISPC_VOTO", "SIM").upper() == VOTO_NAO else VOTO_SIM
@@ -169,7 +186,7 @@ def construir_participante() -> tuple[object, int]:
         porta=eu.porta,
         semente=semente,
         deadline=deadline,
-        sucessores=(coordenador.id,),
+        sucessores=tuple(sorted(coordenadores)),
     )
     config.validar()
 
@@ -183,14 +200,14 @@ def construir_participante() -> tuple[object, int]:
         {
             "algoritmo": "2pc",
             "papel": "participante",
-            "coordenador": coordenador.id,
+            "coordenadores": sorted(coordenadores),
             "voto_desejado": voto,
             "deadline": deadline,
         },
     )
     servico = ServicoParticipante(
         eu,
-        coordenador,
+        coordenadores,
         log_duravel=LogDuravelArquivo(caminho_log),
         cliente=ClienteComFalhas(ClienteRede(), controlador),
         deadline=deadline,

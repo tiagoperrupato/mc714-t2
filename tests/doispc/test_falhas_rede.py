@@ -69,7 +69,7 @@ class _Participantes:
         self.servicos = {
             pid: ServicoParticipante(
                 self.part_nos[pid],
-                self.coord_no,
+                {COORD_ID: self.coord_no},
                 log_duravel=LogDuravelArquivo(tmp_path / f"part-{pid}.log"),
                 cliente=ClienteRede(),
                 deadline=1.0,
@@ -265,7 +265,7 @@ def test_mensagem_recebida_em_crash_devolve_503(tmp_path: Path, papel: str) -> N
     else:
         eu, origem = part, coord
         servico = ServicoParticipante(
-            part, coord, log_duravel=log_duravel, cliente=ClienteRede(), deadline=1.0,
+            part, {coord.id: coord}, log_duravel=log_duravel, cliente=ClienteRede(), deadline=1.0,
             voto_desejado=VOTO_SIM,
         )
         app = criar_app_part(servico, controlador=controlador)

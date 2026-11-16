@@ -13,6 +13,9 @@ O fluxo é sempre o mesmo:
    dependem dela. O adaptador não precisa lembrar a regra;
    basta obedecer à sequência.
 
+O Voto e o ACK vão ao Coordenador que mandou a Mensagem, desde que ele esteja no mapa de
+Coordenadores conhecidos. Mensagem de origem desconhecida é recusada antes da Máquina.
+
 O Participante pode ser configurado para votar NAO: o
 `voto_desejado` é fixado na construção a partir de uma flag (env `DOISPC_VOTO`),
 e repassado à Máquina_de_Estados a cada PREPARE. Todo o resto — atomicidade,
@@ -51,7 +54,7 @@ class ServicoParticipante:
     def __init__(
         self,
         participante: No,
-        coordenador: No,
+        coordenadores: Mapping[int, No],
         *,
         log_duravel: LogDuravel,
         cliente: ClienteRede,
@@ -59,21 +62,25 @@ class ServicoParticipante:
         voto_desejado: str = VOTO_SIM,
         log: Optional[LogEstruturado] = None,
     ) -> None:
+        if not coordenadores:
+            raise ValueError(
+                f"o Participante {participante.id} precisa de ao menos um Coordenador. "
+                "Defina DOISPC_COORDENADORES ou COORD_ID."
+            )
         self._eu = participante
-        self._coordenador = coordenador
+        self._coordenadores = dict(coordenadores)
         self._voto_desejado = voto_desejado
         self._log_duravel = log_duravel
         self._log = log
         self._estados: dict[str, EstadoParticipante] = {}
         self._ultima: Optional[str] = None
-        # O Participante só fala com o Coordenador; o executor resolve o id do
-        # destino para a URL do Coordenador.
+        # O Participante só fala com Coordenadores, e o executor resolve o id da origem para a URL.
         self._executor = ExecutorAcoes(
             no_id=participante.id,
             log_duravel=log_duravel,
             cliente=cliente,
             deadline=deadline,
-            enderecos={coordenador.id: coordenador.base_url},
+            enderecos={cid: no.base_url for cid, no in self._coordenadores.items()},
             log=log,
         )
 
@@ -111,7 +118,24 @@ class ServicoParticipante:
         A resposta HTTP é um ACK imediato de recebimento. As
         Mensagens de saída (o VOTO, o ACK da DECISAO) vão para a fila do executor
         e saem depois da resposta. O estado novo só é publicado depois de gravado.
+        A origem desconhecida grava `origem_desconhecida`, e não `recebe`, para ficar fora do
+        invariante 07.
         """
+        if mensagem.origem not in self._coordenadores:
+            conhecidos = sorted(self._coordenadores)
+            if self._log is not None:
+                self._log.evento(
+                    "origem_desconhecida",
+                    msg_tipo=mensagem.tipo,
+                    origem=mensagem.origem,
+                    transacao=mensagem.corpo.get("transacao"),
+                    conhecidos=conhecidos,
+                )
+            return {
+                "ack": False,
+                "erro": f"origem {mensagem.origem} não é Coordenador conhecido {conhecidos}. "
+                "Confira DOISPC_COORDENADORES ou COORD_ID.",
+            }
         if self._log is not None:
             self._log.evento(
                 "recebe",
@@ -123,7 +147,7 @@ class ServicoParticipante:
         novo, acoes = participante_recebe(
             self._estados.get(transacao),
             self._eu.id,
-            self._coordenador.id,
+            mensagem.origem,
             mensagem,
             voto_desejado=self._voto_desejado,
         )
@@ -131,9 +155,9 @@ class ServicoParticipante:
         self._guardar(transacao, novo)
         return {"ack": True}
 
-    def instantaneo(self) -> dict[str, Any]:
-        """Resumo serializável da transação vista por último, para o endpoint `/estado`."""
-        estado = self.estado
+    def instantaneo(self, transacao: Optional[str] = None) -> dict[str, Any]:
+        """Resumo de uma transação para o `/estado`. Sem `transacao`, a vista por último."""
+        estado = self.estado if transacao is None else self._estados.get(transacao)
         return {
             "no": self._eu.id,
             "voto_desejado": self._voto_desejado,
@@ -166,8 +190,10 @@ def criar_app(servico: ServicoParticipante, *, controlador=None):
     app = criar_app_recebedor(recebedor_http(controlador, servico.receber))
 
     @app.get("/estado")
-    async def estado() -> JSONResponse:  # pragma: no cover - via servidor
-        return JSONResponse(content=servico.instantaneo())
+    async def estado(  # pragma: no cover - via servidor
+        transacao: Optional[str] = None,
+    ) -> JSONResponse:
+        return JSONResponse(content=servico.instantaneo(transacao))
 
     @app.get("/saude")
     async def saude() -> JSONResponse:  # pragma: no cover - via servidor

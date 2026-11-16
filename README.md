@@ -218,6 +218,9 @@ código.
   (`8011..8013`) na rede `rede-2pc`. Cada Nó do 2PC monta um **volume nomeado
   próprio** em `/dados` para o seu Log_Duravel, o que preserva a Decisao através
   de reinícios. Os Deadlines de Voto e de Decisao são configuráveis por ambiente.
+  O Participante responde ao Coordenador que lhe mandou a Mensagem, se ele estiver em
+  `DOISPC_COORDENADORES` (`id@host:porta,...`). Sem a variável, conhece só o de
+  `COORD_ID`, `COORD_HOST` e `COORD_PORTA`.
 - **Serviço Toxiproxy:** `ghcr.io/shopify/toxiproxy:2.9.0`, ligado às duas redes,
   com o HTTP API em `8474`. Sem override, ele só fica no ar e os Nós falam direto
   entre si. Com o `compose.toxiproxy.yaml`, falam pelas escutas dele.
@@ -243,14 +246,15 @@ Endpoints de controle de cada Nó:
 | Algoritmo | Endpoints |
 |:---|:---|
 | Anel | `GET /estado`, `POST /iniciar-eleicao`, `GET /saude`, `POST /falha/*` |
-| 2PC | `POST /transacao`, `GET /estado`, `GET /saude`, `POST /falha/*` |
+| 2PC | `POST /transacao`, `GET /estado?transacao=`, `GET /saude`, `POST /falha/*` |
 
 Os endpoints `/falha/*` (crash, pause, delay, drop) são a porta pela qual a
 injeção de falhas de aplicação é disparada, de forma determinística por Semente.
 
 O `POST /transacao` aceita o id da transação no corpo, `{"transacao": "x"}`, e
 gera um quando ele falta. Um id já usado devolve a Decisao que ele já tem, sem
-abrir rodada nova.
+abrir rodada nova. O `GET /estado` do Coordenador e do Participante mostra a
+transação pedida em `?transacao=`, e sem ela a última.
 
 ## Arquitetura
 

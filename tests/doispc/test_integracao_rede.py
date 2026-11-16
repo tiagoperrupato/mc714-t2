@@ -134,7 +134,7 @@ class _Cenario2PC:
             self.logs[pid] = log
             servico = ServicoParticipante(
                 self.part_nos[pid],
-                self.coord_no,
+                {COORD_ID: self.coord_no},
                 log_duravel=log,
                 cliente=ClienteRede(),
                 deadline=self._deadline_decisao,
