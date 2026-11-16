@@ -3,14 +3,14 @@
 Toda a lógica aqui é pura: funções sobre estado imutável que,
 dada a situação corrente e uma Mensagem (ou um comando de controle), devolvem o
 novo estado e uma lista ordenada de `Acao`. Nada neste módulo toca rede ou
-disco — não há `import` de FastAPI, httpx ou do próprio `log_duravel` para fazer
+disco: não há `import` de FastAPI, httpx ou do próprio `log_duravel` para fazer
 IO. A fronteira é a lista de `Acao`: o adaptador de rede a executa na
 ordem em que aparece.
 
 A ordem das `Acao` **é** a ordem write-ahead que o modelo declara
 (`docs/modelo-e-correcao.md`).
 Quando o Participante vota, a função devolve primeiro uma
-`GravarLog` do Voto e só depois a `Enviar` da resposta; quando decide, devolve
+`GravarLog` do Voto e só depois a `Enviar` da resposta. Quando decide, devolve
 primeiro a `GravarLog` da Decisao e só depois o `Aplicar` e a `Enviar` do ACK.
 O Coordenador grava a entrada em WAIT antes do PREPARE e a Decisao antes da
 DECISAO.
@@ -80,7 +80,7 @@ class Aplicar:
     decisao: str
 
 
-# Uma Acao é qualquer um dos pedidos acima; o adaptador os executa em ordem.
+# Uma Acao é qualquer um dos pedidos acima, e o adaptador os executa em ordem.
 Acao = Enviar | GravarLog | Aplicar
 
 
@@ -95,7 +95,7 @@ class EstadoCoordenador:
 
     `transacao` identifica a transação. `participantes` são os ids dos
     Participantes consultados. `votos` mapeia id de Participante ao Voto já
-    recebido. `decisao` é a Decisao, quando já tomada e gravada; `None` enquanto
+    recebido. `decisao` é a Decisao, quando já tomada e gravada, ou `None` enquanto
     o Coordenador ainda coleta Votos. `acks` são os ids que já confirmaram a
     Decisao.
     """
@@ -332,7 +332,7 @@ def participante_recebe(
 ) -> tuple[EstadoParticipante, tuple[Acao, ...]]:
     """Processa um PREPARE ou uma DECISAO recebidos por um Participante.
 
-    `voto_desejado` é a inclinação local do Participante (SIM por padrão; NAO
+    `voto_desejado` é a inclinação local do Participante (SIM por padrão, NAO
     quando configurado para abortar). Ao receber PREPARE, o Participante decide
     seu Voto, e a ordem das `Acao` **grava o Voto antes de respondê-lo**.
     Ao receber a DECISAO, **grava a Decisao antes de aplicá-la
@@ -451,7 +451,7 @@ def recuperar_participante(estado_persistido: EstadoPersistido) -> EstadoPartici
     """Reconstrói um Participante a partir do Log_Duravel após reinício.
 
     Restaura o Voto e a Decisao exatamente como gravados antes do reinício.
-    Se havia uma Decisao, ela é considerada aplicada; se havia
+    Se havia uma Decisao, ela é considerada aplicada. Se havia
     só o Voto SIM, o Participante volta em Estado_Em_Duvida, aguardando a
     Decisao do Coordenador.
     """

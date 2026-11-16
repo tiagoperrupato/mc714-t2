@@ -137,7 +137,7 @@ def test_semear_reseta_antes_de_recriar() -> None:
     with _cliente(api) as cli:
         cli.criar_proxy(Proxy("resto", "0.0.0.0:9999", "velho:1"))
         cli.semear(proxies_anel((1, 2, 3, 4, 5)))
-    # O proxy antigo some; ficam só os 5 do Anel.
+    # O proxy antigo some, e ficam só os 5 do Anel.
     assert set(api.proxies) == {f"anel-{i}" for i in range(1, 6)}
 
 

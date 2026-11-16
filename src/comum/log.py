@@ -66,7 +66,7 @@ class LogEstruturado:
 def _montar_linha(agora: float, no_id: int, tipo: str, campos: Mapping[str, Any]) -> str:
     """Monta a linha JSON de um evento com as chaves reservadas primeiro.
 
-    `ts`, `no` e `tipo` são as chaves reservadas; os campos do evento não podem
+    `ts`, `no` e `tipo` são as chaves reservadas, e os campos do evento não podem
     sobrescrevê-las, para que a análise sempre as encontre.
     """
     registro: dict[str, Any] = {"ts": agora, "no": no_id, "tipo": tipo}
@@ -80,7 +80,7 @@ def _montar_linha(agora: float, no_id: int, tipo: str, campos: Mapping[str, Any]
 def abrir_log(caminho: Path, no_id: int) -> LogEstruturado:
     """Abre (criando diretórios) um arquivo de log sob `results/` e devolve o logger.
 
-    O chamador é dono do fluxo subjacente via `LogEstruturado`; em produção o
+    O chamador é dono do fluxo subjacente via `LogEstruturado`. Em produção o
     processo do Nó o mantém aberto durante toda a Réplica.
     """
     caminho.parent.mkdir(parents=True, exist_ok=True)

@@ -37,8 +37,9 @@ nenhuma métrica o usa. Cada métrica é medida assim:
   em passos lógicos de entrega e Mensagens contadas pelo runner em processo,
   ambos reproduzíveis dígito a dígito pela Semente.
 - **Bateria do Bully** (`src/experimentos/runner_bully.py`): as Mensagens contadas
-  pela regra do Anel e o tempo em saltos lógicos, a profundidade causal da entrega
-  que completa a convergência, também reproduzíveis pela Semente. Um prazo só
+  pela regra do Anel e o tempo em saltos lógicos, a maior profundidade causal em
+  que um Nó passa a aceitar o maior id, com um salto a mais por tentativa perdida,
+  também reproduzíveis pela Semente. Um prazo só
   dispara com a fila de Mensagens vazia, o que modela o sistema síncrono.
 - **Bateria do 2PC** (`src/experimentos/condutor_doispc.py`): mede os Nós reais
   no compose, com o Toxiproxy entre o Coordenador e os Participantes, e o
@@ -150,7 +151,7 @@ limitação: elas são sobre a ordem lógica dos eventos, que a emulação prese
 | --- | --- | --- |
 | No máximo um Líder por Rodada_de_Eleicao concluída | *safety* | **`invariante_01_lider_unico`** |
 | Todos os Nós vivos convergem para o mesmo Líder | *liveness*/*safety* | **`invariante_02_convergencia`** |
-| O Líder eleito é o maior id vivo | *correctness* | **`invariante_03_maior_id_vivo`** |
+| O Líder eleito é o maior id vivo | *safety* | **`invariante_03_maior_id_vivo`** |
 
 - **Unicidade do Líder** (`invariante_01_lider_unico`): agrupa os anúncios de
   Líder por id de rodada e exige um único valor de `lider` por rodada. Dois
@@ -363,7 +364,7 @@ as quebra:
 | --- | --- | --- |
 | Coordenador único: cada transação tem um só Coordenador, mesmo com dois candidatos que se julgam Líderes | *safety* | **`invariante_07_coordenador_unico`** |
 | Atomicidade, durabilidade e validade de cada transação | *safety* | **`invariante_04_atomicidade`**, **`invariante_05_durabilidade`** e **`invariante_06_validade`** |
-| Unicidade, convergência e maior id vivo entre os candidatos | *safety*, *liveness* e *correctness* | **`invariante_01_lider_unico`**, **`invariante_02_convergencia`** e **`invariante_03_maior_id_vivo`** |
+| Unicidade, convergência e maior id vivo entre os candidatos | *safety* e *liveness* | **`invariante_01_lider_unico`**, **`invariante_02_convergencia`** e **`invariante_03_maior_id_vivo`** |
 | Só o Líder aceita transação | roteamento, não *safety* | `cenario.py integracao normal`, campo `recusa_nao_lider` |
 | Transações novas voltam a comitar depois da reeleição | *liveness* | `cenario.py integracao failover`, campos `lideres_pos_falha` e `decisoes_participantes_tx_b`, prazo de 10 s |
 | A transação em dúvida termina quando o Coordenador dela volta | *liveness* bloqueante | `cenario.py integracao failover`, campos `em_duvida_tx_a_durante_tx_b` e `decisoes_participantes_tx_a`, prazo de 30 s |
@@ -406,7 +407,8 @@ as quebra:
   no prazo assume e manda COORDENADOR a todos os outros.
 - **Variante.** Duas regras separam a variante da clássica.
   - *O OK leva o Líder em exercício.* O Líder ocioso que recebe ELEICAO de um menor responde
-    só OK, com o próprio id, e quem recebe esse OK o aceita. Na clássica ele reabre a eleição a
+    só OK, com o próprio id, e quem recebe esse OK o aceita, salvo se já está ocioso com um Líder
+    maior ou igual, caso em que o OK é atrasado e é ignorado. Na clássica ele reabre a eleição a
     cada ELEICAO atrasada, e numa entrega FIFO o pior caso passa de n² − 1 para
     n² − 1 + (n − 1)(n − 2) Mensagens. Com a regra, o pior caso fica em n² − 1 exato, o que a
     bateria confere em [`resultados-bully.md`](resultados-bully.md).
@@ -414,8 +416,8 @@ as quebra:
     menor que assumiu por suspeita errada perde a liderança para o maior vivo, sem esperar
     outro pedido de eleição.
 - **Épocas.** Cada convocação abre uma época nova no Nó, que vai na ELEICAO, no OK e no prazo
-  que ela pede. Um OK ou um prazo de época velha é ignorado, então o prazo de uma eleição já
-  superada não faz o Nó assumir.
+  que ela pede. Um OK sem Líder ou um prazo de época velha é ignorado, então o prazo de uma
+  eleição já superada não faz o Nó assumir. O OK que traz Líder maior vale em qualquer época.
 - **Quem convoca.** Todo Nó ao subir, inclusive ao voltar de um crash, depois de o servidor
   aceitar conexões. Também quem recebe ELEICAO de um menor sem ser o Líder em exercício, quem
   rejeita um COORDENADOR menor, quem estoura o prazo de COORDENADOR e quem recebe
@@ -438,7 +440,8 @@ as quebra:
   um atraso ou uma pausa acima do prazo de OK faz um Nó assumir com um maior vivo, a semântica
   *fail-noisy* dos outros algoritmos.
 - **Persistência e reinício (M4).** Sem estado durável. O Nó que volta não lembra Líder nem
-  época, convoca ao subir e, se é o maior vivo, assume na hora.
+  época e convoca ao subir. Se é o maior id, assume na hora, e se é só o maior vivo, assume
+  quando vence o prazo de OK.
 - **Nós (M7).** Cinco Nós em `compose.bully.yaml`, como no Anel, e 3, 5 e 7 na bateria em
   processo, nas condições da bateria do Anel. Com cinco, a queda do maior ainda deixa quatro
   para eleger o 4.
@@ -537,6 +540,6 @@ processo ou servidos localmente.
 | Integração | Participante que descarta toda Mensagem recebida (drop de aplicação com p = 1) durante o failover | cenário `integracao failover-isolamento` | 01 a 07, `c2-tx-b` em ABORT no prazo de Votos, e o ABORT no 11 pela retransmissão depois da limpeza |
 | Integração | candidato que não responde numa eleição e volta crendo ser o Líder, com dois Líderes | `test_dois_lideres_comitam_com_prefixos_distintos_e_nenhum_invariante_reprova` | 01 a 03 nas duas rodadas, e 04, 06 e 07 nas dez transações dos dois Líderes |
 | Bully | crash-stop do Líder | cenário `bully falha`, `test_cinco_nos_elegem_o_5_reelegem_o_4_e_voltam_ao_5` | 08 e 09 nos logs, com os quatro vivos no 4 |
-| Bully | reinício do maior id sem estado | cenário `bully retorno`, o mesmo teste | 08 e 09, com os cinco no 5 sem eleição pedida |
+| Bully | reinício do maior id sem estado | cenário `bully retorno` | 08 e 09, com os cinco no 5 sem eleição pedida |
 | Bully | suspeita errada, com um menor que assume | `test_coordenador_menor_e_rejeitado_e_o_maior_retoma_a_lideranca`, `test_bully_lider_nao_menor_passa_com_auto_aceite_e_os_lideres_transitorios` | o maior rejeita o COORDENADOR menor e retoma a liderança, e o 08 passa com os dois Líderes transitórios |
 | Bully | perda e duplicata de Mensagem | bateria com p = 0,05, `test_todo_vivo_termina_no_maior_id_vivo_sem_aceitar_lider_menor` | mensagens contra (n² − 1)/(1 − p) em [`resultados-bully.md`](resultados-bully.md), e todo vivo no maior id vivo em 500 Sementes |

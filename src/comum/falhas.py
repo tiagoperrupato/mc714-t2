@@ -226,8 +226,8 @@ class ControladorFalhas:
     def _consumir_pausa(self) -> float:
         """Devolve o tempo de pausa agendado e o zera (pausa é evento único).
 
-        Chamado sob o lock. Modelar pause como evento único — e não como um modo
-        que congela toda Mensagem para sempre — é o que permite "congela N s e
+        Chamado sob o lock. Modelar pause como evento único, e não como um modo
+        que congela toda Mensagem para sempre, é o que permite "congela N s e
         depois resume": injeta-se o pause, o próximo evento
         paga o congelamento, e o Nó volta a operar.
         """
@@ -271,7 +271,7 @@ def envolver_recebimento(
 
     O callback original (por exemplo, `NoAnel.processar_mensagem` ou
     `ServicoParticipante.receber`) só é chamado se o controlador deixa a
-    Mensagem passar. Um drop devolve um ACK de "descartada" sem tocar a Máquina;
+    Mensagem passar. Um drop devolve um ACK de "descartada" sem tocar a Máquina, e
     um crash propaga `NoEmCrashError` para `recebedor_http` converter em 503. Assim o
     controlador é plugável sem que o adaptador mude sua lógica de decisão.
     """
@@ -331,7 +331,7 @@ class ClienteComFalhas:
     `fechar()`, de modo que entra no lugar de um `ClienteRede` sem que o
     adaptador perceba. Antes de delegar ao cliente real, consulta o controlador:
     um crash ou um drop de saída devolve `EnvioDescartado` e a Mensagem nunca
-    toca a rede; caso contrário (possivelmente após um delay/pause), o envio
+    toca a rede. Caso contrário (possivelmente após um delay/pause), o envio
     segue normalmente.
     """
 
@@ -370,12 +370,12 @@ def registrar_endpoints_falha(app, controlador: ControladorFalhas) -> None:
 
     Expõe, para injeção e limpeza em tempo de execução:
 
-    - `POST /falha/crash`  — liga o crash;
-    - `POST /falha/pause`  — congela por `segundos` (corpo `{"segundos": N}`);
-    - `POST /falha/delay`  — liga o atraso com teto `segundos`;
-    - `POST /falha/drop`   — liga o descarte com probabilidade `p`;
-    - `POST /falha/limpar` — zera todos os modos;
-    - `GET  /falha/estado` — devolve os modos ativos.
+    - `POST /falha/crash`: liga o crash.
+    - `POST /falha/pause`: congela por `segundos` (corpo `{"segundos": N}`).
+    - `POST /falha/delay`: liga o atraso com teto `segundos`.
+    - `POST /falha/drop`: liga o descarte com probabilidade `p`.
+    - `POST /falha/limpar`: zera todos os modos.
+    - `GET /falha/estado`: devolve os modos ativos.
 
     É importado FastAPI localmente, como no resto do projeto, para não exigir o
     framework de quem só usa o controlador em teste de unidade.

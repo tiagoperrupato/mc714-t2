@@ -1,4 +1,4 @@
-# Override que faz o Participante 3 votar SIM, para uma transação manual com COMMIT em todos:
+# Override que faz o Participante 13 votar SIM, para uma transação manual com COMMIT em todos:
 #   docker compose -f compose.yaml -f compose.commit.yaml up -d --wait coordenador
 services:
   participante-3:

@@ -144,9 +144,17 @@ def _receber_eleicao(estado: EstadoBully, msg: Mensagem) -> tuple[EstadoBully, l
 
 
 def _receber_ok(estado: EstadoBully, msg: Mensagem) -> tuple[EstadoBully, list[Acao]]:
-    """Aceita o Líder que o OK traz, ou passa a esperar o COORDENADOR da época atual."""
+    """Aceita o Líder que o OK traz, ou passa a esperar o COORDENADOR da época atual.
+
+    O Nó ocioso já resolveu a última eleição, então um OK que chega a ele é atrasado e só vale
+    se traz Líder maior que o aceito. Sem essa guarda, um OK(4) que chega depois do COORDENADOR
+    do 5 deixaria o Nó no 4.
+    """
     lider = msg.corpo["lider"]
     if lider is not None and lider > estado.no_id:
+        ja_tem_maior = estado.lider is not None and lider <= estado.lider
+        if estado.fase == FASE_OCIOSA and ja_tem_maior:
+            return estado, []
         return _aceitar(estado, lider), []
     if lider is None and estado.fase == FASE_AGUARDANDO_OK and msg.corpo["epoca"] == estado.epoca:
         novo = replace(estado, fase=FASE_AGUARDANDO_COORDENADOR)

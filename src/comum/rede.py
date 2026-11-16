@@ -9,13 +9,13 @@ Duas regras de projeto estão codificadas aqui, não apenas documentadas:
 
 - **Deadline obrigatório**. O `ClienteRede` não oferece nenhum
   caminho de código que envie uma Mensagem sem timeout. O Deadline é um
-  parâmetro posicional de `enviar`; não há sobrecarga, default `None` nem flag
+  parâmetro posicional de `enviar`, sem sobrecarga, default `None` nem flag
   que o desligue. Sem isso, uma partição de rede travaria um Nó indefinidamente
   e o salto do Anel ou o ABORT por timeout do 2PC deixariam de acontecer.
 
 - **Erros tipados, nunca exceções silenciosas**. Toda falha de
-  transporte vira um `ResultadoEnvio` tipado — `EnvioOk`, `EnvioTimeout`,
-  `EnvioConexaoRecusada` ou `EnvioIndisponivel` — para que a Máquina_de_Estados
+  transporte vira um `ResultadoEnvio` tipado (`EnvioOk`, `EnvioTimeout`,
+  `EnvioConexaoRecusada` ou `EnvioIndisponivel`), para que a Máquina_de_Estados
   decida o salto ou o ABORT de forma explícita, a partir do tipo do resultado,
   e não a partir de uma exceção capturada ad hoc.
 """
@@ -120,7 +120,7 @@ class ClienteRede:
     livre), e não à soma delas, então no pior caso uma tentativa passa do tempo
     que restava. O Deadline limita os retries, mas não é um prazo absoluto.
 
-    O cliente é reutilizável entre chamadas; `fechar` libera a conexão
+    O cliente é reutilizável entre chamadas, e `fechar` libera a conexão
     subjacente. Aceita um `transporte` alternativo (um fake) para teste sem
     rede, mas em produção usa um `httpx.Client` real.
     """
@@ -145,7 +145,7 @@ class ClienteRede:
         `deadline` é o orçamento, em segundos, da chamada inteira com os retries,
         nos limites descritos em `ClienteRede`. É obrigatório e deve ser
         estritamente positivo, porque não existe caminho de envio sem prazo. O
-        retorno é sempre um `ResultadoEnvio` tipado; falhas de transporte nunca
+        retorno é sempre um `ResultadoEnvio` tipado, e falhas de transporte nunca
         escapam como exceção.
         """
         _exigir_deadline(deadline)
@@ -170,7 +170,7 @@ class ClienteRede:
             if isinstance(resultado, EnvioOk):
                 return resultado
             if isinstance(resultado, EnvioTimeout):
-                # Timeout da tentativa: o Deadline total mandou; não reenvia.
+                # Timeout da tentativa: o Deadline total mandou, então não reenvia.
                 return self._timeout(deadline, tentativas)
             if isinstance(resultado, EnvioConexaoRecusada):
                 ultimo_recusado = resultado
@@ -202,7 +202,7 @@ class ClienteRede:
             return EnvioTimeout(deadline=timeout, tentativas=1)
         except httpx.ConnectError as erro:
             # ConnectError cobre recusa de conexão e falha de resolução/rota. A
-            # recusa explícita ("refused") é o sinal de Nó fora; o resto é
+            # recusa explícita ("refused") é o sinal de Nó fora, e o resto é
             # indisponibilidade de transporte.
             texto = str(erro).lower()
             if "refused" in texto:

@@ -1,5 +1,5 @@
-"""Núcleo comum: config validada, modelos imutáveis, aleatoriedade e log.
+"""Núcleo comum: config validada, modelos imutáveis, aleatoriedade, log, transporte e falhas.
 
-Esta camada não importa a lógica dos algoritmos (anel, 2pc) nem a camada de
-análise. É a base verificada sobre a qual os dois algoritmos repousam.
+Não importa a lógica dos algoritmos nem a camada de análise. É a base verificada sobre a qual
+repousam o Anel, o Bully, o 2PC e a integração.
 """

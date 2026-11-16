@@ -181,7 +181,7 @@ python scripts/cenario.py anel normal        # eleição converge para o maior i
 python scripts/cenario.py anel falha         # mata o Líder (5) e reelege o maior vivo (4)
 python scripts/cenario.py anel reinicio      # mata o 5, reelege 4, reinicia o 5 e a eleição seguinte o reintegra
 python scripts/cenario.py 2pc commit         # todos votam SIM -> COMMIT atômico
-python scripts/cenario.py 2pc abort          # Participante 3 vota NAO -> ABORT atômico
+python scripts/cenario.py 2pc abort          # Participante 13 vota NAO -> ABORT atômico
 python scripts/cenario.py 2pc crash-coord    # Coordenador cai após decidir -> dúvida, com aviso na verificação -> reinício -> COMMIT
 python scripts/cenario.py 2pc crash-coord-part  # Coordenador e Participante 11 caem -> 11 volta em dúvida -> COMMIT -> 11 volta com COMMIT
 python scripts/cenario.py 2pc particao       # isola o Participante 11 -> ABORT no prazo -> cura -> ABORT também no 11
@@ -281,7 +281,7 @@ docker compose -f compose.bully.yaml down -v --remove-orphans            # derru
 Overrides pontuais:
 
 - `compose.toxiproxy.yaml`: faz os Nós falarem pelas escutas do Toxiproxy.
-- `compose.commit.yaml`: faz o Participante 3 votar SIM, para uma transação manual
+- `compose.commit.yaml`: faz o Participante 13 votar SIM, para uma transação manual
   com COMMIT em todos. O compose base o deixa votando NAO, para mostrar o ABORT
   atômico.
 
@@ -371,7 +371,7 @@ também as versões do Docker e do Compose e o Python da imagem.
 
 | Coluna | Significado |
 |:-------|:------------|
-| `algoritmo`, `parametro_variado`, `semente` | identificam a Réplica |
+| `algoritmo`, `parametro_variado`, `indice`, `nivel`, `k`, `semente` | identificam a Réplica: posição na bateria, valor do nível e repetição dentro dele |
 | `num_nos`, `taxa_falhas` | parâmetros da Réplica, com a perda fixa em 0,05 |
 | `tempo_convergencia` | passos lógicos de entrega até a convergência |
 | `mensagens` | tentativas de entrega até a convergência, perdidas incluídas |
@@ -388,7 +388,7 @@ profundidade.
 
 | Coluna | Significado |
 |:-------|:------------|
-| `algoritmo`, `parametro_variado`, `semente` | identificam a Réplica |
+| `algoritmo`, `parametro_variado`, `indice`, `nivel`, `k`, `semente` | identificam a Réplica: posição na bateria, valor do nível e repetição dentro dele |
 | `num_participantes`, `latencia_rede` | Participantes e atraso de ida em ms, aplicado em cada sentido |
 | `ordem`, `aquecimento`, `transacao` | posição na Réplica, 1 nas de aquecimento, e o id |
 | `decisao` | COMMIT ou ABORT |
@@ -400,7 +400,7 @@ profundidade.
 
 | Coluna | Significado |
 |:-------|:------------|
-| `algoritmo`, `parametro_variado`, `semente` | identificam a Réplica |
+| `algoritmo`, `parametro_variado`, `indice`, `nivel`, `k`, `semente` | identificam a Réplica: posição na bateria, valor do nível e repetição dentro dele |
 | `num_participantes`, `latencia_rede`, `transacao` | como acima |
 | `em_duvida` | Participantes em dúvida logo depois do crash |
 | `decisao` | Decisao do Coordenador depois de reler o Log_Duravel |
@@ -474,8 +474,9 @@ docker compose -f compose.bully.yaml down -v --remove-orphans
 As baterias do Anel e do Bully, a análise e a verificação rodam **sem Docker**. A
 bateria do 2PC, os cenários e o teardown usam o compose. As tabelas de `docs/` são
 geradas pelo passo (3) e nada é digitado à mão. As baterias do Anel e do Bully são
-determinísticas por Semente e reproduzem os CSVs versionados byte a byte. A do 2PC
-mede tempo de parede, que varia entre execuções. Uma bateria nova muda os números, o `git diff` mostra
+determinísticas por Semente e reproduzem as métricas dos CSVs versionados dígito a
+dígito. Só as colunas `amb_*` mudam, porque registram a máquina de cada execução. A do
+2PC mede tempo de parede, que varia entre execuções. Uma bateria nova muda os números, o `git diff` mostra
 a diferença nos CSVs, e o passo (4) aponta as tabelas do 2PC como defasadas até a
 saída do passo (3) ser colada de novo. `git checkout -- results/` volta aos dados
 publicados.
@@ -500,8 +501,8 @@ Em [`docs/`](docs/):
 - [`docs/relatorio/`](docs/relatorio/): o relatório IEEE, com o `.tex`, a classe
   IEEEtran e o PDF compilado.
 - [`docs/roteiro-video.md`](docs/roteiro-video.md): o roteiro do vídeo de
-  demonstração, com os cenários `anel falha`, `2pc crash-coord` e
-  `integracao failover`.
+  demonstração, com os cenários `anel falha`, `2pc crash-coord`, `integracao failover`
+  e `bully retorno`, e o `2pc crash-coord-part` num bloco opcional.
 
 ## Verificação
 

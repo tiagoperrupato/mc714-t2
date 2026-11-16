@@ -4,12 +4,12 @@ Cobrem, sem Docker:
 
 - **Determinismo por Semente**: com a mesma Semente e o mesmo
   Cenário (mesma sequência de injeções), a sequência de decisões de drop e de
-  delay é idêntica entre duas execuções independentes; Sementes diferentes
+  delay é idêntica entre duas execuções independentes, e Sementes diferentes
   produzem sequências diferentes.
 - **Independência dos streams**: consumir o stream de drop
   não desloca o de delay, e vice-versa.
 - **Modos de falha**: crash levanta `NoEmCrashError` nas duas
-  direções; pause congela uma vez e depois resume; o `ClienteComFalhas` suprime
+  direções, pause congela uma vez e depois resume, e o `ClienteComFalhas` suprime
   envios sob crash/drop e delega os demais.
 - **Registro do Plano_de_Falhas no log**.
 """
@@ -96,7 +96,7 @@ def test_sementes_diferentes_produzem_sequencias_diferentes() -> None:
 def test_stream_de_drop_nao_e_afetado_por_delay_ligado() -> None:
     # O stream de drop vem de um gerador distinto do de delay: ligar o delay em
     # paralelo não muda a sequência de descartes. Prova-se comparando a sequência
-    # de descartes com e sem delay ligado — ambas idênticas.
+    # de descartes com e sem delay ligado, que saem idênticas.
     so_drop = _sequencia_drop(SEMENTE, p=0.5, n=100)
 
     ctrl = ControladorFalhas(SEMENTE, dormir=_sem_dormir)
@@ -151,7 +151,7 @@ def test_pause_congela_uma_vez_e_resume() -> None:
     dormidas: list[float] = []
     ctrl = ControladorFalhas(SEMENTE, dormir=dormidas.append)
     ctrl.injetar_pause(0.2)
-    # Primeiro evento paga a pausa; o seguinte já não.
+    # O primeiro evento paga a pausa, e o seguinte já não.
     ctrl.antes_de_receber(_msg(0))
     ctrl.antes_de_receber(_msg(1))
     assert dormidas == [0.2]

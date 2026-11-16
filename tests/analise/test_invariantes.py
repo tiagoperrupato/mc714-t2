@@ -3,8 +3,8 @@
 Cada teste constrói, num diretório temporário, pequenos Logs_Estruturados (JSONL)
 e Logs_Duraveis sintéticos e checa que:
 
-- um log propositalmente violado REPROVA o invariante correspondente;
-- logs corretos PASSAM;
+- um log propositalmente violado REPROVA o invariante correspondente.
+- logs corretos PASSAM.
 - o Estado_Em_Duvida (crash do Coordenador) vira AVISO, não reprovação, e
   `scripts/verificar.py` ainda sai com código zero.
 
@@ -60,7 +60,7 @@ def _por_numero(vereditos, numero: int) -> inv.Veredito:
 
 
 # --------------------------------------------------------------------------- #
-# Anel — invariante 1: unicidade do Líder por rodada.
+# Anel, invariante 1: unicidade do Líder por rodada.
 # --------------------------------------------------------------------------- #
 
 
@@ -84,7 +84,7 @@ def test_anel_lider_unico_reprova_com_dois_lideres() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Anel — invariante 2: convergência dos Nós vivos.
+# Anel, invariante 2: convergência dos Nós vivos.
 # --------------------------------------------------------------------------- #
 
 
@@ -113,7 +113,7 @@ def test_anel_convergencia_reprova_quando_observadores_divergem() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Anel — invariante 3: o Líder é o maior id vivo.
+# Anel, invariante 3: o Líder é o maior id vivo.
 # --------------------------------------------------------------------------- #
 
 
@@ -162,7 +162,7 @@ def test_anel_reeleicao_pelo_mesmo_no_e_outra_rodada() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 2PC — invariante 4: atomicidade.
+# 2PC, invariante 4: atomicidade.
 # --------------------------------------------------------------------------- #
 
 
@@ -197,7 +197,7 @@ def test_2pc_atomicidade_reprova_commit_e_abort_misturados() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 2PC — invariante 5: durabilidade e Estado_Em_Duvida.
+# 2PC, invariante 5: durabilidade e Estado_Em_Duvida.
 # --------------------------------------------------------------------------- #
 
 
@@ -216,6 +216,13 @@ def test_2pc_durabilidade_reprova_quando_decisao_reverte() -> None:
     v = inv.invariante_05_durabilidade(_dados(eventos, duraveis))
     assert not v.ok
     assert any("recuperou" in f for f in v.falhas)
+
+
+def test_2pc_recuperacao_sem_log_duravel_do_no_nao_conta_como_caso() -> None:
+    # Sem o Log_Duravel do 11 não há Decisao a comparar, e o 05 fica em lacuna, sem caso.
+    eventos = [_ev(11, "recuperacao", transacao="tx1", decisao="COMMIT")]
+    v = inv.invariante_05_durabilidade(_dados(eventos))
+    assert (v.verificados, v.falhas) == (0, ())
 
 
 def test_2pc_recuperacao_em_duvida_nao_conta_e_a_seguinte_conta() -> None:
@@ -268,7 +275,7 @@ def test_2pc_durabilidade_voto_sim_com_decisao_nao_avisa() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# 2PC — invariante 6: validade.
+# 2PC, invariante 6: validade.
 # --------------------------------------------------------------------------- #
 
 

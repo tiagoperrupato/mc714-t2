@@ -2,15 +2,15 @@
 
 Nenhum exige Docker: a execução por Réplica é plugável, e aqui injetamos tanto um
 runner fake (para checar o esquema do CSV, a reprodução por Semente e a política
-de falha-e-prossegue de forma isolada) quanto os runners de produção em processo
+de falha-e-prossegue de forma isolada) quanto o runner de produção do Anel, em processo
 (para provar que a bateria real é determinística por Semente).
 
 As propriedades verificadas, ligadas aos requisitos:
 
-- a bateria com Semente fixa reproduz exatamente o mesmo conjunto de Réplicas;
-- o CSV tem as colunas esperadas e uma linha por Réplica;
-- cada linha carrega a Semente e o ambiente;
-- a configuração é validada antes de produzir resultado;
+- a bateria com Semente fixa reproduz exatamente o mesmo conjunto de Réplicas.
+- o CSV tem as colunas esperadas e uma linha por Réplica.
+- cada linha carrega a Semente e o ambiente.
+- a configuração é validada antes de produzir resultado.
 - uma Réplica que falha é registrada e a bateria prossegue.
 """
 
@@ -47,7 +47,7 @@ def test_planejar_sementes_independentes_e_deterministicas() -> None:
     itens = planejar_bateria(
         parametro="num_nos", niveis=(3, 5, 7), replicas=3, semente_base=100
     )
-    # Uma Semente por Réplica, derivada da posição global; todas distintas.
+    # Uma Semente por Réplica, derivada da posição global, e todas distintas.
     sementes = [it.semente for it in itens]
     assert sementes == list(range(100, 100 + 9))
     assert len(set(sementes)) == len(sementes)

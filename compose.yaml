@@ -80,7 +80,7 @@ services:
 
   # Two-Phase Commit: um Coordenador e três Participantes, com o mesmo `command`, e
   # `DOISPC_PAPEL` escolhe o papel. Cada Nó monta um volume nomeado próprio em /dados para o seu
-  # Log_Duravel, que sobrevive ao reinício do contêiner. O Participante 3 vota NAO, para mostrar o
+  # Log_Duravel, que sobrevive ao reinício do contêiner. O Participante 13 vota NAO, para mostrar o
   # ABORT atômico, e os cenários trocam o voto por override.
   coordenador:
     build:

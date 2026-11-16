@@ -5,9 +5,8 @@ A análise lê exclusivamente os CSVs de `results/` produzidos por
 Réplica. Este módulo concentra os caminhos padrão e a leitura validada (arquivo
 presente, colunas obrigatórias, chave única por Réplica).
 
-A raiz do projeto e os destinos de `results/`, `docs/dados/` e
-`docs/figuras/` são derivados aqui a partir da localização deste arquivo, sem
-depender do diretório de trabalho.
+Os destinos de `results/`, `docs/dados/` e `docs/figuras/` derivam da raiz do
+projeto (`src.RAIZ`), sem depender do diretório de trabalho.
 """
 
 from __future__ import annotations
@@ -16,8 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-# Raiz do projeto T2: o diretório que contém `src/`, `scripts/`, `docs/`.
-RAIZ: Path = Path(__file__).resolve().parents[2]
+from src import RAIZ
 
 DIR_RESULTS: Path = RAIZ / "results"
 DIR_DOCS: Path = RAIZ / "docs"

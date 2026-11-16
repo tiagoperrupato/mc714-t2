@@ -2,7 +2,7 @@
 
 Tudo aqui é `frozen`, sem estado mutável compartilhado entre componentes.
 As Máquinas_de_Estados dos algoritmos recebem e devolvem estes
-objetos por valor; a camada de rede os serializa para JSON e de volta.
+objetos por valor, e a camada de rede os serializa para JSON e de volta.
 
 Este módulo não conhece os tipos de evento específicos de cada algoritmo: a
 `Mensagem` carrega um `tipo` livre e um `corpo` de campos arbitrários, para que
@@ -58,7 +58,7 @@ class Mensagem:
     corpo: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # `frozen=True` impede atribuição comum; usamos `object.__setattr__`
+        # `frozen=True` impede atribuição comum, então usamos `object.__setattr__`
         # apenas para normalizar o corpo numa view imutável na construção.
         object.__setattr__(self, "corpo", _congelar_corpo(self.corpo))
 

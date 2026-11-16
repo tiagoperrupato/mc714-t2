@@ -4,7 +4,7 @@ Roda em sequência, sobre o Docker Compose, os dois cenários de falha que o E1 
 enunciado pede, um por algoritmo, e deixa os logs coletados sob `results/` já
 conferidos pelos invariantes de correção:
 
-1. **Anel — morte do Líder → reeleição** (`anel falha`): elege o
+1. **Anel, morte do Líder → reeleição** (`anel falha`): elege o
    maior id (5), mata o Líder e mostra os Nós vivos reelegendo o maior id vivo
    (4).
 2. **2PC, crash e recuperação do Coordenador** (`2pc crash-coord`): todos
@@ -16,8 +16,8 @@ Cada cenário já roda `scripts/verificar.py` sobre os próprios logs ao final (
 `scripts/cenario.py`). No fim, a demo verifica de novo cada diretório `*_logs` de
 `--results`, um a um, e resume quantos reprovaram.
 
-Este é o mesmo roteiro que o vídeo de demonstração da dupla mostra. Requer Docker
-com Compose v2; sem Docker, sai com código 2 e uma mensagem clara, sem travar.
+Requer Docker com Compose v2. Sem Docker, sai com código 2 e uma mensagem clara,
+sem travar.
 
 Uso:
 
@@ -39,10 +39,9 @@ if str(_RAIZ) not in sys.path:
     sys.path.insert(0, str(_RAIZ))
 
 from scripts import cenario, verificar  # noqa: E402
+from src.analise.dados import DIR_RESULTS  # noqa: E402
 
-RESULTS_PADRAO = _RAIZ / "results"
-
-# Os dois cenários de falha da demo, na ordem em que o vídeo os mostra.
+# Os dois cenários de falha da demo, um por algoritmo.
 CENARIOS_FALHA = (
     ("anel", "falha"),
     ("2pc", "crash-coord"),
@@ -112,8 +111,8 @@ def _construir_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--results",
         type=Path,
-        default=RESULTS_PADRAO,
-        help=f"diretório de saída (default: {RESULTS_PADRAO})",
+        default=DIR_RESULTS,
+        help=f"diretório de saída (default: {DIR_RESULTS})",
     )
     return parser
 

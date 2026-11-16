@@ -1,24 +1,24 @@
-"""App FastAPI do Coordenador do 2PC — adaptador fino sobre a Máquina_de_Estados.
+"""App FastAPI do Coordenador do 2PC, adaptador fino sobre a Máquina_de_Estados.
 
 Como o Participante, este módulo **não reimplementa 2PC**. Ele é o adaptador de
 rede que liga `src.doispc.maquina` ao Transporte com Deadline e
 ao Log_Duravel. O Coordenador:
 
 - em `POST /transacao`, chama `iniciar_transacao`, que devolve os PREPARE a
-  difundir, e os despacha;
+  difundir, e os despacha.
 - recebe os VOTO e os ACK em `POST /mensagem`, entregando-os a
-  `coordenador_recebe`; ao chegar o último Voto, a Máquina_de_Estados decide
+  `coordenador_recebe`. Ao chegar o último Voto, a Máquina_de_Estados decide
   COMMIT ou ABORT e devolve, **na ordem write-ahead**, a `GravarLog` da Decisao
-  antes das `Enviar` de DECISAO;
+  antes das `Enviar` de DECISAO.
 - se o Deadline de coleta de Votos estoura antes de todos votarem, chama
-  `coordenador_decide_por_timeout`, que decide ABORT e difunde a Decisao;
+  `coordenador_decide_por_timeout`, que decide ABORT e difunde a Decisao.
 - retransmite a DECISAO a quem ainda não mandou o ACK, a cada
-  `INTERVALO_REENVIO`, numa thread própria;
+  `INTERVALO_REENVIO`, numa thread própria.
 - na partida, `recuperar` relê o Log_Duravel, aborta o que estava em WAIT e
   difunde de novo o que estava decidido.
 
 Os Deadlines de Voto e de Decisao são configuráveis: o de Voto
-limita a espera pela coleta em `/transacao`; o de Decisao é o prazo de cada
+limita a espera pela coleta em `/transacao`, e o de Decisao é o prazo de cada
 envio de rede (PREPARE, DECISAO) feito pelo Transporte.
 """
 
@@ -54,7 +54,7 @@ class ServicoCoordenador:
     O estado de cada transação fica num mapa pelo id, e várias transações podem
     correr ao mesmo tempo. `participantes` mapeia id → `No` de cada
     Participante, usado tanto para difundir PREPARE quanto para resolver
-    endereços no executor. `deadline_voto` limita a coleta de Votos;
+    endereços no executor. `deadline_voto` limita a coleta de Votos, e
     `deadline_decisao` é o prazo de cada envio de rede.
     Um `Lock` serializa as transições, pois Votos e ACKs
     chegam em requisições concorrentes.
@@ -137,7 +137,7 @@ class ServicoCoordenador:
         }
 
     def _esperar_decisao(self, transacao: str) -> Optional[str]:
-        """Aguarda a Decisao até o Deadline de Voto; ao estourar, decide ABORT.
+        """Aguarda a Decisao até o Deadline de Voto e, ao estourar, decide ABORT.
 
         Os VOTO chegam em `/mensagem`, e `_transitar` acorda esta espera quando
         publica a Decisao. A resposta sai sem atraso de sondagem, e é dela que
@@ -295,7 +295,7 @@ def criar_app(servico: ServicoCoordenador, *, controlador=None):
         import uuid
 
         tx = str((corpo or {}).get("transacao") or f"tx-{uuid.uuid4().hex[:8]}")
-        # `iniciar` bloqueia até a Decisao; roda em thread para não travar o loop.
+        # `iniciar` bloqueia até a Decisao, então roda em thread para não travar o loop.
         import anyio
 
         resultado = await anyio.to_thread.run_sync(servico.iniciar, tx)

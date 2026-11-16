@@ -26,8 +26,7 @@ if str(_RAIZ) not in sys.path:
     sys.path.insert(0, str(_RAIZ))
 
 from src.analise import invariantes  # noqa: E402
-
-RESULTS_PADRAO = _RAIZ / "results"
+from src.analise.dados import DIR_RESULTS as RESULTS_PADRAO  # noqa: E402
 
 
 def _construir_parser() -> argparse.ArgumentParser:
@@ -97,7 +96,16 @@ def verificar(caminhos: list[Path], *, imprimir=print, exigidos: Iterable[int] =
 
 
 def main(argv: list[str] | None = None) -> int:
-    return verificar(_construir_parser().parse_args(argv).caminhos)
+    caminhos = _construir_parser().parse_args(argv).caminhos
+    faltando = [str(c) for c in caminhos if not c.exists()]
+    if faltando:
+        print(
+            f"[verificar] caminho não encontrado: {', '.join(faltando)}. Passe um diretório "
+            "*_logs de results/, ou rode sem argumentos para verificar todos.",
+            file=sys.stderr,
+        )
+        return 2
+    return verificar(caminhos)
 
 
 if __name__ == "__main__":

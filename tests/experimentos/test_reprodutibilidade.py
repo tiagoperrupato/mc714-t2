@@ -1,7 +1,7 @@
 """Reprodutibilidade de ponta a ponta documentada no README.
 
 Exercita, SEM Docker, a mesma sequência que o README manda rodar a partir de um
-checkout fresco — bateria curta do Anel e do 2PC para um `results/` temporário,
+checkout fresco: bateria curta do Anel, do Bully e do 2PC para um `results/` temporário,
 análise sobre esse `results/` (tabelas markdown e figuras geradas) e verificação
 dos invariantes de correção sobre logs coletados.
 O condutor do 2PC é trocado por um fake, porque o real sobe o compose e tem o
@@ -10,9 +10,9 @@ teste `slow` dele em `test_condutor_doispc.py`.
 O que se garante aqui:
 
 - apagar `results/` e rodar a bateria recria os CSVs por algoritmo, com o esquema
-  esperado, e as do Anel e do Bully são determinísticas por Semente;
+  esperado, e as do Anel e do Bully são determinísticas por Semente.
 - a análise lê esses CSVs e grava as figuras, sem subir contêiner nem reexecutar
-  Réplica;
+  Réplica.
 - `scripts/verificar.py` sai com código 0 sobre logs corretos, e também sobre um
   `results/` sem logs (nada a verificar não é reprovação).
 """
@@ -30,8 +30,8 @@ from tests.apoio import ler_csv
 def _log_anel_convergido(destino: Path) -> None:
     """Grava um Log_Estruturado mínimo e CORRETO de uma eleição do Anel.
 
-    Cinco Nós vivos anunciam o mesmo Líder (o maior id, 5) na rodada "1-a"
-    — exatamente o formato que `src/anel/no.py` deixa e que os invariantes de
+    Cinco Nós vivos anunciam o mesmo Líder (o maior id, 5) na rodada "1-a",
+    exatamente o formato que `src/anel/no.py` deixa e que os invariantes de
     unicidade/convergência leem. Serve para exercitar o caminho de sucesso de
     `scripts/verificar.py` sem precisar subir o compose.
     """
@@ -143,7 +143,7 @@ def test_sequencia_do_readme_regenera_dados_tabelas_e_figuras(tmp_path: Path, mo
     assert (dir_figuras / "doispc_recuperacao.png").exists()
     assert (dir_figuras / "anel_bully.png").exists()
 
-    # 3) Verificação: sobre logs corretos, sai 0; sobre results/ sem logs, também.
+    # 3) Verificação: sobre logs corretos, sai 0, e sobre results/ sem logs, também.
     assert verificar.verificar([results], imprimir=lambda *_: None) == 0
     logs = results / "cenario_anel_normal_logs" / "no-anel-1" / "eventos.jsonl"
     _log_anel_convergido(logs)

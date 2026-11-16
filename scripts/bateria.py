@@ -46,6 +46,7 @@ from src.analise.dados import (  # noqa: E402
     BATERIA_2PC_RECUPERACAO,
     BATERIA_ANEL_NOS,
     BATERIA_BULLY_NOS,
+    DIR_RESULTS,
 )
 from src.comum.config import SEMENTE_MAX, SEMENTE_MIN  # noqa: E402
 from src.experimentos import condutor_doispc  # noqa: E402
@@ -58,7 +59,6 @@ from src.experimentos.bateria import (  # noqa: E402
 from src.experimentos.runner_anel import executar_replica_anel  # noqa: E402
 from src.experimentos.runner_bully import executar_replica_bully  # noqa: E402
 
-RESULTS_PADRAO = _RAIZ / "results"
 SEMENTE_BASE_PADRAO = 42
 REPLICAS_PADRAO = 5
 
@@ -220,8 +220,8 @@ def _construir_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--results",
         type=Path,
-        default=RESULTS_PADRAO,
-        help=f"diretório de saída (default: {RESULTS_PADRAO})",
+        default=DIR_RESULTS,
+        help=f"diretório de saída (default: {DIR_RESULTS})",
     )
     return parser
 

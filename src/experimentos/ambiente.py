@@ -4,8 +4,8 @@ O enunciado pede registrar as Sementes (A7) e o ambiente de execução (E5), e a
 eles vão em cada linha do CSV, porque contêineres numa única máquina são Nós
 lógicos, não domínios de falha independentes, e resultados absolutos de máquinas
 diferentes não se comparam diretamente. Aqui coletamos um retrato estável do
-ambiente — SO, arquitetura, processador, número de CPUs, versão de Python e das
-dependências principais — para carimbar junto com os dados.
+ambiente (SO, arquitetura, processador, número de CPUs, versão de Python e das
+dependências principais) para carimbar junto com os dados.
 
 A coleta é de leitura pura: não abre socket nem escreve em disco. Falhas pontuais
 (por exemplo, uma dependência ausente) degradam para `"desconhecido"` em vez de

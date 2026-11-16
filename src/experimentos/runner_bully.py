@@ -1,8 +1,9 @@
 """Runner em processo de uma Réplica do Bully, com a regra de contagem e de perda do Anel.
 
 Toda tentativa de entrega a um Nó vivo conta, a perdida inclusive, e a Mensagem a um Nó morto não
-conta. O tempo é a profundidade causal em saltos de Mensagem. Prazo só dispara com a fila vazia, o
-que modela o sistema síncrono.
+conta. O tempo é a maior profundidade causal, em saltos de Mensagem, em que um vivo passou a
+aceitar o maior id vivo, e cada tentativa perdida soma um salto. Prazo só dispara com a fila vazia,
+o que modela o sistema síncrono.
 """
 
 from __future__ import annotations
@@ -64,23 +65,29 @@ def executar_replica_bully(
     fila: deque[tuple[Mensagem, int]] = deque()
     prazos: deque[tuple[int, Prazo]] = deque()
 
-    def despachar(no_id: int, acoes: list[Acao], profundidade: int) -> None:
+    aceites: dict[int, int] = {}  # profundidade do evento em que cada Nó passou ao maior
+    alcance = 0  # maior profundidade entregue até aqui
+
+    def aplicar(no_id: int, resultado: tuple[EstadoBully, list[Acao]], profundidade: int) -> None:
+        """Troca o estado do Nó por um evento na `profundidade` e enfileira as ações dele."""
+        anterior = estados[no_id].lider
+        estados[no_id], acoes = resultado
+        if estados[no_id].lider == maior and anterior != maior:
+            aceites[no_id] = profundidade
         for acao in acoes:
             if isinstance(acao, Prazo):
                 prazos.append((no_id, acao))
             else:
-                fila.append((acao, profundidade))
+                fila.append((acao, profundidade + 1))
 
-    estados[iniciador], acoes = iniciar_eleicao(estados[iniciador])
-    despachar(iniciador, acoes, 1)
+    aplicar(iniciador, iniciar_eleicao(estados[iniciador]), 0)
 
     mensagens = 0
-    ultima = 0  # profundidade da última entrega
     convergencia: Optional[tuple[int, int]] = None
     passos = 0
     while True:
         if convergencia is None and todos_convergiram(estados, maior):
-            convergencia = (mensagens, ultima)
+            convergencia = (mensagens, max(aceites.values()))
         if not (fila or prazos) or passos >= MAX_PASSOS:
             break
         passos += 1
@@ -92,15 +99,13 @@ def executar_replica_bully(
             if descartar(streams, taxa_falhas):
                 fila.appendleft((msg, profundidade + 1))  # perdida: o remetente reenvia
                 continue
-            ultima = profundidade
-            estados[msg.destino], acoes = receber(estados[msg.destino], msg)
-            despachar(msg.destino, acoes, profundidade + 1)
+            alcance = max(alcance, profundidade)
+            aplicar(msg.destino, receber(estados[msg.destino], msg), profundidade)
         else:
             no_id, prazo = prazos.popleft()
-            estados[no_id], acoes = prazo_expirou(estados[no_id], prazo)
-            despachar(no_id, acoes, ultima + 1)
+            aplicar(no_id, prazo_expirou(estados[no_id], prazo), alcance)
 
-    mensagens_ate, tempo = convergencia or (mensagens, ultima)
+    mensagens_ate, tempo = convergencia or (mensagens, alcance)
     return ResultadoBully(
         convergiu=convergencia is not None,
         lider=maior if convergencia is not None else None,

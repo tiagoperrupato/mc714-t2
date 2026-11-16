@@ -4,7 +4,7 @@ Sobe os 5 Nós do Anel como apps FastAPI em uvicorn locais, cada um com um
 controlador de falhas plugado e um Log_Estruturado em `tmp_path`. Cobre:
 
 - crash do Líder (5), reeleição do maior vivo (4), e o 5 de volta na eleição
-  seguinte;
+  seguinte.
 - pause no 5 durante a eleição: o 4 o salta, e a eleição atrasada que o 5
   repassa ao acordar não fecha a rodada de novo com outro Líder.
 

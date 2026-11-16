@@ -20,11 +20,11 @@ Despacho fora do caminho da resposta HTTP. Um ponto sutil, mas
 essencial para a correção: o repasse ao Sucessor NÃO acontece dentro do handler
 HTTP que recebeu a Mensagem. Se acontecesse, o handler de cada Nó ficaria
 bloqueado esperando o repasse ao próximo, que por sua vez espera o seguinte, e
-assim por diante — uma cadeia de chamadas HTTP aninhadas e síncronas. Numa
+assim por diante, numa cadeia de chamadas HTTP aninhadas e síncronas. Numa
 circulação de Anel, isso estoura o Deadline de cada hop e dispara a regra de
 salto por engano, com Nós vivos sendo marcados como mortos. Para evitar isso, as
 Mensagens de saída vão para a fila de `src.comum.despacho`, esvaziada por uma
-thread; a resposta HTTP é um ACK imediato de recebimento, desacoplado do término
+thread, e a resposta HTTP é um ACK imediato de recebimento, desacoplado do término
 das rodadas subsequentes.
 
 A Máquina continua pura: o lock protege apenas a troca atômica do `EstadoAnel`
@@ -58,7 +58,7 @@ class NoAnel:
     mapa de ids para URLs base dos outros Nós e o Deadline a aplicar em cada
     repasse. Um worker em background consome uma fila de Mensagens de saída e as
     envia, aplicando a regra de salto no timeout. Os métodos `processar_mensagem`,
-    `disparar_eleicao` e `estado_atual` são o que os endpoints HTTP chamam; eles
+    `disparar_eleicao` e `estado_atual` são o que os endpoints HTTP chamam. Eles
     delegam à Máquina_de_Estados e só enfileiram a saída, nunca reimplementando a
     eleição nem bloqueando na rede.
     """
@@ -117,7 +117,7 @@ class NoAnel:
     def processar_mensagem(self, mensagem: Mensagem) -> dict[str, Any]:
         """Entrega uma Mensagem recebida à Máquina e enfileira a saída.
 
-        A resposta HTTP é um ACK imediato de recebimento; ela não espera o
+        A resposta HTTP é um ACK imediato de recebimento e não espera o
         término das rodadas que o despacho venha a provocar. O
         envio em si fica a cargo do worker de background.
         """
@@ -195,13 +195,13 @@ def criar_app(no: NoAnel, *, controlador=None):
     Registra `POST /mensagem` (via o helper do Transporte, que desacopla a
     resposta HTTP da lógica) e os endpoints de controle `GET /estado` e
     `POST /iniciar-eleicao`. A lógica de eleição vive em
-    `src.anel.maquina`; este app apenas a expõe pela rede.
+    `src.anel.maquina`, e este app apenas a expõe pela rede.
 
     Quando um `controlador` de falhas é fornecido, o recebimento de Mensagens
     passa por ele antes de chegar à Máquina (drop/delay/pause/crash), os
     endpoints `/falha/*` são expostos para controle em runtime,
     e um crash devolve HTTP 503 (o Nó "deixa de responder"). O despacho de saída
-    é interceptado passando um `ClienteComFalhas` ao `NoAnel` na construção; a
+    é interceptado passando um `ClienteComFalhas` ao `NoAnel` na construção, e a
     Máquina continua pura.
     """
     app = criar_app_recebedor(recebedor_http(controlador, no.processar_mensagem))

@@ -22,8 +22,7 @@ venv/
 # Metadados do Finder no macOS.
 .DS_Store
 
-# Enunciado do trabalho, material do curso. O .md é a transcrição local do PDF.
-docs/Trabalho2-MC714_2s2026.md
+# Enunciado do trabalho, material do curso.
 docs/Trabalho2-MC714_2s2026.pdf
 
 # Artefatos da compilação do relatório com pdflatex e latexmk. O .tex, a classe e o .pdf entram.

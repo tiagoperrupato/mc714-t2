@@ -78,7 +78,7 @@ def test_integracao_envio_bem_sucedido_entre_dois_apps() -> None:
         assert resultado.status == 200
         assert resultado.corpo["ack"] is True
         assert resultado.corpo["tipo"] == "eleicao"
-        # O app B recebeu a Mensagem; o app A existe para provar dois Nós
+        # O app B recebeu a Mensagem. O app A existe para provar dois Nós
         # distintos trocando Mensagens no mesmo teste.
         assert len(recebidas_b) == 1 and recebidas_b[0].corpo["ids"] == [1]
 
@@ -92,7 +92,7 @@ def test_integracao_envio_bem_sucedido_entre_dois_apps() -> None:
 
 
 def test_integracao_timeout_quando_destino_dorme_alem_do_deadline() -> None:
-    # O destino dorme bem além do Deadline; o cliente deve estourar e retornar
+    # O destino dorme bem além do Deadline, e o cliente deve estourar e retornar
     # EnvioTimeout tipado, nunca uma exceção.
     with ServidorLocal(_app_lento(atraso=2.0)) as app_lento, ClienteRede(retries=2) as cliente:
         inicio = time.monotonic()
@@ -211,7 +211,7 @@ def test_cinco_centos_vira_indisponivel() -> None:
 
 
 def test_retries_limitados_reenviam_ate_o_limite() -> None:
-    # Três indisponibilidades seguidas; com retries=2 são 3 tentativas no total.
+    # Três indisponibilidades seguidas. Com retries=2 são 3 tentativas no total.
     transporte = _TransporteFake([_resposta(503), _resposta(503), _resposta(503)])
     cliente = ClienteRede(retries=2, transporte=transporte, relogio=_RelogioFake(0.0))
     resultado = cliente.enviar("http://destino", Mensagem("t", 1, 2), deadline=5.0)
@@ -230,7 +230,7 @@ def test_retry_recupera_apos_falha_transiente() -> None:
 
 
 def test_retries_respeitam_deadline_total() -> None:
-    # O relógio avança 0.4 s por leitura; o Deadline total é 1.0 s. As tentativas
+    # O relógio avança 0.4 s por leitura, e o Deadline total é 1.0 s. As tentativas
     # devem parar quando o tempo restante acaba, sem usar todos os retries nem
     # estourar o Deadline total.
     transporte = _TransporteFake([_resposta(503)] * 10)

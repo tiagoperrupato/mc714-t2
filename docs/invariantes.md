@@ -97,7 +97,7 @@ entre observadores reprova. Um Nó vivo que jamais observou o anúncio também
 reprova, pois a rodada não convergiu para ele. Tolerância: zero, porque
 convergência é um predicado exato, não uma média.
 
-### 3. Líder é o maior id vivo (Anel, *correctness*)
+### 3. Líder é o maior id vivo (Anel, *safety*)
 
 Em cada rodada concluída, o Líder anunciado é igual ao maior id entre os Nós
 vivos. Verificamos apenas rodadas com um único Líder, porque a unicidade é do

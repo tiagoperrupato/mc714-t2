@@ -123,6 +123,23 @@ def test_ok_com_lider_maior_e_aceito_em_qualquer_fase(fase: str) -> None:
     assert (novo.lider, novo.fase, novo.epoca, acoes) == (5, FASE_OCIOSA, 3, [])
 
 
+def test_ok_atrasado_no_ocioso_com_lider_maior_e_ignorado() -> None:
+    estado = EstadoBully(no_id=1, ids=IDS, lider=5, epoca=1)
+    assert receber(estado, _msg(TIPO_OK, 4, 1, epoca=1, lider=4)) == (estado, [])
+
+
+def test_ok_atrasado_nao_desfaz_o_coordenador_do_maior_que_voltou() -> None:
+    """O 4 lidera com o 5 fora, o 1 convoca, o 5 volta e assume antes de o OK(4) chegar ao 1."""
+    um, eleicoes = iniciar_eleicao(EstadoBully(no_id=1, ids=IDS, lider=4))
+    eleicao_ao_4 = next(m for m in eleicoes if isinstance(m, Mensagem) and m.destino == 4)
+    _, [ok_do_4] = receber(EstadoBully(no_id=4, ids=IDS, lider=4), eleicao_ao_4)
+    _, anuncios = iniciar_eleicao(EstadoBully(no_id=5, ids=IDS))
+    coordenador_ao_1 = next(m for m in anuncios if m.destino == 1)
+    um, _ = receber(um, coordenador_ao_1)
+    um, _ = receber(um, ok_do_4)
+    assert (um.lider, um.fase) == (5, FASE_OCIOSA)
+
+
 def test_ok_sem_lider_da_epoca_atual_passa_a_esperar_o_coordenador() -> None:
     estado = EstadoBully(no_id=2, ids=IDS, fase=FASE_AGUARDANDO_OK, epoca=3)
     novo, acoes = receber(estado, _msg(TIPO_OK, 4, 2, epoca=3, lider=None))

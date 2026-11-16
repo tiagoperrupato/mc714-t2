@@ -8,9 +8,9 @@ bully,num_nos,5,5,0,47,0.05,5,2,18,25,1,5,Darwin,25.6.0,arm64,arm,8,3.12.13,fast
 bully,num_nos,6,5,1,48,0.05,5,2,18,24,1,5,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
 bully,num_nos,7,5,2,49,0.05,5,2,18,25,1,5,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
 bully,num_nos,8,5,3,50,0.05,5,2,20,26,1,5,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
-bully,num_nos,9,5,4,51,0.05,5,2,21,28,1,5,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
+bully,num_nos,9,5,4,51,0.05,5,3,21,28,1,5,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
 bully,num_nos,10,7,0,52,0.05,7,2,34,51,1,7,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
-bully,num_nos,11,7,1,53,0.05,7,2,36,51,1,7,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
-bully,num_nos,12,7,2,54,0.05,7,2,34,52,1,7,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
-bully,num_nos,13,7,3,55,0.05,7,2,36,52,1,7,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
+bully,num_nos,11,7,1,53,0.05,7,3,36,51,1,7,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
+bully,num_nos,12,7,2,54,0.05,7,3,34,52,1,7,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
+bully,num_nos,13,7,3,55,0.05,7,3,36,52,1,7,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8
 bully,num_nos,14,7,4,56,0.05,7,2,33,49,1,7,Darwin,25.6.0,arm64,arm,8,3.12.13,fastapi==0.162.0;uvicorn==0.34.0;httpx==0.28.1;pandas==3.0.2;numpy==2.4.2;matplotlib==3.10.8

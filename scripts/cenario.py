@@ -6,7 +6,7 @@ endpoints de controle, coleta as métricas observadas **e os Logs_Estruturados e
 Logs_Duraveis que os Nós reais deixaram** para `results/`, e por fim roda os
 invariantes de correção sobre esses logs (`scripts/verificar.py`). É o
 complemento "ponta a ponta" da orquestração: a bateria mede
-tendência com reprodutibilidade; o cenário demonstra um caso único sobre a rede
+tendência com reprodutibilidade, e o cenário demonstra um caso único sobre a rede
 real e prova sua correção pelos invariantes.
 
 Cada cenário registra a **Semente** com que foi conduzido:
@@ -39,7 +39,7 @@ Cenários do 2PC:
         Coordenador + 3 Participantes, todos votando SIM → COMMIT em todos.
 
     python scripts/cenario.py 2pc abort
-        Participante 3 vota NAO → ABORT atômico em todos.
+        Participante 13 vota NAO → ABORT atômico em todos.
 
     python scripts/cenario.py 2pc crash-coord
         Todos votam SIM, e o processo do Coordenador morre logo depois de
@@ -124,6 +124,7 @@ if str(_RAIZ) not in sys.path:
     sys.path.insert(0, str(_RAIZ))
 
 from scripts import verificar  # noqa: E402
+from src.analise.dados import DIR_RESULTS  # noqa: E402
 from src.analise.invariantes import ACAO_KILL, ACAO_START, EV_CONDUTOR  # noqa: E402
 from src.comum.log import LogEstruturado  # noqa: E402
 from src.comum.toxiproxy import ClienteToxiproxy, nome_proxy_participante, proxies_2pc  # noqa: E402
@@ -161,8 +162,6 @@ from src.experimentos.conteineres import (  # noqa: E402
     reiniciar_servico,
     url_estado,
 )
-
-RESULTS_PADRAO = _RAIZ / "results"
 
 # Semente padrão dos cenários (casa com SEMENTE do compose). Registrada no
 # resultado e sobreponível por --semente para reproduzir uma execução.
@@ -954,8 +953,8 @@ def _construir_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--results",
         type=Path,
-        default=RESULTS_PADRAO,
-        help=f"diretório de saída (default: {RESULTS_PADRAO})",
+        default=DIR_RESULTS,
+        help=f"diretório de saída (default: {DIR_RESULTS})",
     )
     return parser
 

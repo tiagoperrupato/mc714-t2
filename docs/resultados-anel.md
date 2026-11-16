@@ -17,7 +17,8 @@ defasada em relação aos dados atuais.
   ensaio dura o tempo de convergência em passos lógicos, que está na tabela. Como
   a métrica é lógica, não há aquecimento a descartar.
 - **Ambiente.** Carimbado em cada linha do CSV (`amb_*`). A bateria é
-  determinística por Semente, e rodá-la de novo produz o mesmo CSV.
+  determinística por Semente, e rodá-la de novo produz as mesmas métricas. Só as
+  colunas `amb_*` mudam de uma máquina para outra.
 
 ```bash
 python scripts/bateria.py --algoritmo anel     # em processo, menos de um segundo

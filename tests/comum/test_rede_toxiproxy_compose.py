@@ -84,7 +84,7 @@ def test_compose_config_com_toxiproxy_valido() -> None:
     env_anel1 = servicos["no-anel-1"]["environment"]
     assert "toxiproxy:16001" in env_anel1["URLS"], env_anel1["URLS"]
 
-    # E o 2PC: Coordenador aponta aos proxies dos Participantes; estes ao 17000.
+    # E o 2PC: Coordenador aponta aos proxies dos Participantes, e estes ao 17000.
     env_coord = servicos["coordenador"]["environment"]
     assert "toxiproxy:17011" in env_coord["DOISPC_PARTICIPANTES"], env_coord["DOISPC_PARTICIPANTES"]
     env_p1 = servicos["participante-1"]["environment"]

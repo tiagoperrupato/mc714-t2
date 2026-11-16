@@ -1,16 +1,16 @@
-"""App FastAPI do Participante do 2PC — adaptador fino sobre a Máquina_de_Estados.
+"""App FastAPI do Participante do 2PC, adaptador fino sobre a Máquina_de_Estados.
 
 Este módulo **não reimplementa 2PC**. Ele é o adaptador de rede
 que liga a Máquina_de_Estados pura de `src.doispc.maquina` ao Transporte com
 Deadline de `src.comum.rede` e ao `Log_Duravel` de `src.doispc.log_duravel`.
 O fluxo é sempre o mesmo:
 
-1. recebe uma Mensagem (PREPARE ou DECISAO) por `POST /mensagem`;
+1. recebe uma Mensagem (PREPARE ou DECISAO) por `POST /mensagem`.
 2. entrega a Mensagem a `participante_recebe`, que devolve o novo estado e uma
-   lista ordenada de `Acao`;
+   lista ordenada de `Acao`.
 3. executa as `Acao` **na ordem em que vêm**, e nessa ordem está codificada a
    regra write-ahead: uma `GravarLog` sempre precede o `Aplicar`/`Enviar` que
-   dependem dela. O adaptador não precisa lembrar a regra;
+   dependem dela. O adaptador não precisa lembrar a regra,
    basta obedecer à sequência.
 
 O Voto e o ACK vão ao Coordenador que mandou a Mensagem, desde que ele esteja no mapa de
@@ -18,8 +18,8 @@ Coordenadores conhecidos. Mensagem de origem desconhecida é recusada antes da M
 
 O Participante pode ser configurado para votar NAO: o
 `voto_desejado` é fixado na construção a partir de uma flag (env `DOISPC_VOTO`),
-e repassado à Máquina_de_Estados a cada PREPARE. Todo o resto — atomicidade,
-não-reversão, recuperação — já está na lógica pura e é apenas exercido aqui.
+e repassado à Máquina_de_Estados a cada PREPARE. Todo o resto (atomicidade,
+não-reversão, recuperação) já está na lógica pura e é apenas exercido aqui.
 
 A recuperação após reinício relê o Log_Duravel na partida e
 reconstrói o estado com `recuperar_participante`, de modo que um Participante

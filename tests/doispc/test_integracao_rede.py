@@ -9,12 +9,12 @@ exigem Docker, ficam em `test_integracao_compose.py` e pulam quando o Docker nã
 está disponível).
 
 Cobrem:
-- transação em que todos votam SIM → COMMIT no Coordenador e em todos;
-- transação em que um Participante vota NAO (via flag) → ABORT em todos;
-- ABORT por timeout quando um Participante está fora e não vota a tempo;
-- várias transações, seguidas e concorrentes, nos mesmos Nós;
-- id de transação repetido, que devolve a Decisao gravada sem abrir rodada nova;
-- DECISAO perdida com o Coordenador vivo, entregue pela retransmissão;
+- transação em que todos votam SIM → COMMIT no Coordenador e em todos.
+- transação em que um Participante vota NAO (via flag) → ABORT em todos.
+- ABORT por timeout quando um Participante está fora e não vota a tempo.
+- várias transações, seguidas e concorrentes, nos mesmos Nós.
+- id de transação repetido, que devolve a Decisao gravada sem abrir rodada nova.
+- DECISAO perdida com o Coordenador vivo, entregue pela retransmissão.
 - Participante que vota depois do ABORT por timeout e sai da dúvida pela
   retransmissão.
 
@@ -92,7 +92,7 @@ class _ClienteComRoteiro:
 class _Cenario2PC:
     """Monta Coordenador + 3 Participantes em servidores locais, com logs em disco.
 
-    `votos` mapeia id de Participante ao Voto desejado (SIM por padrão); é a flag
+    `votos` mapeia id de Participante ao Voto desejado (SIM por padrão). É a flag
     que faz um Participante votar NAO. `participantes_ativos` permite deixar um
     Participante fora do ar, para exercitar o ABORT por timeout de coleta.
     `controladores` liga a injeção de falhas ao recebimento de um Participante, e
@@ -192,7 +192,7 @@ def test_transacao_commita_em_todos(tmp_path: Path) -> None:
 
     assert decorrido < 1.0
     assert resultado["decisao"] == DECISAO_COMMIT
-    # A Decisao foi gravada no Log_Duravel (em disco) de cada Nó — write-ahead.
+    # Write-ahead: a Decisao foi gravada no Log_Duravel (em disco) de cada Nó.
     assert cen.decisao_recuperada(COORD_ID, "tx-commit") == DECISAO_COMMIT
     for pid in PART_IDS:
         assert cen.decisao_recuperada(pid, "tx-commit") == DECISAO_COMMIT

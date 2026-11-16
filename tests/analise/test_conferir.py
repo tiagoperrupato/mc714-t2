@@ -4,8 +4,8 @@ Sintetizam CSVs de bateria pequenos num diretório temporário (sem Docker, sem
 reexecutar Réplica), geram as tabelas da análise e verificam que:
 
 - a tabela consolidada do Anel e a do 2PC batem com valores calculáveis à mão, e
-  a do 2PC descarta o aquecimento e os ABORT;
-- `conferir` PASSA quando a tabela colada no doc está em dia;
+  a do 2PC descarta o aquecimento e os ABORT.
+- `conferir` PASSA quando a tabela colada no doc está em dia.
 - `conferir` REPROVA (código != 0) quando a tabela do doc fica defasada.
 """
 
@@ -33,7 +33,7 @@ def _escrever_csv(caminho: Path, colunas: list[str], linhas: list[dict]) -> None
 def _csv_anel(caminho: Path) -> None:
     """Anel com dois níveis de Nós e Réplicas convergidas de tempo conhecido.
 
-    num_nos=3: tempos 4 e 6 (média 5); num_nos=5: tempos 8 e 12 (média 10).
+    num_nos=3: tempos 4 e 6 (média 5). num_nos=5: tempos 8 e 12 (média 10).
     """
     colunas = [
         "algoritmo", "parametro_variado", "semente", "num_nos", "taxa_falhas",

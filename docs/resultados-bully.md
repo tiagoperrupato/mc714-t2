@@ -20,7 +20,7 @@ e `python scripts/analisar.py conferir` reprova se alguma ficar defasada em rela
   não restar Mensagem nem prazo, contado em saltos lógicos. Como a métrica é lógica, não há
   aquecimento a descartar.
 - **Ambiente.** Carimbado em cada linha do CSV (`amb_*`). A bateria é determinística por Semente, e
-  rodá-la de novo produz o mesmo CSV.
+  rodá-la de novo produz as mesmas métricas. Só as colunas `amb_*` mudam de uma máquina para outra.
 
 ```bash
 python scripts/bateria.py --algoritmo bully    # em processo, menos de um segundo
@@ -61,16 +61,16 @@ média ± a meia-largura do IC 95%.
 | Nós (n) | Perda (p) | Convergiram no Anel | Convergiram no Bully | Mensagens no Anel | Mensagens no Bully | Saltos no Anel | Saltos no Bully |
 |:--------|----------:|--------------------:|---------------------:|------------------:|-------------------:|---------------:|----------------:|
 | 3       |      0,05 |                   5 |                    5 |       5,00 ± 0,00 |        7,00 ± 0,00 |    5,00 ± 0,00 |     2,00 ± 0,00 |
-| 5       |      0,05 |                   5 |                    5 |       9,20 ± 0,56 |       19,00 ± 1,76 |    9,20 ± 0,56 |     2,00 ± 0,00 |
-| 7       |      0,05 |                   5 |                    5 |      13,40 ± 0,68 |       34,60 ± 1,67 |   13,40 ± 0,68 |     2,00 ± 0,00 |
+| 5       |      0,05 |                   5 |                    5 |       9,20 ± 0,56 |       19,00 ± 1,76 |    9,20 ± 0,56 |     2,20 ± 0,56 |
+| 7       |      0,05 |                   5 |                    5 |      13,40 ± 0,68 |       34,60 ± 1,67 |   13,40 ± 0,68 |     2,60 ± 0,68 |
 
 > Tabela gerada por `python scripts/analisar.py bully-anel` a partir de `results/bateria_anel_num_nos.csv`, `results/bateria_bully_num_nos.csv`. Não editar à mão: cole novamente a saída do comando.
 
 ![Mensagens até a convergência: Anel × Bully](figuras/anel_bully.png)
 
 Em Mensagens, o Anel fica perto de 2n − 1 e o Bully cresce com n². Em saltos, a relação se
-inverte. O Bully converge em 2 saltos para todo n, porque a ELEICAO do Nó 1 chega ao maior num
-salto e o COORDENADOR dele chega a todos no seguinte. O Anel precisa de 2n − 1, uma volta da
-eleição e quase uma volta do anúncio. O Bully paga Mensagens para convergir em tempo constante.
-Nesta bateria, nenhuma perda caiu nesses dois saltos, e o tempo do Bully ficou em 2 em todas as
-Réplicas.
+inverte. Sem perda, o Bully converge em 2 saltos para todo n, porque a ELEICAO do Nó 1 chega ao
+maior num salto e o COORDENADOR dele chega a todos no seguinte. Cada tentativa perdida nesse
+caminho soma um salto, e por isso a média passa um pouco de 2 em n = 5 e n = 7. O Anel precisa de
+2n − 1, uma volta da eleição e quase uma volta do anúncio. O Bully paga Mensagens para convergir em
+tempo que não cresce com n.

@@ -15,7 +15,7 @@ Anel
   2. **Convergência dos vivos** (*liveness*): todos os Nós vivos de uma rodada
      conhecem o mesmo Líder. REPROVA se dois observadores divergem ou se um vivo
      não recebeu o anúncio.
-  3. **O eleito é o maior id vivo** (*correctness*): o Líder anunciado numa
+  3. **O eleito é o maior id vivo** (*safety*): o Líder anunciado numa
      rodada concluída é o maior id entre os Nós vivos. REPROVA.
 
 2PC
@@ -104,7 +104,7 @@ class EventoLog:
     """Uma linha do Log_Estruturado JSONL: `{ts, no, tipo, ...campos}`.
 
     `ts`, `no` e `tipo` são as chaves reservadas que `src/comum/log.py` sempre
-    grava; `campos` guarda o restante da linha (os campos específicos do evento,
+    grava, e `campos` guarda o restante da linha (os campos específicos do evento,
     como `corpo`, `transacao`, `fase`, `valor`).
     """
 
@@ -226,7 +226,7 @@ def _expandir_arquivos(caminhos: Iterable[Path]) -> list[Path]:
 
     Diretórios são varridos recursivamente por `.log`, `.jsonl` e `.ndjson`.
     Caminhos inexistentes são ignorados silenciosamente, para que verificar um
-    diretório `results/` ainda vazio não quebre — apenas não há o que verificar.
+    diretório `results/` ainda vazio não quebre. Nesse caso não há o que verificar.
     """
     arquivos: list[Path] = []
     for caminho in caminhos:
@@ -247,7 +247,7 @@ def _expandir_arquivos(caminhos: Iterable[Path]) -> list[Path]:
 
 
 def _ler_jsonl(arquivo: Path) -> list[dict[str, Any]]:
-    """Lê um arquivo JSONL, devolvendo os objetos; ignora linhas vazias/corrompidas."""
+    """Lê um arquivo JSONL e devolve os objetos, ignorando linhas vazias ou corrompidas."""
     registros: list[dict[str, Any]] = []
     try:
         texto = arquivo.read_text(encoding="utf-8")
@@ -321,7 +321,7 @@ class AnuncioLider:
 
     `rodada` é o id único da Rodada_de_Eleicao, gerado por quem a iniciou.
     `lider` é o id anunciado, e `no` é o Nó que observou o anúncio. Vários Nós
-    observam o mesmo anúncio ao longo da circulação da Mensagem_Lider; os
+    observam o mesmo anúncio ao longo da circulação da Mensagem_Lider, e os
     invariantes agregam por rodada.
     """
 
@@ -433,9 +433,9 @@ def invariante_02_convergencia(d: Dados) -> Veredito:
     """Todos os Nós vivos convergem para o mesmo Líder (liveness/safety). REPROVA.
 
     Por rodada, todos os Nós que observaram o anúncio devem reportar o mesmo
-    `lider`, e esse conjunto de observadores deve cobrir os Nós vivos da rodada —
-    a condição de convergência: ao fim da rodada, todos os vivos conhecem o
-    mesmo Líder. Divergência entre observadores reprova; um vivo que
+    `lider`, e esse conjunto de observadores deve cobrir os Nós vivos da rodada.
+    É a condição de convergência: ao fim da rodada, todos os vivos conhecem o
+    mesmo Líder. Divergência entre observadores reprova. Um vivo que
     jamais observou o anúncio também reprova, pois a rodada não convergiu para
     ele. A tolerância é zero: convergência é um predicado exato.
     """
@@ -470,7 +470,7 @@ def invariante_02_convergencia(d: Dados) -> Veredito:
 
 
 def invariante_03_maior_id_vivo(d: Dados) -> Veredito:
-    """O Líder eleito é o maior id vivo (correctness). REPROVA.
+    """O Líder eleito é o maior id vivo (safety). REPROVA.
 
     Para cada rodada concluída, o `lider` anunciado deve ser o maior id entre os
     Nós vivos daquela rodada, qualquer que seja o iniciador. Tolerância zero, por
@@ -486,7 +486,7 @@ def invariante_03_maior_id_vivo(d: Dados) -> Veredito:
     for rodada in sorted(por_rodada):
         lideres = por_rodada[rodada]
         if len(lideres) != 1:
-            # A unicidade é do invariante 1; aqui só checamos rodadas bem-formadas.
+            # A unicidade é do invariante 1. Aqui só checamos rodadas bem-formadas.
             continue
         vivos = _vivos_na_rodada(d, rodada)
         if not vivos:
@@ -580,8 +580,9 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
       durabilidade. A reprovação fica reservada à reversão de uma Decisao já
       registrada.
 
-    Só a `recuperacao` com Decisao conta como caso verificado. Sem ela, o
-    invariante fica em lacuna, e os avisos de dúvida aparecem mesmo assim.
+    Só conta como caso verificado a `recuperacao` com Decisao cuja Decisao durável
+    está no Log_Duravel lido. Sem nenhuma, o invariante fica em lacuna, e os avisos
+    de dúvida aparecem mesmo assim.
 
     Tolerância: zero para a reversão (igualdade de Decisao). O Estado_Em_Duvida é
     aviso por decisão de projeto, não por folga numérica.
@@ -603,9 +604,12 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
             # Volta em dúvida: não há Decisao a comparar. O aviso abaixo só a cobre quando o log
             # termina em dúvida, como na verificação com o Coordenador fora.
             continue
-        verificados += 1
         gravada = decisoes.get(str(transacao), {}).get(int(ev.no))
-        if gravada is not None and str(recuperada) != gravada:
+        if gravada is None:
+            # Sem o Log_Duravel do Nó não há o que comparar, e o caso fica fora da contagem.
+            continue
+        verificados += 1
+        if str(recuperada) != gravada:
             falhas.append(
                 f"transação {transacao}, nó {ev.no}: recuperou {recuperada}, "
                 f"mas o Log_Duravel tinha {gravada}"

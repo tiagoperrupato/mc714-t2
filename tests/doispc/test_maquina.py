@@ -7,16 +7,16 @@ ordem write-ahead (grava antes de enviar/aplicar), o driver prova a durabilidade
 sem precisar de disco.
 
 Cobrem:
-- todos votam SIM → COMMIT no Coordenador e em todos os Participantes;
-- um voto NAO → ABORT em todos;
+- todos votam SIM → COMMIT no Coordenador e em todos os Participantes.
+- um voto NAO → ABORT em todos.
 - Participante relê o Log_Duravel e recupera a mesma Decisao após reinício
-  simulado;
+  simulado.
 - a ordem write-ahead: o Voto é gravado antes de respondido e a Decisao antes de
-  aplicada;
-- não-reversão de uma Decisao já registrada;
-- ABORT por timeout de coleta de Votos;
+  aplicada.
+- não-reversão de uma Decisao já registrada.
+- ABORT por timeout de coleta de Votos.
 - recuperação do Coordenador: a Decisao gravada é difundida de novo, e a
-  transação em WAIT vira ABORT;
+  transação em WAIT vira ABORT.
 - difusão da DECISAO só a quem ainda não mandou o ACK.
 """
 
@@ -220,7 +220,7 @@ def test_um_voto_nao_resulta_abort_em_todos() -> None:
         assert sim.decisoes_participantes()[p] == DECISAO_ABORT
         assert sim.logs[p].recuperar(TX).decisao == DECISAO_ABORT
     assert sim.logs[COORD].recuperar(TX).decisao == DECISAO_ABORT
-    # O Participante 2 gravou um Voto NAO; os demais, SIM.
+    # O Participante 2 gravou um Voto NAO, e os demais, SIM.
     assert sim.logs[2].recuperar(TX).voto == VOTO_NAO
     assert sim.logs[1].recuperar(TX).voto == VOTO_SIM
 
@@ -280,7 +280,7 @@ def test_coordenador_grava_decisao_antes_de_difundir() -> None:
     # Quando o último Voto chega, a primeira Acao do Coordenador é GravarLog da
     # Decisao, antes das Enviar de DECISAO aos Participantes.
     estado, _ = iniciar_transacao(COORD, TX, PARTS)
-    # Entrega três Votos SIM; o terceiro dispara a decisão.
+    # Entrega três Votos SIM, e o terceiro dispara a decisão.
     for p in PARTS:
         voto = Mensagem(
             tipo=MSG_VOTO, origem=p, destino=COORD, corpo={"transacao": TX, "voto": VOTO_SIM}
@@ -362,7 +362,7 @@ def test_participante_em_duvida_recupera_voto_sem_decisao() -> None:
 
 
 def test_decisao_nao_reverte_com_mensagem_repetida() -> None:
-    # Uma DECISAO repetida não regrava nem muda a Decisao; só reenvia o ACK.
+    # Uma DECISAO repetida não regrava nem muda a Decisao. Só reenvia o ACK.
     estado = EstadoParticipante(transacao=TX, voto=VOTO_SIM, decisao=DECISAO_COMMIT, aplicada=True)
     outra = Mensagem(
         tipo=MSG_DECISAO,
@@ -409,7 +409,7 @@ def test_votos_tardios_apos_decisao_sao_ignorados() -> None:
 
 def test_timeout_de_votos_resulta_abort() -> None:
     estado, _ = iniciar_transacao(COORD, TX, PARTS)
-    # Só um Participante respondeu; o Deadline estoura antes dos demais.
+    # Só um Participante respondeu, e o Deadline estoura antes dos demais.
     voto = Mensagem(
         tipo=MSG_VOTO, origem=1, destino=COORD, corpo={"transacao": TX, "voto": VOTO_SIM}
     )
@@ -442,7 +442,7 @@ def test_crash_do_coordenador_deixa_participantes_em_duvida() -> None:
     sim.perder = {MSG_DECISAO}  # Coordenador cai antes de difundir a Decisao.
     sim.executar_transacao(TX)
 
-    # O Coordenador chegou a decidir e gravar; os Participantes votaram SIM mas
+    # O Coordenador chegou a decidir e gravar. Os Participantes votaram SIM mas
     # não receberam a Decisao: ficam bloqueados, aguardando.
     assert sim.estado_coordenador.decisao == DECISAO_COMMIT
     for p in PARTS:

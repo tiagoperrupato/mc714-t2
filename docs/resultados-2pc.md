@@ -93,8 +93,8 @@ Réplica, a tabela mostra mínimo e máximo, e não percentis.
 ![Tempo de recuperação do 2PC × latência de rede](figuras/doispc_recuperacao.png)
 
 A maior parte do tempo, e quase toda a variação entre Réplicas, vem da partida do contêiner e do
-interpretador. Nos logs, o trecho que vai da partida do processo até o último Participante decidir é
-curto em todas as Réplicas, inclusive nas mais lentas. As mensagens passam de 12 porque o Coordenador
+interpretador, o que os logs da bateria mostram (eles ficam fora do git e voltam com
+`python scripts/bateria.py --algoritmo 2pc`). As mensagens passam de 12 porque o Coordenador
 difunde a Decisao relida antes de o servidor HTTP dele aceitar conexões. Os ACK que chegam nessa janela
 falham, e a retransmissão de 1 s repete a DECISAO e o ACK desses Participantes. Com mais atraso, menos
 ACK chegam cedo demais.

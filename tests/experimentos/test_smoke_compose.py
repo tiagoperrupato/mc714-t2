@@ -6,13 +6,13 @@ partir de um estado zerado e NÃO deixa contêiner nem volume órfão. É a cont
 cobre a mesma sequência em processo.
 
 O teste é marcado `slow` e PULA de forma limpa quando o Docker (daemon + compose
-v2) não está disponível — a demonstração por contêiner não é requisito de todo
+v2) não está disponível, porque a demonstração por contêiner não é requisito de todo
 ambiente. Rode-o isolado:
 
     python -m pytest -m slow tests/experimentos/test_smoke_compose.py
 
 Stacks de compose em paralelo podem conflitar no `--wait` e nas portas
-publicadas; por isso este smoke roda UM cenário pequeno por vez.
+publicadas, e por isso este smoke roda UM cenário pequeno por vez.
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ def test_build_up_cenario_down_sem_orfaos(tmp_path: Path) -> None:
     """Build + up --wait + cenário + down -v --remove-orphans roda limpo e sem órfãos.
 
     `cenario.executar_cenario` já encadeia down inicial, up --build --wait,
-    condução, coleta, verificação e down -v --remove-orphans final — a exata
+    condução, coleta, verificação e down -v --remove-orphans final, a exata
     sequência que o README documenta. Depois dele, nenhum contêiner nem volume do
     projeto deve sobrar.
     """

@@ -49,6 +49,17 @@ def test_com_perda_converge_sempre_e_conta_a_perda(num_nos: int) -> None:
     assert any(r.mensagens_total > num_nos * num_nos - 1 for r in replicas)
 
 
+@pytest.mark.parametrize("num_nos", [3, 5, 7])
+def test_com_perda_cada_tentativa_perdida_no_caminho_soma_um_salto(num_nos: int) -> None:
+    """Sem perda são 2 saltos. Cada perda soma no máximo um, e alguma cai no caminho."""
+    replicas = [
+        executar_replica_bully(num_nos=num_nos, taxa_falhas=0.05, semente=s) for s in range(50)
+    ]
+    perdas = [r.mensagens_total - (num_nos * num_nos - 1) for r in replicas]
+    assert all(2 <= r.tempo_convergencia <= 2 + p for r, p in zip(replicas, perdas))
+    assert any(r.tempo_convergencia > 2 for r in replicas)
+
+
 @pytest.mark.parametrize(
     "parametros",
     [

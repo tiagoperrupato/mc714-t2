@@ -2,7 +2,7 @@
 
 O contêiner executa `python -m src.doispc`. A variável `DOISPC_PAPEL` seleciona
 se este Nó é o Coordenador ou um Participante, de modo que a MESMA imagem sirva
-os dois papéis — o algoritmo é escolhido pelo ambiente, nunca embutido no código.
+os dois papéis: o algoritmo é escolhido pelo ambiente, nunca embutido no código.
 
 Toda a configuração vem de variáveis de ambiente e é validada antes de abrir
 socket ou tocar o disco: uma configuração inválida encerra
@@ -28,7 +28,7 @@ Participante:
 - `DOISPC_COORDENADORES`     "id@host:porta,..." dos Coordenadores a quem o Participante
                              responde. Sem ela, só o de `COORD_ID/HOST/PORTA`.
 - `COORD_ID/HOST/PORTA`      identidade do Coordenador quando falta `DOISPC_COORDENADORES`.
-- `DOISPC_VOTO`              "SIM" ou "NAO" — a flag de voto.
+- `DOISPC_VOTO`              "SIM" ou "NAO" (default "SIM"), a flag de voto.
 - `DOISPC_DEADLINE`          Deadline de cada envio de rede, em s (default 2.0).
 - `DOISPC_LOG_DURAVEL`       caminho do Log_Duravel (default /dados/participante-{id}.log).
 """
@@ -39,7 +39,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.comum.config import ConfigInvalidaError, ConfigNo
+from src.comum.config import ConfigInvalidaError, ConfigNo, ler_numero
 from src.comum.falhas import ClienteComFalhas, ControladorFalhas, registrar_plano_no_log
 from src.comum.log import LogEstruturado, abrir_log
 from src.comum.modelos import No
@@ -80,10 +80,19 @@ class _LogDuravelQueCai(LogDuravelArquivo):
 
 def _no_de_env(prefixo: str, padrao_porta: int) -> No:
     return No(
-        id=int(os.environ[f"{prefixo}_ID"]),
+        id=ler_numero(os.environ, f"{prefixo}_ID", int, None),
         host=os.environ.get(f"{prefixo}_HOST", "0.0.0.0"),
-        porta=int(os.environ.get(f"{prefixo}_PORTA", str(padrao_porta))),
+        porta=ler_numero(os.environ, f"{prefixo}_PORTA", int, str(padrao_porta)),
     )
+
+
+def _ler_voto() -> str:
+    """`DOISPC_VOTO` sem distinguir maiúsculas. Outro valor que não SIM nem NAO é recusado."""
+    bruto = os.environ.get("DOISPC_VOTO", VOTO_SIM)
+    voto = bruto.upper()
+    if voto not in (VOTO_SIM, VOTO_NAO):
+        raise ConfigInvalidaError("DOISPC_VOTO", bruto, f"{VOTO_SIM!r} ou {VOTO_NAO!r}")
+    return voto
 
 
 def _mapa_de_nos(variavel: str) -> dict[int, No]:
@@ -141,8 +150,8 @@ class AmbienteCoordenador:
 def ler_ambiente_coordenador(eu: No) -> AmbienteCoordenador:
     """Lê e valida as variáveis do Coordenador `eu`, sem efeito colateral."""
     participantes = _mapa_de_nos("DOISPC_PARTICIPANTES")
-    semente = int(os.environ.get("SEMENTE", "0"))
-    deadline_decisao = float(os.environ.get("DOISPC_DEADLINE_DECISAO", "2.0"))
+    semente = ler_numero(os.environ, "SEMENTE", int, "0")
+    deadline_decisao = ler_numero(os.environ, "DOISPC_DEADLINE_DECISAO", float, "2.0")
     ConfigNo(
         id=eu.id,
         algoritmo="2pc",
@@ -154,7 +163,7 @@ def ler_ambiente_coordenador(eu: No) -> AmbienteCoordenador:
     return AmbienteCoordenador(
         participantes=participantes,
         semente=semente,
-        deadline_voto=float(os.environ.get("DOISPC_DEADLINE_VOTO", "3.0")),
+        deadline_voto=ler_numero(os.environ, "DOISPC_DEADLINE_VOTO", float, "3.0"),
         deadline_decisao=deadline_decisao,
         caminho_log=os.environ.get("DOISPC_LOG_DURAVEL", "/dados/coordenador.log"),
         cair_apos_decidir=os.environ.get("DOISPC_CAIR_APOS_DECIDIR", "").strip().lower()
@@ -208,9 +217,9 @@ def construir_participante() -> tuple[object, int]:
     else:
         coordenador = _no_de_env("COORD", 8000)
         coordenadores = {coordenador.id: coordenador}
-    semente = int(os.environ.get("SEMENTE", "0"))
-    deadline = float(os.environ.get("DOISPC_DEADLINE", "2.0"))
-    voto = VOTO_NAO if os.environ.get("DOISPC_VOTO", "SIM").upper() == VOTO_NAO else VOTO_SIM
+    semente = ler_numero(os.environ, "SEMENTE", int, "0")
+    deadline = ler_numero(os.environ, "DOISPC_DEADLINE", float, "2.0")
+    voto = _ler_voto()
 
     config = ConfigNo(
         id=eu.id,
@@ -267,7 +276,7 @@ def main() -> None:
             raise ConfigInvalidaError(
                 "DOISPC_PAPEL", papel, "'coordenador' ou 'participante'"
             )
-    except (KeyError, ValueError, ConfigInvalidaError) as erro:
+    except ConfigInvalidaError as erro:
         raise SystemExit(f"configuração inválida do Nó do 2PC: {erro}") from erro
 
     print(f"[2pc] {papel} escutando em 0.0.0.0:{porta}")

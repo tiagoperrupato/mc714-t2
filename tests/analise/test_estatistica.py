@@ -1,7 +1,7 @@
 """Testes da estatística da análise: percentis e IC 95% contra valores à mão.
 
 Os conjuntos são pequenos e escolhidos para que o resultado seja verificável
-sem rodar o próprio código — a disciplina de não testar a implementação contra
+sem rodar o próprio código: a disciplina de não testar a implementação contra
 ela mesma.
 """
 
@@ -57,8 +57,8 @@ def test_quantis_do_enunciado() -> None:
 
 
 def test_ic95_de_amostra_conhecida() -> None:
-    # Amostra: [1, 3, 5, 7, 9]. n=5, média=5. Desvios -4,-2,0,2,4; soma dos
-    # quadrados=40; desvio amostral (ddof=1) = sqrt(40/4) = sqrt(10). Erro
+    # Amostra: [1, 3, 5, 7, 9]. n=5, média=5. Desvios -4,-2,0,2,4. Soma dos
+    # quadrados=40. Desvio amostral (ddof=1) = sqrt(40/4) = sqrt(10). Erro
     # padrão = sqrt(10)/sqrt(5) = sqrt(2). t(4; 0,975)=2,776.
     amostra = [1.0, 3.0, 5.0, 7.0, 9.0]
     r = resumir(amostra)

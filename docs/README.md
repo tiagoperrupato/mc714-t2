@@ -28,7 +28,7 @@ para o bônus. Os comandos rodam na raiz do projeto, a pasta do `compose.yaml`.
 | M7 | quantidade mínima de nós | [`modelo-e-correcao.md`](modelo-e-correcao.md), itens Nós | [`compose.yaml`](../compose.yaml), [`compose.bully.yaml`](../compose.bully.yaml) | n/d |
 | C1 | deadline explícito em toda chamada | [`modelo-e-correcao.md`](modelo-e-correcao.md), Canais (M2) | [`src/comum/rede.py`](../src/comum/rede.py) | n/d |
 | C2, C3 | filas, pub/sub e Redis | não se aplica, a comunicação é HTTP/JSON ponto a ponto | n/d | n/d |
-| A1, A2 | Compose v2, um contêiner por nó, comandos de construir, iniciar, testar e remover | [`../README.md`](../README.md), seções Docker Compose e Verificação | [`compose.yaml`](../compose.yaml), [`Dockerfile`](../Dockerfile) | `docker compose build`, `docker compose down -v --remove-orphans` |
+| A1, A2 | Compose v2, um contêiner por nó, comandos de construir, iniciar, testar e remover | [`../README.md`](../README.md), seções Docker Compose e Verificação | [`compose.yaml`](../compose.yaml), [`Dockerfile`](../Dockerfile) | `docker compose build`, `docker compose up -d --wait`, `python -m pytest -m "not slow"`, `docker compose down -v --remove-orphans` |
 | A3 | Docker Desktop, Docker Engine ou Podman no desenvolvimento | [`../README.md`](../README.md), seção Requisitos | n/d | n/d |
 | A4 | mesma implementação, troca só de configuração | [`../README.md`](../README.md), seção Docker Compose, topologia por variável de ambiente | [`src/comum/config.py`](../src/comum/config.py) | n/d |
 | A5 | ao menos três nós lógicos | [`modelo-e-correcao.md`](modelo-e-correcao.md), itens Nós | [`compose.yaml`](../compose.yaml) | n/d |
@@ -51,11 +51,11 @@ para o bônus. Os comandos rodam na raiz do projeto, a pasta do `compose.yaml`.
 
 | Item | O que pede | Onde está |
 |:-----|:-----------|:----------|
-| G4 | PDF no Classroom com nome e RA da dupla e os links do repositório e do vídeo na primeira página | n/d |
+| G4 | PDF no Classroom com nome e RA da dupla e os links do repositório e do vídeo na primeira página | primeira página de [`relatorio/relatorio.pdf`](relatorio/relatorio.pdf) |
 | G5, D2 | código, testes, `compose.yaml`, instruções, scripts e dados brutos | este repositório. Os dados brutos são os CSVs, os JSON e os logs dos cenários (`cenario_*_logs/`) de [`../results/`](../results/) |
-| D1 | relatório IEEE de até seis páginas | n/d |
-| D2 | cópia do relatório e tag de entrega | [`relatorio/`](relatorio/), com o `.tex`, a classe e o PDF |
-| D3 | vídeo de cerca de cinco minutos | n/d |
+| D1 | relatório IEEE de até seis páginas | [`relatorio/relatorio.pdf`](relatorio/relatorio.pdf) |
+| D2 | cópia do relatório e tag de entrega | [`relatorio/relatorio.pdf`](relatorio/relatorio.pdf), com o `.tex` e a classe em [`relatorio/`](relatorio/), e a tag `entrega-t2` deste repositório |
+| D3 | vídeo de cerca de cinco minutos | link na primeira página de [`relatorio/relatorio.pdf`](relatorio/relatorio.pdf) |
 
 ## Bônus
 

@@ -167,7 +167,7 @@ def test_mensagem_eleicao_acumula_ids_em_ordem() -> None:
 
 def test_rodadas_concorrentes_convergem_para_o_mesmo_lider() -> None:
     sim = AnelSimulado(ANEL5)
-    # Dois Nós quaisquer disparam ao mesmo tempo; as Mensagens se intercalam.
+    # Dois Nós quaisquer disparam ao mesmo tempo, e as Mensagens se intercalam.
     sim.disparar_concorrente([1, 3])
     lideres = sim.lideres()
     assert set(lideres.values()) == {5}, lideres
@@ -200,7 +200,7 @@ def test_salta_no_morto_e_ainda_converge() -> None:
 
 
 def test_salta_no_morto_intermediario() -> None:
-    # Um morto no meio do Anel (3) é pulado; o Líder segue sendo o maior vivo (5).
+    # Um morto no meio do Anel (3) é pulado, e o Líder segue sendo o maior vivo (5).
     sim = AnelSimulado(ANEL5, mortos=frozenset({3}))
     sim.disparar(1)
     lideres = sim.lideres()

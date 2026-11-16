@@ -26,7 +26,7 @@ from src.comum.config import SEMENTE_MAX, SEMENTE_MIN
 from src.experimentos.ambiente import coletar_ambiente
 
 # Uma Réplica planejada: os parâmetros que a identificam. `parametros` é o mapa
-# plano que vira colunas no CSV; `semente` é a Semente independente da Réplica.
+# plano que vira colunas no CSV, e `semente` é a Semente independente da Réplica.
 @dataclass(frozen=True)
 class ItemReplica:
     """Uma Réplica planejada, com sua Semente e os parâmetros que a definem.

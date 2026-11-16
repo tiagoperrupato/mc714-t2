@@ -3,7 +3,7 @@
 Dois níveis, como no resto do projeto:
 
 - **Sem Docker**: valida a lógica do `scripts/cenario.py` e do `scripts/demo.py`
-  que NÃO precisa de contêiner — a validação de modos, a montagem
+  que NÃO precisa de contêiner: a validação de modos, a montagem
   dos overrides de cenário com a Semente, o registro da Semente, a coleta de
   cada log uma vez, o código 1 quando o desfecho difere do esperado, e a prova
   de que um log com Participantes em Estado_Em_Duvida, como o que fica enquanto
@@ -436,7 +436,7 @@ pularsem_docker = pytest.mark.skipif(
 @pytest.mark.slow
 @pularsem_docker
 def test_anel_falha_e2e_verifica(tmp_path: Path) -> None:
-    """`anel falha`: morte do Líder → reeleição para o maior vivo; invariantes passam."""
+    """`anel falha`: morte do Líder → reeleição para o maior vivo, e os invariantes passam."""
     codigo = cenario.executar_cenario("anel", "falha", tmp_path, semente=0)
     assert codigo == 0, "verificação deveria passar no cenário anel/falha"
     reg = _registro(tmp_path, "anel", "falha")
@@ -464,7 +464,7 @@ def test_anel_reinicio_e2e_reintegra(tmp_path: Path) -> None:
 @pytest.mark.slow
 @pularsem_docker
 def test_2pc_commit_e2e_verifica(tmp_path: Path) -> None:
-    """`2pc commit`: todos SIM → COMMIT em todos; atomicidade e durabilidade passam."""
+    """`2pc commit`: todos SIM → COMMIT em todos, e atomicidade e durabilidade passam."""
     codigo = cenario.executar_cenario("2pc", "commit", tmp_path, semente=0)
     assert codigo == 0
     reg = _registro(tmp_path, "2pc", "commit")
@@ -477,7 +477,7 @@ def test_2pc_commit_e2e_verifica(tmp_path: Path) -> None:
 @pytest.mark.slow
 @pularsem_docker
 def test_2pc_abort_e2e_verifica(tmp_path: Path) -> None:
-    """`2pc abort`: um NAO → ABORT atômico em todos; invariantes passam."""
+    """`2pc abort`: um NAO → ABORT atômico em todos, e os invariantes passam."""
     codigo = cenario.executar_cenario("2pc", "abort", tmp_path, semente=0)
     assert codigo == 0
     reg = _registro(tmp_path, "2pc", "abort")

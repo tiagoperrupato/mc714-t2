@@ -150,9 +150,11 @@ def gerar_grafico(tabela: pd.DataFrame, destino) -> None:
             linestyle="-",
             label=rotulo,
         )
+    ax.set_xticks(sorted(tabela["num_nos"].unique()))
     ax.set_xlabel("Número de Nós")
     ax.set_ylabel("Mensagens até a convergência")
     ax.set_title("Mensagens até a convergência: Anel × Bully")
     ax.grid(True, linestyle=":", alpha=0.6)
     ax.legend()
+    fig.set_size_inches(4.5, 3.0)  # cabe numa coluna do relatório com fonte legível
     graficos.salvar(fig, destino)

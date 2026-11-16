@@ -17,9 +17,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from src import RAIZ
 from src.bully.maquina import FASE_OCIOSA
 
-RAIZ = Path(__file__).resolve().parents[2]
 COMPOSE = RAIZ / "compose.yaml"
 COMPOSE_TOXIPROXY = RAIZ / "compose.toxiproxy.yaml"
 COMPOSE_INTEGRACAO = RAIZ / "compose.integracao.yaml"

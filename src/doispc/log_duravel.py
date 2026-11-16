@@ -90,7 +90,7 @@ class EstadoPersistido:
 
     `voto` é o último Voto registrado para a transação, ou `None` se o Nó nunca
     votou. `decisao` é a Decisao registrada, ou `None` se ainda não há Decisao
-    durável — o caso do Participante em Estado_Em_Duvida, que votou mas não
+    durável. É o caso do Participante em Estado_Em_Duvida, que votou mas não
     recebeu a Decisao antes de um crash do Coordenador.
     """
 
@@ -182,7 +182,7 @@ class LogDuravelArquivo:
     """Log_Duravel em arquivo: uma linha JSON por entrada, com `fsync` write-ahead.
 
     `registrar` anexa a linha, dá `flush` no buffer de Python e `fsync` no
-    descritor, só então retornando — é isso que torna a entrada durável antes de
+    descritor, só então retornando. É isso que torna a entrada durável antes de
     o adaptador responder pela rede. `recuperar` abre o
     arquivo, relê todas as linhas e reduz ao estado persistido, de modo que um
     Nó reiniciado reporte a mesma Decisao de antes.

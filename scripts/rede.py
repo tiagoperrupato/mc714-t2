@@ -51,6 +51,7 @@ from src.comum.toxiproxy import (
     API_PADRAO,
     ClienteToxiproxy,
     Proxy,
+    ToxiproxyError,
     nome_proxy_anel,
     nome_proxy_participante,
     proxies_2pc,
@@ -175,7 +176,15 @@ def _construir_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _construir_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except ToxiproxyError as erro:
+        print(
+            f"[rede] {erro}. Suba a pilha com o Toxiproxy: "
+            "docker compose -f compose.yaml -f compose.toxiproxy.yaml up -d --wait",
+            file=sys.stderr,
+        )
+        return 1
 
 
 if __name__ == "__main__":

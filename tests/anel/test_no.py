@@ -42,7 +42,7 @@ ANEL5 = (1, 2, 3, 4, 5)
 class _ClienteFake:
     """`ClienteRede` falso: devolve um `ResultadoEnvio` por destino.
 
-    `mortos` é o conjunto de ids inalcançáveis; um envio a eles devolve o
+    `mortos` é o conjunto de ids inalcançáveis, e um envio a eles devolve o
     resultado configurado em `falha` (timeout por padrão). `perdas` diz quantos
     envios a um id falham antes de ele aceitar. Os demais recebem um `EnvioOk`.
     Registra os envios feitos para inspeção.

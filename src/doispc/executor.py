@@ -65,7 +65,7 @@ class ExecutorAcoes:
                 self._saida.enfileirar([acao])
 
     def _gravar(self, acao: GravarLog) -> None:
-        """Grava a entrada no Log_Duravel; só retorna quando ela está durável."""
+        """Grava a entrada no Log_Duravel e só retorna quando ela está durável."""
         self._log_duravel.registrar(acao.entrada)
         if self._log is not None:
             self._log.evento(
