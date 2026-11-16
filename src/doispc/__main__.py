@@ -21,7 +21,7 @@ Coordenador:
 - `DOISPC_DEADLINE_DECISAO`  Deadline de cada envio de rede, em s (default 2.0).
 - `DOISPC_LOG_DURAVEL`       caminho do Log_Duravel (default /dados/coordenador.log).
 - `DOISPC_CAIR_APOS_DECIDIR` "true" derruba o processo logo depois de gravar uma
-                             Decisao. Só para o cenário `crash-coord`.
+                             Decisao. Só para os cenários `crash-coord` e `crash-coord-part`.
 
 Participante:
 - `PART_ID`, `PART_PORTA`    identidade e porta de escuta.
@@ -60,7 +60,7 @@ from src.doispc.participante import (
 
 
 class _LogDuravelQueCai(LogDuravelArquivo):
-    """Log_Duravel do cenário `crash-coord`: o processo morre logo depois de gravar uma Decisao.
+    """Log_Duravel dos cenários com crash do Coordenador: o processo morre ao gravar uma Decisao.
 
     O `os._exit` vem depois do `fsync` e antes de a DECISAO entrar na fila de saída. Os
     Participantes que votaram SIM ficam em dúvida até o Coordenador reiniciar e se recuperar do

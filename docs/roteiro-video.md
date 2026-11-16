@@ -133,6 +133,24 @@ python scripts/verificar.py results/cenario_2pc_crash-coord_logs
 
 ---
 
+## Bloco 5b. 2PC: falha combinada (~25 s, opcional)
+
+**Quem:** Integrante B.
+
+O que dizer:
+- Com o Coordenador fora, o Participante 11 também cai. Ele volta pelo próprio Log
+  Durável, ainda em dúvida, e espera o Coordenador, porque não tem a quem perguntar.
+
+O que mostrar / rodar:
+```bash
+python scripts/cenario.py 2pc crash-coord-part
+```
+- Apontar na saída: o 11 volta em dúvida, todos decidem COMMIT depois do reinício
+  do Coordenador, e o 11 cai de novo e volta com o COMMIT. O invariante 05 confere
+  as duas recuperações, a do Coordenador e a segunda do 11.
+
+---
+
 ## Bloco 6. Resultados e fechamento (~50 s)
 
 **Quem:** Integrante B.
@@ -159,9 +177,10 @@ O que dizer / mostrar (usar as figuras de `docs/figuras/`):
 | 1 | Abertura e visão geral | ~40 s |
 | 2 | Anel normal | ~45 s |
 | 3 | Anel com falha do Líder | ~50 s |
-| 4 | 2PC normal (commit/abort) | ~45 s |
+| 4 | 2PC normal (commit/abort) | ~45 s, ~35 s com o 5b |
 | 5 | 2PC crash do Coordenador + recuperação | ~70 s |
-| 6 | Resultados e fechamento | ~50 s |
+| 5b | Falha combinada, opcional | ~25 s |
+| 6 | Resultados e fechamento | ~50 s, ~40 s com o 5b |
 | | **Total** | **~5 min** |
 
 ## Dicas de gravação

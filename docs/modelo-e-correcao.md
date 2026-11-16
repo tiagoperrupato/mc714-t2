@@ -224,7 +224,8 @@ sem variância amostral a absorver. A justificativa está em
   Coordenador não guardou os Votos e não sabe se todos foram SIM. O Participante
   relê o próprio log e reporta a **mesma** Decisao de antes (evento
   `recuperacao`). Um que votou SIM e não tem Decisao durável volta em dúvida e
-  sai dela quando a DECISAO chega. Aplicar a Decisao é só um evento de log nesta
+  sai dela quando a DECISAO chega. O cenário `2pc crash-coord-part` mostra os
+  dois casos no contêiner real. Aplicar a Decisao é só um evento de log nesta
   implementação, sem efeito durável próprio, e por isso a recuperação trata toda
   Decisao durável como aplicada.
 
@@ -237,6 +238,7 @@ sem variância amostral a absorver. A justificativa está em
 | Validade: COMMIT só com o Voto SIM de todos os Participantes | *safety* | **`invariante_06_validade`** |
 | Terminação sem falha: todos decidem, COMMIT com todos SIM e ABORT com um NAO | *liveness* | `cenario.py 2pc commit` e `2pc abort`, prazo de 10 s |
 | Terminação com o Coordenador de volta: todo Participante decide | *liveness* | `cenario.py 2pc crash-coord`, prazo de 30 s |
+| Terminação com o Coordenador de volta depois do crash de um Participante em dúvida: todo Participante decide | *liveness* | `cenario.py 2pc crash-coord-part`, prazo de 30 s |
 | *Liveness* bloqueante: Estado_Em_Duvida enquanto o Coordenador está fora | n/d (aviso) | **`invariante_05_durabilidade`** (ramo de aviso) |
 
 - **Atomicidade** (`invariante_04_atomicidade`): lê a Decisao durável de cada Nó
@@ -248,9 +250,12 @@ sem variância amostral a absorver. A justificativa está em
   Nó registra uma `recuperacao` com Decisao, ela tem de bater com a Decisao
   durável daquele Nó. Divergência é reversão após reinício e reprova. O cenário
   `2pc crash-coord` reinicia o Coordenador, que registra a `recuperacao` da
-  Decisao gravada antes do crash. A `recuperacao` de um Participante que volta em
-  dúvida não traz Decisao e não conta. Sem `recuperacao` com Decisao nos logs não
-  houve reinício a conferir, e o 05 fica em lacuna.
+  Decisao gravada antes do crash. O `2pc crash-coord-part` reinicia também o
+  Participante 11, em dúvida e depois de decidir. A segunda `recuperacao` traz a
+  Decisao e é o caso de Participante do 05. A primeira não tem Decisao a comparar,
+  e o cenário confere pelo `/estado` que o 11 voltou com Voto SIM e em dúvida.
+  Sem `recuperacao` com Decisao nos logs não houve reinício a conferir, e o 05
+  fica em lacuna.
 - **Validade** (`invariante_06_validade`): numa transação com COMMIT, todo
   Participante tem Voto SIM no próprio Log_Duravel. Os Participantes são os que o
   Coordenador lista no evento `inicia_transacao` e os que gravaram Voto, então um
@@ -261,8 +266,10 @@ sem variância amostral a absorver. A justificativa está em
   ao lado do observado e sai 1 quando eles diferem. No `2pc commit` e no
   `2pc abort`, cada Participante tem de decidir até 10 s depois da resposta do
   Coordenador. No `2pc crash-coord`, os três ficam em dúvida com o Coordenador
-  fora e têm de decidir COMMIT até 30 s depois do reinício. A conferência fica no
-  cenário porque só ele sabe que falha injetou e o que esperar dela.
+  fora e têm de decidir COMMIT até 30 s depois do reinício. No
+  `2pc crash-coord-part` o prazo é o mesmo, com o 11 reiniciado em dúvida antes
+  do Coordenador. A conferência fica no cenário porque só ele sabe que falha
+  injetou e o que esperar dela.
 - **Bloqueio característico do 2PC** (`invariante_05_durabilidade`, ramo de
   aviso): um Participante que gravou Voto SIM mas não tem Decisao durável está em
   **Estado_Em_Duvida**. Ele não pode decidir sozinho, porque não
@@ -311,12 +318,14 @@ aprovados são os que o modo exige em `MODOS`.
 | `2pc commit` | todos SIM → COMMIT em todos | 04, 05, 06 | 04 e 06 passam, 05 em lacuna |
 | `2pc abort` | um NAO → ABORT atômico em todos | 04, 05, 06 | 04 passa, 05 e 06 em lacuna |
 | `2pc crash-coord` | o processo do Coordenador cai depois de gravar a Decisao, os Participantes ficam em dúvida, e o contêiner reiniciado se recupera do log | 04, 05, 06 | passam, com o aviso de dúvida dos três na verificação feita com o Coordenador fora e todos em COMMIT depois do reinício |
+| `2pc crash-coord-part` | o Coordenador cai depois de gravar a Decisao, o Participante 11 cai e volta em dúvida, o Coordenador volta e todos decidem COMMIT, e o 11 cai e volta com a Decisao | 04, 05, 06 | passam, o 05 com a recuperação do Coordenador e a segunda do 11, e com o aviso de dúvida dos três na verificação feita com o Coordenador fora |
 | `2pc particao` | corta a rota até o Participante 11, o Coordenador aborta no prazo de Votos, e depois da cura a retransmissão leva o ABORT ao 11 | 04, 05, 06 | 04 passa, 05 e 06 em lacuna, ABORT em todos e transação concluída |
 
 Em todos, `verificar.py` sai com código 0 e o desfecho observado é o esperado.
 `cenario.py` sai 1 se um invariante reprova, se um invariante exigido termina sem
 caso verificado ou se o desfecho difere do esperado. No `2pc crash-coord`, o 05
-confere a `recuperacao` do Coordenador reiniciado contra a Decisao do log dele.
+confere a `recuperacao` do Coordenador reiniciado contra a Decisao do log dele, e
+no `2pc crash-coord-part` também a segunda `recuperacao` do 11.
 
 ## Falhas do modelo e onde são demonstradas
 
@@ -334,6 +343,7 @@ processo ou servidos localmente.
 | 2PC | crash do Coordenador depois de decidir | cenário `2pc crash-coord`, bateria de recuperação, `test_coordenador_reiniciado_depois_de_decidir_entrega_a_decisao` | 04 a 06, com o aviso de dúvida na verificação feita com o Coordenador fora |
 | 2PC | crash do Coordenador em WAIT | `test_coordenador_reiniciado_em_wait_aborta`, `test_coordenador_reiniciado_antes_de_decidir_aborta` | ABORT gravado e difundido depois do reinício |
 | 2PC | Participante fora | `test_timeout_de_votos_leva_a_abort`, `test_id_repetido_devolve_a_decisao_gravada` | ABORT no prazo de Votos |
+| 2PC | crash do Participante em dúvida com o Coordenador fora | cenário `2pc crash-coord-part`, `test_participante_reiniciado_em_duvida_decide_quando_o_coordenador_volta` | o 11 volta em dúvida pelo próprio log, todos decidem COMMIT, e o 05 confere a recuperação do Coordenador e a segunda do 11 |
 | 2PC | reinício do Participante com o log | `test_participante_recupera_decisao_apos_reinicio`, `test_recuperacao_apos_reinicio_rele_do_arquivo`, em memória e em arquivo | a mesma Decisao depois de reler o log |
 | 2PC | partição entre o Coordenador e um Participante | cenário `2pc particao` | 04 e ABORT em todos depois da cura |
 | 2PC | Participante lento, que o timeout trata como falho | `test_voto_depois_do_abort_sai_da_duvida_pela_retransmissao` | o Voto atrasado não muda o ABORT, e a retransmissão tira o Participante da dúvida |

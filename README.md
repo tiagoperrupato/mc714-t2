@@ -172,6 +172,7 @@ python scripts/cenario.py anel reinicio      # mata o 5, reelege 4, reinicia o 5
 python scripts/cenario.py 2pc commit         # todos votam SIM -> COMMIT atômico
 python scripts/cenario.py 2pc abort          # Participante 3 vota NAO -> ABORT atômico
 python scripts/cenario.py 2pc crash-coord    # Coordenador cai após decidir -> dúvida, com aviso na verificação -> reinício -> COMMIT
+python scripts/cenario.py 2pc crash-coord-part  # Coordenador e Participante 11 caem -> 11 volta em dúvida -> COMMIT -> 11 volta com COMMIT
 python scripts/cenario.py 2pc particao       # isola o Participante 11 -> ABORT no prazo -> cura -> ABORT também no 11
 ```
 
@@ -387,6 +388,7 @@ python scripts/cenario.py anel reinicio
 python scripts/cenario.py 2pc commit
 python scripts/cenario.py 2pc abort
 python scripts/cenario.py 2pc crash-coord
+python scripts/cenario.py 2pc crash-coord-part
 python scripts/cenario.py 2pc particao
 python scripts/verificar.py                        # (6) invariantes sobre results/
 docker compose down -v --remove-orphans            # (7) teardown limpo, sem órfãos

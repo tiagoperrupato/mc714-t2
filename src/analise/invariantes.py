@@ -581,7 +581,9 @@ def invariante_05_durabilidade(d: Dados) -> Veredito:
         transacao = ev.campos.get("transacao")
         recuperada = ev.campos.get("decisao")
         if transacao is None or recuperada is None:
-            continue  # recuperação de um Nó ainda em dúvida: coberto pelo aviso abaixo
+            # Volta em dúvida: não há Decisao a comparar. O aviso abaixo só a cobre quando o log
+            # termina em dúvida, como na verificação com o Coordenador fora.
+            continue
         verificados += 1
         gravada = decisoes.get(str(transacao), {}).get(int(ev.no))
         if gravada is not None and str(recuperada) != gravada:

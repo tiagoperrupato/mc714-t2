@@ -63,6 +63,7 @@ Uma linha por conceito adicional do B1.
 
 | Item | O que pede | Resposta | Módulo | Comando |
 |:-----|:-----------|:---------|:-------|:--------|
+| B1 | falhas combinadas | [`modelo-e-correcao.md`](modelo-e-correcao.md), Cenários que exercitam cada propriedade | [`scripts/cenario.py`](../scripts/cenario.py) | `python scripts/cenario.py 2pc crash-coord-part` |
 
 ## Artefatos versionados
 

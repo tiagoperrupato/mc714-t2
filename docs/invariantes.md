@@ -127,7 +127,10 @@ A Decisao sobrevive ao reinício. Dois sinais no log sustentam a propriedade:
 
 A reprovação de durabilidade fica restrita à reversão de uma Decisao já
 registrada. Só a `recuperacao` com Decisao conta como caso verificado. A de um
-Participante que volta em dúvida não traz Decisao e não conta. Sem uma
+Participante que volta em dúvida não traz Decisao a comparar e não conta. O
+aviso de dúvida só a cobre quando o log termina em dúvida, como na verificação
+com o Coordenador fora. No `2pc crash-coord-part` o Participante 11 volta em
+dúvida, decide depois, e a segunda `recuperacao` dele é que conta. Sem uma
 `recuperacao` com Decisao nos logs, o invariante fica em lacuna, com os avisos
 de dúvida.
 
@@ -151,5 +154,7 @@ durabilidade e a validade do 2PC. A terminação do 2PC é conferida pelo cenár
 que conhece a falha injetada e sai 1 quando o desfecho difere do esperado. O
 Estado_Em_Duvida é a *liveness* bloqueante do 2PC, classificada como aviso. O
 cenário `2pc crash-coord` verifica os logs com o Coordenador fora, com o aviso, e
-depois do reinício, sem ele. Os cenários reproduzíveis que exercitam cada propriedade estão em
+depois do reinício, sem ele. O `2pc crash-coord-part` faz o mesmo com o
+Participante 11 reiniciado em dúvida antes da verificação com o Coordenador fora.
+Os cenários reproduzíveis que exercitam cada propriedade estão em
 `scripts/cenario.py`, e `scripts/demo.py` encadeia o `anel falha` e o `2pc crash-coord`.

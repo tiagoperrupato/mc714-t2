@@ -49,6 +49,12 @@ Cenários do 2PC:
         reinicia o contêiner e mostra todos decidindo COMMIT depois que o
         Coordenador relê o Log_Duravel e difunde a Decisao gravada.
 
+    python scripts/cenario.py 2pc crash-coord-part
+        Como o crash-coord, e o contêiner do Participante 11 cai e volta
+        duas vezes: em dúvida, antes da verificação com o Coordenador fora e do
+        reinício dele, e depois que todos decidem COMMIT, quando recupera a
+        Decisao do Log_Duravel.
+
     python scripts/cenario.py 2pc particao
         Todos votam SIM, com o Toxiproxy entre o Coordenador e os Participantes. O
         proxy do Participante 11 é desativado antes da transação, e o PREPARE não
@@ -98,6 +104,7 @@ from src.experimentos.conteineres import (  # noqa: E402
     docker_disponivel,
     eleger,
     esperar_conclusao,
+    esperar_saudavel,
     esperar_saude,
     estados_participantes,
     http_json,
@@ -116,7 +123,13 @@ SEMENTE_PADRAO = 0
 # verificado nos logs do cenário o reprova, e por isso um cenário sem log não passa.
 MODOS: dict[str, dict[str, tuple[int, ...]]] = {
     "anel": {"normal": (1, 2, 3), "falha": (1, 2, 3), "reinicio": (1, 2, 3)},
-    "2pc": {"commit": (4, 6), "abort": (4,), "crash-coord": (4, 5, 6), "particao": (4,)},
+    "2pc": {
+        "commit": (4, 6),
+        "abort": (4,),
+        "crash-coord": (4, 5, 6),
+        "crash-coord-part": (4, 5, 6),
+        "particao": (4,),
+    },
 }
 
 
@@ -139,6 +152,18 @@ def _override_anel(semente: int) -> str:
 # --------------------------------------------------------------------------- #
 # Cenários do Anel
 # --------------------------------------------------------------------------- #
+
+
+def _exigir_saude(servico: str, base: str, cenario: str, arquivos: list[Path]) -> None:
+    """Espera o /saude de `servico` depois do start e, sem resposta, falha com a cauda do log."""
+    if esperar_saude(base, 30.0):
+        return
+    # A cauda do log vai na mensagem, porque o down do fim do cenário apaga o contêiner.
+    cauda = compose("logs", "--no-color", "--tail", "20", servico, arquivos=arquivos).stdout
+    raise RuntimeError(
+        f"{servico} não respondeu em {base}/saude 30 s depois do start. Rode de novo "
+        f"python scripts/cenario.py {cenario}. Últimas linhas do {servico}:\n{cauda}"
+    )
 
 
 def _cenario_anel(modo: str, arquivos: list[Path]) -> dict[str, Any]:
@@ -182,13 +207,7 @@ def _cenario_anel(modo: str, arquivos: list[Path]) -> dict[str, Any]:
     if modo == "reinicio":
         reiniciar_servico("no-anel-5", arquivos)
         # Sem esperar o /saude, o 4 saltaria o 5 na terceira rodada, que elegeria o 4.
-        if not esperar_saude(bases[5], 30.0):
-            # A cauda do log vai na mensagem, porque o down do fim do cenário apaga o contêiner.
-            cauda = compose("logs", "--no-color", "--tail", "20", "no-anel-5", arquivos=arquivos).stdout
-            raise RuntimeError(
-                f"no-anel-5 não respondeu em {bases[5]}/saude 30 s depois do start. Rode de novo "
-                f"python scripts/cenario.py anel reinicio. Últimas linhas do no-anel-5:\n{cauda}"
-            )
+        _exigir_saude("no-anel-5", bases[5], "anel reinicio", arquivos)
         estado5 = http_json(f"{bases[5]}/estado")
         lideres, tempo = eleger(bases, todos, 5)
         registro["falha_injetada"] += ", e docker compose start no-anel-5 depois da segunda"
@@ -211,6 +230,20 @@ def _cenario_anel(modo: str, arquivos: list[Path]) -> dict[str, Any]:
 # Cenário do 2PC
 # --------------------------------------------------------------------------- #
 
+# O Participante que o `crash-coord-part` derruba duas vezes.
+SERVICO_PART_REINICIADO = "participante-1"
+ID_PART_REINICIADO = 11
+
+
+def _reiniciar_participante(arquivos: list[Path]) -> dict[str, Any]:
+    """Derruba e sobe o Participante 11 e devolve o Voto e a Decisao que ele recuperou do log."""
+    derrubar_servico(SERVICO_PART_REINICIADO, arquivos)
+    reiniciar_servico(SERVICO_PART_REINICIADO, arquivos)
+    base = f"http://127.0.0.1:{PORTAS_PART[ID_PART_REINICIADO]}"
+    _exigir_saude(SERVICO_PART_REINICIADO, base, "2pc crash-coord-part", arquivos)
+    estado = http_json(f"{base}/estado")
+    return {chave: estado.get(chave) for chave in ("voto", "decisao", "em_duvida")}
+
 
 def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
     """Conduz uma transação 2PC sobre o compose e devolve as métricas observadas.
@@ -221,7 +254,8 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
     Em `crash-coord` o `/transacao` não responde, porque o processo morre depois
     de gravar a Decisao. O condutor registra os Participantes em dúvida, verifica
     os logs com o Coordenador fora, reinicia o contêiner e mede o tempo até todos
-    decidirem.
+    decidirem. Em `crash-coord-part`, o Participante 11 cai e volta em dúvida antes
+    dessa verificação, e cai e volta de novo depois que todos decidem.
     """
     if modo == "particao":
         return _cenario_2pc_particao(erro)
@@ -238,7 +272,7 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
         resposta = {"erro": str(exc)}
     latencia = time.monotonic() - inicio
 
-    if modo != "crash-coord":
+    if modo not in ("crash-coord", "crash-coord-part"):
         return {
             "cenario": f"2pc_{modo}",
             "algoritmo": "2pc",
@@ -256,6 +290,16 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
         if est.get("em_duvida")
     )
     print(f"[cenario] Coordenador caiu ({resposta.get('erro')}). Em dúvida: {em_duvida}", file=erro)
+    combinado = modo == "crash-coord-part"
+    if combinado:
+        reinicio_em_duvida = _reiniciar_participante(arquivos)
+        print(
+            f"[cenario] Participante {ID_PART_REINICIADO} reiniciado com o Coordenador fora: "
+            f"{reinicio_em_duvida}",
+            file=erro,
+        )
+        # O start do Coordenador espera o healthcheck dos Participantes, fora do tempo medido.
+        esperar_saudavel(SERVICO_PART_REINICIADO, arquivos)
     codigo_fora, relatorio_fora = _verificar_com_coordenador_fora(arquivos)
     print("[cenario] verificação com o Coordenador fora:", file=erro)
     print("\n".join(relatorio_fora), file=erro)
@@ -265,8 +309,8 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
     # Os logs só são coletados depois de todos os ACKs, para incluírem a retransmissão.
     esperar_saude(BASE_COORD, 30.0)
     estado_coord = esperar_conclusao()
-    return {
-        "cenario": "2pc_crash-coord",
+    registro = {
+        "cenario": f"2pc_{modo}",
         "algoritmo": "2pc",
         "modo": modo,
         "falha_injetada": "processo do Coordenador morre depois de gravar a Decisao "
@@ -285,6 +329,27 @@ def _cenario_2pc(modo: str, arquivos: list[Path], erro) -> dict[str, Any]:
             "concluido": True,
         },
     }
+    if not combinado:
+        return registro
+    reinicio_apos_decidir = _reiniciar_participante(arquivos)
+    print(
+        f"[cenario] Participante {ID_PART_REINICIADO} reiniciado depois da Decisao: "
+        f"{reinicio_apos_decidir}",
+        file=erro,
+    )
+    registro["falha_injetada"] += (
+        f". O contêiner do Participante {ID_PART_REINICIADO} cai e volta em dúvida antes do "
+        "reinício do Coordenador, e cai e volta com a Decisao depois que todos decidem"
+    )
+    registro |= {
+        "reinicio_em_duvida": reinicio_em_duvida,
+        "reinicio_apos_decidir": reinicio_apos_decidir,
+    }
+    registro["esperado"] |= {
+        "reinicio_em_duvida": {"voto": "SIM", "decisao": None, "em_duvida": True},
+        "reinicio_apos_decidir": {"voto": "SIM", "decisao": esperada, "em_duvida": False},
+    }
+    return registro
 
 
 def _cenario_2pc_particao(erro) -> dict[str, Any]:

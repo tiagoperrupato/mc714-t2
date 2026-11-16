@@ -17,6 +17,8 @@ Dois níveis, como no resto do projeto:
   eleição o reintegra. No `crash-coord`, o processo do Coordenador morre depois
   de decidir, os Participantes ficam em dúvida, a verificação feita com o
   Coordenador fora dá o aviso dos três, e o contêiner reiniciado os tira dela.
+  O `crash-coord-part` reinicia também o Participante 11, em dúvida e depois de
+  decidir, e o 05 confere a recuperação do Coordenador e a segunda do 11.
   No `2pc particao`, o Participante 11 fica sem receber Mensagens, o Coordenador
   aborta no prazo de Votos, e a retransmissão leva o ABORT ao 11 depois da cura.
   Eles PULAM de forma limpa sem Docker. Como subir vários stacks em paralelo pode
@@ -28,6 +30,7 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -96,6 +99,10 @@ def test_override_2pc_crash_coord_derruba_o_coordenador() -> None:
     assert 'DOISPC_CAIR_APOS_DECIDIR: "true"' in txt
     # Todos votam SIM no cenário de crash (para ficarem em dúvida).
     assert txt.count('DOISPC_VOTO: "SIM"') == 3
+
+
+def test_override_2pc_crash_coord_part_e_o_do_crash_coord() -> None:
+    assert cenario.override_2pc("crash-coord-part", 3) == cenario.override_2pc("crash-coord", 3)
 
 
 def test_override_2pc_particao_todos_votam_sim() -> None:
@@ -216,17 +223,122 @@ def test_reiniciar_servico_espera_parar_antes_do_start(monkeypatch) -> None:
     assert chamadas == [("wait", "participante-1"), ("start", "participante-1")]
 
 
+def test_esperar_saudavel_espera_sem_recriar_o_conteiner(monkeypatch) -> None:
+    chamadas: list[tuple[str, ...]] = []
+    monkeypatch.setattr(conteineres, "compose", _compose_registrado(chamadas))
+    conteineres.esperar_saudavel("participante-1", [])
+    assert chamadas == [("up", "-d", "--wait", "--no-deps", "--no-recreate", "participante-1")]
+
+
 @pytest.mark.parametrize(
     ("acao", "comando"),
     [
         (lambda: conteineres.reiniciar_servico("participante-1", []), "start"),
         (lambda: conteineres.derrubar_servico("participante-1", []), "kill"),
+        (lambda: conteineres.esperar_saudavel("participante-1", []), "up"),
     ],
 )
 def test_falha_do_compose_vira_erro_acionavel(monkeypatch, acao, comando: str) -> None:
     monkeypatch.setattr(conteineres, "compose", _compose_registrado([], falhar_em=comando))
-    with pytest.raises(RuntimeError, match=f"{comando} participante-1.*down -v --remove-orphans"):
+    with pytest.raises(RuntimeError, match=f"{comando}.*participante-1.*down -v --remove-orphans"):
         acao()
+
+
+def test_servico_sem_saude_depois_do_start_leva_a_cauda_do_log(monkeypatch) -> None:
+    # O down do fim do cenário apaga o contêiner, então a mensagem traz o log dele.
+    monkeypatch.setattr(cenario, "esperar_saude", lambda *_a: False)
+    monkeypatch.setattr(
+        cenario, "compose", lambda *a, **_k: subprocess.CompletedProcess(a, 0, "cauda do log", "")
+    )
+    with pytest.raises(RuntimeError) as exc:
+        cenario._exigir_saude("participante-1", "http://127.0.0.1:8011", "2pc crash-coord-part", [])
+    mensagem = str(exc.value)
+    assert "python scripts/cenario.py 2pc crash-coord-part" in mensagem
+    assert mensagem.endswith("Últimas linhas do participante-1:\ncauda do log")
+
+
+def _conduzir_crash_coord(
+    monkeypatch, modo: str, estado_11_em_duvida: dict | None = None
+) -> tuple[list[str], dict]:
+    """Conduz `_cenario_2pc` sem Docker e devolve os passos, na ordem, e o registro."""
+    passos: list[str] = []
+    url_11 = f"http://127.0.0.1:{cenario.PORTAS_PART[11]}/estado"
+
+    def http_json(url: str, metodo: str = "GET", **_kw) -> dict:
+        if url.endswith("/transacao"):
+            raise urllib.error.URLError("conexão recusada")
+        assert url == url_11
+        passos.append("estado 11")
+        if "coordenador" in passos:
+            return {"voto": "SIM", "decisao": "COMMIT", "em_duvida": False}
+        return estado_11_em_duvida or {"voto": "SIM", "decisao": None, "em_duvida": True}
+
+    def anotar(rotulo: str, retorno=None):
+        def registrar(*args, **_kw):
+            passos.append(rotulo.format(*args))
+            return retorno
+
+        return registrar
+
+    em_duvida = {pid: {"voto": "SIM", "decisao": None, "em_duvida": True} for pid in (11, 12, 13)}
+    monkeypatch.setattr(cenario, "esperar_saude", lambda *_a: True)
+    monkeypatch.setattr(cenario, "http_json", http_json)
+    monkeypatch.setattr(cenario, "estados_participantes", lambda **_k: em_duvida)
+    monkeypatch.setattr(cenario, "derrubar_servico", anotar("kill {0}"))
+    monkeypatch.setattr(cenario, "reiniciar_servico", anotar("start {0}"))
+    monkeypatch.setattr(cenario, "esperar_saudavel", anotar("saudável {0}"))
+    monkeypatch.setattr(
+        cenario, "_verificar_com_coordenador_fora", anotar("verificação", (0, ["aviso:"] * 3))
+    )
+    monkeypatch.setattr(
+        cenario,
+        "reiniciar_coordenador",
+        anotar("coordenador", (1.0, dict.fromkeys((11, 12, 13), "COMMIT"))),
+    )
+    monkeypatch.setattr(
+        cenario, "esperar_conclusao", anotar("conclusão", {"decisao": "COMMIT", "concluido": True})
+    )
+    return passos, cenario._cenario_2pc(modo, [], io.StringIO())
+
+
+def test_crash_coord_part_reinicia_o_participante_antes_do_coordenador(monkeypatch) -> None:
+    """O 11 volta em dúvida antes da verificação com o Coordenador fora, e com COMMIT no fim."""
+    passos, registro = _conduzir_crash_coord(monkeypatch, "crash-coord-part")
+    assert passos == [
+        "kill participante-1",
+        "start participante-1",
+        "estado 11",
+        "saudável participante-1",
+        "verificação",
+        "coordenador",
+        "conclusão",
+        "kill participante-1",
+        "start participante-1",
+        "estado 11",
+    ]
+    assert cenario._divergencias(registro) == []
+
+
+def test_crash_coord_nao_reinicia_o_participante(monkeypatch) -> None:
+    passos, registro = _conduzir_crash_coord(monkeypatch, "crash-coord")
+    assert passos == ["verificação", "coordenador", "conclusão"]
+    assert registro["falha_injetada"] == (
+        "processo do Coordenador morre depois de gravar a Decisao "
+        "(DOISPC_CAIR_APOS_DECIDIR) e o contêiner é reiniciado"
+    )
+    for chave in ("reinicio_em_duvida", "reinicio_apos_decidir"):
+        assert chave not in registro
+        assert chave not in registro["esperado"]
+    assert cenario._divergencias(registro) == []
+
+
+def test_crash_coord_part_diverge_quando_o_11_volta_fora_da_duvida(monkeypatch) -> None:
+    _, registro = _conduzir_crash_coord(
+        monkeypatch, "crash-coord-part", {"voto": None, "decisao": None, "em_duvida": False}
+    )
+    divergencias = cenario._divergencias(registro)
+    assert len(divergencias) == 1
+    assert divergencias[0].startswith("reinicio_em_duvida")
 
 
 def _logs_de_commit(_algoritmo, _servicos, destino: Path, _arquivos) -> None:
@@ -389,6 +501,32 @@ def test_2pc_crash_coord_e2e_recupera(tmp_path: Path) -> None:
     assert reg["verificacao"]["ok"] is True
     # Ninguém termina em dúvida, então o invariante 5 não avisa nada.
     assert not any("aviso:" in l for l in reg["verificacao"]["relatorio"])
+
+
+@pytest.mark.slow
+@pularsem_docker
+def test_2pc_crash_coord_part_e2e_recupera(tmp_path: Path) -> None:
+    """`2pc crash-coord-part`: o 11 volta em dúvida com o Coordenador fora e depois com COMMIT."""
+    codigo = cenario.executar_cenario("2pc", "crash-coord-part", tmp_path, semente=0)
+    assert codigo == 0
+    reg = _registro(tmp_path, "2pc", "crash-coord-part")
+    assert reg["participantes_em_duvida"] == [11, 12, 13]
+    assert reg["verificacao_com_coordenador_fora"]["codigo"] == 0
+    assert reg["avisos_com_coordenador_fora"] == 3
+    assert reg["reinicio_em_duvida"] == {"voto": "SIM", "decisao": None, "em_duvida": True}
+    assert reg["reinicio_apos_decidir"] == {"voto": "SIM", "decisao": "COMMIT", "em_duvida": False}
+    assert reg["decisao"] == "COMMIT"
+    assert reg["concluido"] is True
+    assert reg["desfecho"]["ok"] is True
+    assert reg["verificacao"]["ok"] is True
+    # O contêiner do 11 nunca é recriado: o log dele tem uma recuperacao por reinício.
+    jsonl = tmp_path / "cenario_2pc_crash-coord-part_logs" / "participante-1" / "logs"
+    recuperacoes = [ev for ev in inv.carregar_eventos(jsonl) if ev.tipo == inv.EV_RECUPERACAO]
+    assert [ev.campos["decisao"] for ev in recuperacoes] == [None, "COMMIT"]
+    # O 05 confere a recuperação do Coordenador e a segunda do 11, a que traz a Decisao.
+    relatorio = reg["verificacao"]["relatorio"]
+    assert any("as 2 recuperação(ões)" in l for l in relatorio)
+    assert not any("aviso:" in l for l in relatorio)
 
 
 @pytest.mark.slow

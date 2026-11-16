@@ -218,6 +218,32 @@ def test_2pc_durabilidade_reprova_quando_decisao_reverte() -> None:
     assert any("recuperou" in f for f in v.falhas)
 
 
+def test_2pc_recuperacao_em_duvida_nao_conta_e_a_seguinte_conta() -> None:
+    # O 11 reinicia em dúvida, decide COMMIT e reinicia de novo: só a segunda recuperação é caso.
+    duraveis = [
+        _entrada_duravel("tx1", "voto", "SIM", 11),
+        _entrada_duravel("tx1", "decisao", "COMMIT", 11),
+    ]
+    eventos = [
+        _ev(11, "recuperacao", transacao="tx1", decisao=None, voto="SIM"),
+        _ev(11, "recuperacao", transacao="tx1", decisao="COMMIT", voto="SIM"),
+    ]
+    v = inv.invariante_05_durabilidade(_dados(eventos, duraveis))
+    assert v.ok
+    assert v.verificados == 1
+    assert not v.avisos
+
+
+def test_2pc_recuperacao_em_duvida_num_log_que_termina_em_duvida_so_avisa() -> None:
+    # Com o Coordenador fora, o 11 reiniciado volta sem Decisao: fica em lacuna, sem reprovação.
+    duraveis = [_entrada_duravel("tx1", "voto", "SIM", 11)]
+    eventos = [_ev(11, "recuperacao", transacao="tx1", decisao=None, voto="SIM")]
+    v = inv.invariante_05_durabilidade(_dados(eventos, duraveis))
+    assert not v.falhas
+    assert v.verificados == 0
+    assert len(v.avisos) == 1
+
+
 def test_2pc_estado_em_duvida_avisa_e_sem_reinicio_fica_em_lacuna() -> None:
     # Participante votou SIM e NÃO tem Decisao durável: bloqueio esperado do 2PC.
     # Sem `recuperacao` no log, não há reinício a conferir.

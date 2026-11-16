@@ -74,11 +74,11 @@ def http_json(
 def override_2pc(modo: str, semente: int) -> str:
     """YAML de override do 2PC: votos, crash do coordenador e semente em todos os nós.
 
-    Em `abort` o participante 3 vota NAO. Em `crash-coord` todos votam SIM e o processo do
-    coordenador morre logo depois de gravar a primeira Decisao.
+    Em `abort` o participante 3 vota NAO. Em `crash-coord` e `crash-coord-part` todos votam SIM e
+    o processo do coordenador morre logo depois de gravar a primeira Decisao.
     """
     voto_p3 = "NAO" if modo == "abort" else "SIM"
-    cair = "true" if modo == "crash-coord" else "false"
+    cair = "true" if modo in ("crash-coord", "crash-coord-part") else "false"
     sem = str(semente)
     return f"""\
 services:
@@ -207,6 +207,17 @@ def reiniciar_servico(servico: str, arquivos: list[Path]) -> float:
     inicio = time.monotonic()
     _exigir(compose("start", servico, arquivos=arquivos, timeout=120), f"start {servico}")
     return inicio
+
+
+def esperar_saudavel(servico: str, arquivos: list[Path]) -> None:
+    """Espera o healthcheck do Docker aprovar `servico`, que já está rodando.
+
+    O `start` de um serviço confere o healthcheck de cada serviço do `depends_on` dele, e um contêiner
+    recém-reiniciado fica em `starting` até a primeira sondagem. Com `--no-recreate`, o `up --wait`
+    só espera, e o contêiner não perde o processo que o cenário reiniciou.
+    """
+    args = ("up", "-d", "--wait", "--no-deps", "--no-recreate", servico)
+    _exigir(compose(*args, arquivos=arquivos, timeout=120), f"up --wait {servico}")
 
 
 def reiniciar_coordenador(arquivos: list[Path], prazo: float = 30.0) -> tuple[float, dict[int, Any]]:

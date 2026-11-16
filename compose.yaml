@@ -266,7 +266,7 @@ networks:
 
 volumes:
   # Um volume nomeado por Nó do 2PC para o Log_Duravel. Ele sobrevive ao crash e ao start do
-  # contêiner, o que sustenta a recuperação do cenário crash-coord, e só some com down -v.
+  # contêiner, o que sustenta a recuperação de um Nó do 2PC reiniciado, e só some com down -v.
   log-coordenador:
     name: mc714-t2-log-coordenador
   log-participante-1:
