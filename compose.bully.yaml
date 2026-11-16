@@ -1,0 +1,85 @@
+# Eleição pelo algoritmo do valentão (Bully): cinco Nós ligados todos com todos, publicados em
+# 8041..8045, que rodam `python -m src.bully`. Projeto, rede e nomes de contêiner são próprios, e o
+# `down` desta pilha não toca as outras:
+#   docker compose -f compose.bully.yaml up -d --build --wait
+#   docker compose -f compose.bully.yaml down -v --remove-orphans
+
+name: mc714-t2-bully
+
+x-no-bully-env: &no-bully-env
+  IDS: "1,2,3,4,5"
+  URLS: "1=http://no-bully-1:8000,2=http://no-bully-2:8000,3=http://no-bully-3:8000,4=http://no-bully-4:8000,5=http://no-bully-5:8000"
+  PORTA: "8000"
+  DEADLINE: "1.0"
+  RETRIES: "2"
+  # O Nó recusa subir sem PRAZO_OK > 2 * DEADLINE e PRAZO_COORDENADOR > PRAZO_OK + 2 * DEADLINE.
+  PRAZO_OK: "2.5"
+  PRAZO_COORDENADOR: "5.0"
+  SEMENTE: "0"
+
+x-no-bully-base: &no-bully-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: mc714-t2:latest
+  command: ["python", "-m", "src.bully"]
+  networks:
+    - rede-bully
+  healthcheck:
+    test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/saude', timeout=2).status==200 else 1)\""]
+    interval: 3s
+    timeout: 3s
+    retries: 10
+    start_period: 2s
+  restart: "no"
+
+services:
+  no-bully-1:
+    <<: *no-bully-base
+    container_name: no-bully-1
+    environment:
+      <<: *no-bully-env
+      NO_ID: "1"
+    ports:
+      - "8041:8000"
+
+  no-bully-2:
+    <<: *no-bully-base
+    container_name: no-bully-2
+    environment:
+      <<: *no-bully-env
+      NO_ID: "2"
+    ports:
+      - "8042:8000"
+
+  no-bully-3:
+    <<: *no-bully-base
+    container_name: no-bully-3
+    environment:
+      <<: *no-bully-env
+      NO_ID: "3"
+    ports:
+      - "8043:8000"
+
+  no-bully-4:
+    <<: *no-bully-base
+    container_name: no-bully-4
+    environment:
+      <<: *no-bully-env
+      NO_ID: "4"
+    ports:
+      - "8044:8000"
+
+  no-bully-5:
+    <<: *no-bully-base
+    container_name: no-bully-5
+    environment:
+      <<: *no-bully-env
+      NO_ID: "5"
+    ports:
+      - "8045:8000"
+
+networks:
+  rede-bully:
+    name: mc714-t2-rede-bully
+    driver: bridge

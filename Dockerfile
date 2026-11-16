@@ -1,7 +1,8 @@
 # Imagem única dos Nós do T2: instala o requirements.txt e copia o pacote src/. O command de cada
 # serviço do compose escolhe o algoritmo: `python -m src.anel` para um Nó do Anel,
-# `python -m src.doispc` para o Coordenador ou um Participante e `python -m src.integracao` para um
-# candidato da integração, que roda um Nó do Anel e um Coordenador no mesmo processo.
+# `python -m src.bully` para um Nó do Bully, `python -m src.doispc` para o Coordenador ou um
+# Participante e `python -m src.integracao` para um candidato da integração, que roda um Nó do Anel
+# e um Coordenador no mesmo processo.
 
 FROM python:3.12-slim
 

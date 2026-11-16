@@ -22,7 +22,7 @@ from src.integracao.candidato import criar_app
 
 def construir_candidato() -> tuple[object, int]:
     """Valida o Anel e o Coordenador e monta os dois sobre um log, um controlador e um cliente."""
-    ambiente = ler_no_do_ambiente(os.environ)
+    ambiente = ler_no_do_ambiente(os.environ, algoritmo="anel", variavel_ids="ANEL")
     config = ambiente.config
     eu = No(config.id, "0.0.0.0", config.porta)
     amb = ler_ambiente_coordenador(eu)

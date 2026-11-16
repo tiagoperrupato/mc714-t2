@@ -252,6 +252,12 @@ contêiner próprios. Ela sobe e cai sem tocar a do `compose.yaml`.
 - **Participantes:** `participante-1..3` (`8031..8033`), o mesmo serviço do 2PC, com
   `DOISPC_COORDENADORES` apontando os três candidatos.
 
+O Bully fica em `compose.bully.yaml`, outra pilha à parte, com projeto (`mc714-t2-bully`), rede e
+nomes de contêiner próprios. Os Nós `no-bully-1..5` (`8041..8045`) rodam `python -m src.bully`,
+ligados todos com todos, e cada um convoca uma eleição ao subir. Além das variáveis do Anel, com
+`IDS` no lugar de `ANEL`, cada Nó exige `PRAZO_OK` e `PRAZO_COORDENADOR`, em segundos, e recusa
+subir sem `PRAZO_OK` > 2 · `DEADLINE` e `PRAZO_COORDENADOR` > `PRAZO_OK` + 2 · `DEADLINE`.
+
 Comandos de ciclo de vida:
 
 ```bash
@@ -261,6 +267,8 @@ docker compose up -d --wait coordenador                # sobe o 2PC (puxa os Par
 docker compose down -v --remove-orphans                # derruba e limpa volumes e órfãos
 docker compose -f compose.integracao.yaml up -d --wait                   # sobe a integração
 docker compose -f compose.integracao.yaml down -v --remove-orphans       # derruba a integração
+docker compose -f compose.bully.yaml up -d --wait                        # sobe o Bully
+docker compose -f compose.bully.yaml down -v --remove-orphans            # derruba o Bully
 ```
 
 Overrides pontuais:
@@ -275,6 +283,7 @@ Endpoints de controle de cada Nó:
 | Algoritmo | Endpoints |
 |:---|:---|
 | Anel | `GET /estado`, `POST /iniciar-eleicao`, `GET /saude`, `POST /falha/*` |
+| Bully | `GET /estado`, `POST /iniciar-eleicao`, `GET /saude`, `POST /falha/*` |
 | 2PC | `POST /transacao`, `GET /estado?transacao=`, `GET /saude`, `POST /falha/*` |
 | Candidato | `POST /transacao` (só no Líder, 409 nos outros), `POST /iniciar-eleicao`, `GET /estado?transacao=`, `GET /saude`, `POST /falha/*` |
 
@@ -299,9 +308,9 @@ invariantes.
 
 **A regra de dependência:** a Máquina_de_Estados pura nunca importa FastAPI nem
 httpx, e a camada de análise nunca sobe contêiner nem executa Réplica. O que
-amarra a lógica pura à rede são `src/anel/no.py`, `src/doispc/coordenador.py`,
-`src/doispc/participante.py` e `src/integracao/`. O que orquestra experimentos é
-`src/experimentos/`.
+amarra a lógica pura à rede são `src/anel/no.py`, `src/bully/no.py`,
+`src/doispc/coordenador.py`, `src/doispc/participante.py` e `src/integracao/`. O
+que orquestra experimentos é `src/experimentos/`.
 
 ```
 src/comum/         config (e leitura do Nó do ambiente), modelos,
@@ -310,6 +319,8 @@ src/comum/         config (e leitura do Nó do ambiente), modelos,
                    handler), falhas (crash/pause/delay/drop e o 503 do
                    crash), toxiproxy
 src/anel/          maquina (pura), no (app FastAPI), __main__ (entrada do contêiner)
+src/bully/         maquina (pura, com prazos como eventos), no (app FastAPI com
+                   fila de saída por destino), __main__ (entrada do contêiner)
 src/doispc/        maquina (pura), log_duravel (write-ahead), coordenador,
                    participante, executor, __main__
 src/integracao/    candidato (Nó do Anel e Coordenador num processo, só o

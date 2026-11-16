@@ -33,7 +33,7 @@ PORTA_MIN = 1
 PORTA_MAX = 65_535
 
 # Algoritmos que um Nó deste projeto pode executar.
-ALGORITMOS_ACEITOS: tuple[str, ...] = ("anel", "2pc")
+ALGORITMOS_ACEITOS: tuple[str, ...] = ("anel", "2pc", "bully")
 
 
 class ConfigInvalidaError(Exception):
@@ -151,7 +151,7 @@ def _exigir_int(nome: str, valor, valido, dominio: str) -> None:
 
 @dataclass(frozen=True)
 class NoDoAmbiente:
-    """Nó do Anel lido do ambiente: config validada, ordem do Anel, URL de cada id e pasta do log."""
+    """Nó lido do ambiente: config validada, ids da topologia, URL de cada id e pasta do log."""
 
     config: ConfigNo
     ids: tuple[int, ...]
@@ -199,41 +199,43 @@ def ler_urls(variavel: str, bruto: str | None) -> dict[int, str]:
     return mapa
 
 
-def ler_no_do_ambiente(ambiente: Mapping[str, str]) -> NoDoAmbiente:
-    """Lê e valida um Nó do Anel, sem efeito colateral.
+def ler_no_do_ambiente(
+    ambiente: Mapping[str, str], *, algoritmo: str, variavel_ids: str
+) -> NoDoAmbiente:
+    """Lê e valida um Nó de `algoritmo`, sem efeito colateral.
 
-    `NO_ID` é obrigatória, assim como `ANEL`, a ordem cíclica dos ids ("1,2,3"),
-    e `URLS`, o mapa id=url base que cobre todos os ids do Anel, o próprio
-    incluído. `PORTA` (8000), `SEMENTE` (0), `DEADLINE` (1.0), `RETRIES` (2) e
-    `LOG_DIR` ("results") têm padrão.
+    São obrigatórias `NO_ID`, a lista de ids ("1,2,3") na variável `variavel_ids`
+    e `URLS`, o mapa id=url base que cobre todos os ids, o próprio incluído. A lista
+    é `ANEL` no Anel, na ordem do ciclo, e `IDS` no Bully. `PORTA` (8000),
+    `SEMENTE` (0), `DEADLINE` (1.0), `RETRIES` (2) e `LOG_DIR` ("results") têm padrão.
     """
-    no_id = _ler_numero(ambiente, "NO_ID", int, None)
-    ids = ler_ids("ANEL", ambiente.get("ANEL"))
+    no_id = ler_numero(ambiente, "NO_ID", int, None)
+    ids = ler_ids(variavel_ids, ambiente.get(variavel_ids))
     urls = ler_urls("URLS", ambiente.get("URLS"))
     config = ConfigNo(
         id=no_id,
-        algoritmo="anel",
-        porta=_ler_numero(ambiente, "PORTA", int, "8000"),
-        semente=_ler_numero(ambiente, "SEMENTE", int, "0"),
-        deadline=_ler_numero(ambiente, "DEADLINE", float, "1.0"),
-        retries=_ler_numero(ambiente, "RETRIES", int, "2"),
+        algoritmo=algoritmo,
+        porta=ler_numero(ambiente, "PORTA", int, "8000"),
+        semente=ler_numero(ambiente, "SEMENTE", int, "0"),
+        deadline=ler_numero(ambiente, "DEADLINE", float, "1.0"),
+        retries=ler_numero(ambiente, "RETRIES", int, "2"),
         sucessores=tuple(i for i in ids if i != no_id),
     )
     config.validar()
 
     if no_id not in ids:
-        raise ConfigInvalidaError("NO_ID", no_id, f"id presente em ANEL {ids}")
+        raise ConfigInvalidaError("NO_ID", no_id, f"id presente em {variavel_ids} {ids}")
     faltando = [i for i in ids if i not in urls]
     if faltando:
         raise ConfigInvalidaError(
-            "URLS", urls, f"deve cobrir todos os ids do ANEL, faltam {faltando}"
+            "URLS", urls, f"deve cobrir todos os ids de {variavel_ids}, faltam {faltando}"
         )
     return NoDoAmbiente(
         config=config, ids=ids, urls=urls, log_dir=Path(ambiente.get("LOG_DIR", "results"))
     )
 
 
-def _ler_numero(ambiente: Mapping[str, str], variavel: str, tipo: type, padrao: str | None):
+def ler_numero(ambiente: Mapping[str, str], variavel: str, tipo: type, padrao: str | None):
     """Converte `ambiente[variavel]` com `tipo`, e sem padrão a variável é obrigatória."""
     bruto = ambiente.get(variavel, padrao)
     try:

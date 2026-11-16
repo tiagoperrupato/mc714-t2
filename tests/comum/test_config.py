@@ -28,9 +28,10 @@ def test_config_valida_nao_levanta() -> None:
     config_valida().validar()
 
 
-def test_anel_e_2pc_sao_algoritmos_aceitos() -> None:
+def test_anel_2pc_e_bully_sao_algoritmos_aceitos() -> None:
     config_valida(algoritmo="anel").validar()
     config_valida(algoritmo="2pc").validar()
+    config_valida(algoritmo="bully").validar()
 
 
 def test_sucessores_vazios_aceitos() -> None:
@@ -43,7 +44,7 @@ def test_sucessores_vazios_aceitos() -> None:
         ("id", 0),
         ("id", -1),
         ("id", True),  # bool é recusado mesmo sendo subclasse de int
-        ("algoritmo", "bully"),
+        ("algoritmo", "raft"),
         ("algoritmo", ""),
         ("algoritmo", 1),
         ("porta", 0),
@@ -122,8 +123,12 @@ def _ambiente(**sobrescritas: str | None) -> dict[str, str]:
     return {chave: valor for chave, valor in base.items() if valor is not None}
 
 
+def _ler_anel(ambiente: dict[str, str]):
+    return ler_no_do_ambiente(ambiente, algoritmo="anel", variavel_ids="ANEL")
+
+
 def test_ler_no_do_ambiente_aplica_padroes() -> None:
-    no = ler_no_do_ambiente(_ambiente())
+    no = _ler_anel(_ambiente())
     assert no.config == ConfigNo(
         id=2, algoritmo="anel", porta=8000, semente=0, deadline=1.0, retries=2, sucessores=(1, 3)
     )
@@ -133,7 +138,7 @@ def test_ler_no_do_ambiente_aplica_padroes() -> None:
 
 
 def test_ler_no_do_ambiente_le_opcionais() -> None:
-    no = ler_no_do_ambiente(
+    no = _ler_anel(
         _ambiente(PORTA="8010", SEMENTE="7", DEADLINE="0.5", RETRIES="0", LOG_DIR="/tmp/logs")
     )
     assert (no.config.porta, no.config.semente, no.config.deadline, no.config.retries) == (
@@ -159,5 +164,16 @@ def test_ler_no_do_ambiente_le_opcionais() -> None:
 )
 def test_ler_no_do_ambiente_recusa_com_o_parametro(sobrescritas, parametro) -> None:
     with pytest.raises(ConfigInvalidaError) as info:
-        ler_no_do_ambiente(_ambiente(**sobrescritas))
+        _ler_anel(_ambiente(**sobrescritas))
     assert info.value.parametro == parametro
+
+
+def test_ler_no_do_ambiente_le_os_ids_da_variavel_do_algoritmo() -> None:
+    ambiente = _ambiente(ANEL=None, IDS="3,1,2")
+    no = ler_no_do_ambiente(ambiente, algoritmo="bully", variavel_ids="IDS")
+    assert no.config.algoritmo == "bully"
+    assert no.ids == (3, 1, 2)
+    with pytest.raises(ConfigInvalidaError) as info:
+        ler_no_do_ambiente(_ambiente(ANEL=None, IDS="1,3"), algoritmo="bully", variavel_ids="IDS")
+    assert info.value.parametro == "NO_ID"
+    assert "IDS" in str(info.value)

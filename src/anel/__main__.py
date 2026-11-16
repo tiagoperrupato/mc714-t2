@@ -28,7 +28,7 @@ def construir_no() -> tuple[NoAnel, ConfigNo, int, ControladorFalhas]:
     pura. Levanta `ConfigInvalidaError` na primeira violação de domínio, sem
     abrir socket.
     """
-    ambiente = ler_no_do_ambiente(os.environ)
+    ambiente = ler_no_do_ambiente(os.environ, algoritmo="anel", variavel_ids="ANEL")
     config = ambiente.config
     log = abrir_log(ambiente.log_dir / f"anel-no-{config.id}.jsonl", config.id)
 
