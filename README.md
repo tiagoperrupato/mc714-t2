@@ -17,6 +17,9 @@ orquestração de experimentos que os exercita em processo e sobre o compose, a
 camada de análise que consome os CSVs coletados, os invariantes de correção sobre
 os logs dos Nós reais e as respostas de modelo e correção em [`docs/`](docs/).
 
+O relatório está em [`docs/relatorio/relatorio.pdf`](docs/relatorio/relatorio.pdf), e o
+vídeo de demonstração, em <https://www.youtube.com/watch?v=NMJyTZ_lQIc>.
+
 ## Índice
 
 - [Requisitos](#requisitos)
@@ -500,9 +503,6 @@ Em [`docs/`](docs/):
   Anel nas mesmas condições.
 - [`docs/relatorio/`](docs/relatorio/): o relatório IEEE, com o `.tex`, a classe
   IEEEtran e o PDF compilado.
-- [`docs/roteiro-video.md`](docs/roteiro-video.md): o roteiro do vídeo de
-  demonstração, com os cenários `anel falha`, `2pc crash-coord`, `integracao failover`
-  e `bully retorno`, e o `2pc crash-coord-part` num bloco opcional.
 
 ## Verificação
 
@@ -536,21 +536,24 @@ hipótese e do que ela implica para a correção está em
 
 **Pietro Fernandes Magaldi** fez a implementação inicial:
 
-- o núcleo comum, o Transporte HTTP/JSON com Deadline e a conteinerização;
-- a Eleição em Anel e o 2PC sobre a rede, com o Log_Duravel;
-- a injeção de falhas de aplicação e de rede, esta com o Toxiproxy;
+- o núcleo comum, o Transporte HTTP/JSON com Deadline e a conteinerização
+- a Eleição em Anel e o 2PC sobre a rede, com o Log_Duravel
+- a injeção de falhas de aplicação e de rede, esta com o Toxiproxy
 - a orquestração de experimentos, a análise, os invariantes, os cenários de ponta
-  a ponta e a primeira versão dos documentos.
+  a ponta e a primeira versão dos documentos
 
-**Tiago Perrupato Antunes** fez a revisão e as correções que vieram depois:
+**Tiago Perrupato Antunes** fez a revisão, as correções e as extensões que vieram
+depois:
 
-- a revisão do 2PC e do Anel contra o enunciado e as aulas;
+- a revisão do 2PC e do Anel contra o enunciado e as aulas
 - no 2PC, os envios fora do caminho da resposta HTTP, as várias transações com id
-  único, a recuperação do Coordenador com retransmissão da DECISAO e o invariante
-  de validade;
-- no Anel, a rodada única, a reintegração de Nó e o reenvio antes do salto;
+  único, a recuperação do Coordenador com retransmissão da DECISAO, o invariante
+  de validade, a partição, a falha combinada e o invariante do Coordenador único
+- no Anel, a rodada única, a reintegração de Nó e o reenvio antes do salto
+- a integração do Anel com o 2PC e o Bully, comparado com o Anel nas mesmas
+  condições
 - a bateria do 2PC nos Nós reais, a comparação com a complexidade esperada, os
-  dados brutos versionados e a documentação de entrega.
+  dados brutos versionados, a documentação de entrega e o relatório
 
 O histórico de commits registra o detalhe de cada parte.
 

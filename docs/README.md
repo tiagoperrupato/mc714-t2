@@ -55,7 +55,7 @@ para o bônus. Os comandos rodam na raiz do projeto, a pasta do `compose.yaml`.
 | G5, D2 | código, testes, `compose.yaml`, instruções, scripts e dados brutos | este repositório. Os dados brutos são os CSVs, os JSON e os logs dos cenários (`cenario_*_logs/`) de [`../results/`](../results/) |
 | D1 | relatório IEEE de até seis páginas | [`relatorio/relatorio.pdf`](relatorio/relatorio.pdf) |
 | D2 | cópia do relatório e tag de entrega | [`relatorio/relatorio.pdf`](relatorio/relatorio.pdf), com o `.tex` e a classe em [`relatorio/`](relatorio/), e a tag `entrega-t2` deste repositório |
-| D3 | vídeo de cerca de cinco minutos | link na primeira página de [`relatorio/relatorio.pdf`](relatorio/relatorio.pdf) |
+| D3 | vídeo de cerca de cinco minutos | <https://www.youtube.com/watch?v=NMJyTZ_lQIc>, também na primeira página de [`relatorio/relatorio.pdf`](relatorio/relatorio.pdf) |
 
 ## Bônus
 
